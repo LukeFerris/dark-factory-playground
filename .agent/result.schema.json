@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dark-factory.local/result.schema.json",
+  "title": "Factory agent turn result",
+  "description": "Written by the agent to .agent/out/result.json at the end of every design or build turn.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "ready_for_review",
+        "blocked",
+        "continue",
+        "question",
+        "failed"
+      ],
+      "description": "ready_for_review: the turn finished the work. blocked (design) / question (build): a human must answer before continuing. continue: more turns needed. failed: the turn could not complete."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "First line becomes the commit message subject. Always required."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Repo-relative paths this turn produced or changed."
+    },
+    "questions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "context": {
+            "type": "string",
+            "default": ""
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "description": "Required when status is blocked or question."
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Decisions taken without asking. Surfaced on the PR and the Jira card."
+    },
+    "reason": {
+      "type": "string",
+      "default": "",
+      "description": "Required when status is failed."
+    }
+  }
+}
