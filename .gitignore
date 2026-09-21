@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+
+# Never commit credentials.
+.env
+.env.local
+secrets/
+
+# Agent scratch space. The manuals and the generated schema ARE committed;
+# the per-run input and output are not.
+.agent/in/
+.agent/out/
+
+# Preview stub scratch.
+.preview/
+
+.DS_Store
+*.log

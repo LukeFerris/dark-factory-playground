@@ -1,0 +1,11 @@
+# The factory's own machinery is human-owned. The agent cannot change these —
+# `factory validate` rejects a diff that touches them, and these rules mean a
+# human still has to approve if one ever slips through.
+
+/.agent/      @LukeFerris
+/.github/     @LukeFerris
+/factory/     @LukeFerris
+/bootstrap/   @LukeFerris
+/package.json @LukeFerris
+/package-lock.json @LukeFerris
+/tsconfig.base.json @LukeFerris
