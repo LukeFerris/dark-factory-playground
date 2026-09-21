@@ -7,6 +7,7 @@ import {
   findPrForBranch,
   gh,
   ghJson,
+  packageVersionsPath,
   parseFactoryBlock,
   repoSlug,
   updatePrBody,
@@ -94,9 +95,6 @@ export function previewUp(prNumber: number, dryRun = false): string {
 }
 
 export function previewDown(prNumber: number, dryRun = false): void {
-  const [, repo] = repoSlug().split('/')
-  const owner = repoSlug().split('/')[0] ?? ''
-
   if (dryRun) {
     console.log(`preview-down --dry-run: would delete the pr-${prNumber} package version`)
     return
@@ -106,15 +104,16 @@ export function previewDown(prNumber: number, dryRun = false): void {
 
   // Find the GHCR version tagged pr-<N> and delete just that one.
   try {
+    const versionsPath = packageVersionsPath()
     const versions = ghJson<
       Array<{ id: number; metadata?: { container?: { tags?: string[] } } }>
-    >(['api', `users/${owner}/packages/container/${repo}/versions`])
+    >(['api', versionsPath])
 
     const match = (versions ?? []).find((v) =>
       (v.metadata?.container?.tags ?? []).includes(`pr-${prNumber}`),
     )
     if (match !== undefined) {
-      gh(['api', '-X', 'DELETE', `users/${owner}/packages/container/${repo}/versions/${match.id}`])
+      gh(['api', '-X', 'DELETE', `${versionsPath}/${match.id}`])
       console.log(`preview-down: deleted package version ${match.id} (pr-${prNumber})`)
     } else {
       console.log(`preview-down: no package version tagged pr-${prNumber}; nothing to delete.`)

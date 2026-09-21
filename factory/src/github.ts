@@ -186,6 +186,27 @@ export function upsertFactoryBlock(body: string, block: FactoryBlock): string {
   return body.slice(0, start) + rendered + body.slice(end + FACTORY_BLOCK_END.length)
 }
 
+/**
+ * The GHCR container-versions collection for this repo's owner.
+ *
+ * GitHub scopes package routes by owner KIND, and the two are different
+ * endpoints: `/users/{owner}/packages/...` and `/orgs/{org}/packages/...`.
+ * Asking an organisation for the user route is a 404, not a redirect, so the
+ * owner kind has to be resolved rather than assumed — GH_OWNER is documented as
+ * "a GitHub user or org".
+ *
+ * Deliberately NOT `/user/packages/...`: that route means "the authenticated
+ * user", and `preview-down` runs under GITHUB_TOKEN, an installation token with
+ * no user behind it at all.
+ */
+export function packageVersionsPath(): string {
+  const slug = repoSlug()
+  const [owner, repo] = slug.split('/')
+  const { owner: repoOwner } = ghJson<{ owner: { type: string } }>(['api', `repos/${slug}`])
+  const scope = repoOwner.type === 'Organization' ? 'orgs' : 'users'
+  return `${scope}/${owner}/packages/container/${repo}/versions`
+}
+
 export function createDeployment(sha: string, environment: string, environmentUrl: string): void {
   const deployment = ghJson<{ id: number }>([
     'api',

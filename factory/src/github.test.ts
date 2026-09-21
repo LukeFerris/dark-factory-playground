@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  packageVersionsPath,
   parseFactoryBlock,
   renderFactoryBlock,
   upsertFactoryBlock,
   setRunner,
+  ghRunner,
   gh,
   type FactoryBlock,
 } from './github.ts'
@@ -36,6 +38,49 @@ describe('the factory block', () => {
 
   it('returns null rather than throwing when the block is corrupt', () => {
     expect(parseFactoryBlock('<!-- factory\nnot json\nfactory -->')).toBeNull()
+  })
+})
+
+describe('the GHCR package route', () => {
+  const previous = process.env['GITHUB_REPOSITORY']
+
+  beforeEach(() => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/dark-factory-playground'
+  })
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env['GITHUB_REPOSITORY']
+    else process.env['GITHUB_REPOSITORY'] = previous
+    setRunner(ghRunner)
+  })
+
+  /**
+   * The user and org package routes are different endpoints, not aliases, so
+   * guessing wrong is a 404 — and teardown swallows it, which would leak a
+   * container image per merged card rather than fail loudly.
+   */
+  it('uses the org route when the owner is an organisation', () => {
+    setRunner(() => ({ status: 0, stdout: '{"owner":{"type":"Organization"}}', stderr: '' }))
+    expect(packageVersionsPath()).toBe(
+      'orgs/acme/packages/container/dark-factory-playground/versions',
+    )
+  })
+
+  it('uses the user route when the owner is a user', () => {
+    setRunner(() => ({ status: 0, stdout: '{"owner":{"type":"User"}}', stderr: '' }))
+    expect(packageVersionsPath()).toBe(
+      'users/acme/packages/container/dark-factory-playground/versions',
+    )
+  })
+
+  it('asks the repo itself which kind the owner is, rather than assuming', () => {
+    const calls: string[][] = []
+    setRunner((args) => {
+      calls.push(args)
+      return { status: 0, stdout: '{"owner":{"type":"User"}}', stderr: '' }
+    })
+    packageVersionsPath()
+    expect(calls).toEqual([['api', 'repos/acme/dark-factory-playground']])
   })
 })
 

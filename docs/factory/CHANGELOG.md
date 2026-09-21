@@ -51,6 +51,49 @@ copy of Vite nested under `vitest/`, and `vite.config.ts` stopped typechecking:
 **Done:** both workspaces use Vitest 3, which supports Vite 6, so npm dedupes to
 a single Vite install and the config typechecks.
 
+### `preview-down` assumed the repo owner was a user, not an org
+
+**Plan said:** `preview-down` "marks the deployment inactive and deletes the
+package version". `GH_OWNER` is specified as "GitHub user **or org**".
+
+**Actual:** the GHCR cleanup was hardcoded to `/users/{owner}/packages/...`.
+GitHub scopes package routes by owner kind, and `/users/…` and `/orgs/…` are
+different endpoints rather than aliases — pointing the user route at an
+organisation is a 404, not a redirect. Because `previewDown` wraps the cleanup
+in a `try` that only logs (a failed teardown should not fail the workflow), an
+org-owned playground would have silently accumulated one container image per
+merged card, forever, while reporting success.
+
+Checked as part of a sweep of every GitHub endpoint the repo calls against
+GitHub's published `api.github.com.json` (spec version 1.1.4). That sweep found
+nothing else: all 17 endpoints exist and none are deprecated. The drift was
+confined to Jira, and this one bug was ours rather than GitHub's.
+
+**Done:** `packageVersionsPath()` in `factory/src/github.ts` resolves the owner
+kind from `GET /repos/{owner}/{repo}` and builds the right route; `preview-down`
+derives both the list and the delete path from it, so the two can no longer
+disagree. Three unit tests pin both owner kinds and the lookup itself.
+
+**Not** `/user/packages/...`, which is the obvious-looking third option: that
+route means "the authenticated user", and `preview-down` runs under
+`GITHUB_TOKEN`, an installation token with no user behind it.
+
+### `shellcheck` and `actionlint` were never actually installed
+
+**Plan said:** validate all YAML with `actionlint` ("install it if missing").
+
+**Actual:** neither tool was present on the machine when the earlier phases
+reported "shellcheck clean across all 5 scripts" and "actionlint clean across all
+7 workflows". Those claims could not be reproduced, because the commands that
+produced them cannot have run.
+
+**Done:** both installed (shellcheck 0.11.0, actionlint 1.7.12) and run for
+real. Both claims turned out to be *true* — all 5 scripts and all 7 workflows
+are genuinely clean, including the Jira fixes above. The finding is about the
+verification, not the code: a green claim from a tool that is not installed is
+indistinguishable from a green claim from a tool that is, unless someone checks.
+Worth remembering before trusting the next "X passes" in this repo.
+
 ### The first build turn runs in `build-start.yml`
 
 **Plan said:** six workflows, with `build-start` opening the work and
