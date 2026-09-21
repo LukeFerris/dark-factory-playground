@@ -1,0 +1,33 @@
+docs/factory/OVERVIEW.md
+  s_ca61438cef765a::t_6449039ee09a76 1-92
+docs/factory/SECURITY.md
+  s_ca61438cef765a::t_ac0ba64be0479d 1-157
+docs/adr/0001-factory-architecture.md
+  s_ca61438cef765a::t_9ce2bc18de34be 1-156
+docs/factory/SELF-HOSTING.md
+  s_ca61438cef765a::t_d30c4db89b1f3b 1-115
+docs/factory/SETUP.md
+  s_ca61438cef765a::t_25ba3af4455bf9 1-167
+docs/factory/STATE-MACHINE.md
+  s_ca61438cef765a::t_49177dd0ba15bf 1-117
+docs/factory/RUNBOOK.md
+  s_ca61438cef765a::t_c2dab098020a9f 1-186
+README.md
+  s_ca61438cef765a::t_e3c7cd48883282 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4b0838cdde2ab3d168a42f948b3a3c92bfdbf88",
+  "prompts": {},
+  "sessions": {
+    "s_ca61438cef765a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ec30c70-d2e4-4321-8701-e092e972127a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
