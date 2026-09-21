@@ -1,0 +1,27 @@
+factory/src/github.ts
+  s_6735740180f350::t_8db167d2e672ba 189-209
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_6ceb94eb1240c2 54-96
+factory/src/github.test.ts
+  s_6735740180f350::t_1cbea17d5c5a6e 1,3,8
+  s_6735740180f350::t_2dfc8eee1a1651 44-86
+factory/src/preview.ts
+  s_6735740180f350::t_4fe842de0614c7 107,110,116
+  s_6735740180f350::t_67f64caaf8713a 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ccb80325240fe49e7d19b78ebd057c97c325cd9d",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
