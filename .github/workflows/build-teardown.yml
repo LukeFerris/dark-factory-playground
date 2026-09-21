@@ -1,0 +1,62 @@
+name: factory build teardown
+
+# Tears the preview down when a build PR closes, merged or not. Marks the
+# Deployment inactive and deletes the pr-<n> package version from GHCR, so a
+# month of merged cards does not leave a month of images behind.
+#
+# Runs on the closed PR's own event, needs no agent, and holds no Anthropic key.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  teardown:
+    if: startsWith(github.event.pull_request.head.ref, 'build/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Take the preview down
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run --silent factory -- preview-down "${{ github.event.pull_request.number }}"
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # Dropping factory:active stops build-turn.yml from granting further turns
+      # on a PR that is already closed.
+      - name: Retire the PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh api -X DELETE \
+            "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/labels/factory:active" \
+            --silent || echo "factory:active was not set; nothing to remove."

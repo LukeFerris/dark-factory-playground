@@ -1,0 +1,89 @@
+name: factory poller
+
+# The only thing that starts work. There are no Jira webhooks: every ten minutes
+# this asks Jira which cards are waiting, dispatches the right workflow for each,
+# and immediately moves the card out of the waiting status so the next poll does
+# not pick it up again.
+#
+# It dispatches with the App token, not GITHUB_TOKEN: a workflow_dispatch made
+# with GITHUB_TOKEN does not start a new workflow run.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-poller
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Dispatch waiting cards
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY }}
+        run: |
+          set -euo pipefail
+
+          dispatch() {
+            waiting_status="$1"
+            claimed_status="$2"
+            workflow="$3"
+
+            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
+            keys="$(npm run --silent factory -- jira-search "$jql")"
+
+            if [ -z "$keys" ]; then
+              echo "none waiting in ${waiting_status}"
+              return 0
+            fi
+
+            # Claim before dispatching, not after. If the claim succeeds and the
+            # dispatch then fails, the card sits in ${claimed_status} with nothing
+            # running — visible, and a human can re-run it. The other order would
+            # hand the same card to a second agent on the next poll.
+            # Deliberately unquoted: jira-search prints one issue key per line and
+            # a key never contains whitespace, so word splitting is the iteration.
+            # shellcheck disable=SC2086
+            for key in $keys; do
+              if ! npm run --silent factory -- jira-transition "$key" "$claimed_status"; then
+                echo "::warning::could not move ${key} to ${claimed_status}; leaving it for the next poll"
+                continue
+              fi
+
+              echo "dispatching ${workflow} for ${key}"
+              if ! gh workflow run "$workflow" -f key="$key"; then
+                echo "::error::${key} was claimed but ${workflow} could not be dispatched; re-run it by hand"
+              fi
+            done
+          }
+
+          dispatch "Ready for design" "Designing" design.yml
+          dispatch "Ready for build"  "Building"  build-start.yml

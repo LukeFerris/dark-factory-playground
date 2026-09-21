@@ -1,0 +1,158 @@
+name: factory build turn
+
+# One build turn, granted by a human comment on the PR. Auto-continue is off by
+# design: the agent never grants itself the next turn, so a runaway loop costs
+# one turn, not a night.
+#
+# Four guards have to hold before any agent runs:
+#   1. the comment is on a pull request, not a plain issue
+#   2. the PR carries the factory:active label
+#   3. the commenter is not the factory's own bot — otherwise reporting a turn
+#      would trigger the next one
+#   4. the commenter can actually write to the repository
+#
+# The bot login comes from the FACTORY_BOT_LOGIN repository variable rather than
+# being hard-coded, because the App slug is only known at Checkpoint A.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-build-turn-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  turn:
+    if: >-
+      github.event.issue.pull_request != null &&
+      contains(github.event.issue.labels.*.name, 'factory:active') &&
+      github.event.comment.user.login != vars.FACTORY_BOT_LOGIN &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Resolve the PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pr="${{ github.event.issue.number }}"
+          branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .head.ref)"
+          case "$branch" in
+            build/*) ;;
+            *) echo "::error::PR #${pr} is on ${branch}, which is not a build branch."; exit 1 ;;
+          esac
+          echo "number=${pr}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # gather reads the PR conversation since the factory's last comment and
+      # derives the turn number from it, so this step needs GitHub read access.
+      - name: Gather the card and the conversation
+        id: gather
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+        run: |
+          set -euo pipefail
+          key="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ steps.pr.outputs.number }}" --jq .title \
+            | sed -n 's/^\[\([A-Z][A-Z0-9]*-[0-9]\+\)\].*/\1/p')"
+          if [ -z "$key" ]; then
+            echo "::error::Could not read a Jira key from the PR title."
+            exit 1
+          fi
+          echo "key=${key}" >> "$GITHUB_OUTPUT"
+          npm run --silent factory -- gather "$key" --stage build --pr "${{ steps.pr.outputs.number }}"
+          echo "preview=$(jq -r '.preview_url // empty' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
+          echo "turn=$(jq -r '.turn' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install the agent
+        run: npm i -g @anthropic-ai/claude-code
+
+      # ANTHROPIC_API_KEY and PREVIEW_URL. Nothing else — no App token, no Jira
+      # token, no repository variables.
+      - name: Agent
+        id: agent
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PREVIEW_URL: ${{ steps.gather.outputs.preview }}
+        run: |
+          set -euo pipefail
+          mkdir -p .agent/out
+          claude -p "$(cat .agent/build.md)" \
+            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
+            --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
+            --strict-mcp-config \
+            --max-budget-usd "${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}" \
+            --output-format json > .agent/out/transcript.json
+
+      - name: Validate
+        id: validate
+        continue-on-error: true
+        run: npm run --silent factory -- validate --stage build --base origin/main
+
+      - name: Publish
+        if: steps.validate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          git remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run --silent factory -- publish --stage build
+
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- report --stage build
+
+      - name: Upload the turn
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ steps.gather.outputs.key }}-turn${{ steps.gather.outputs.turn }}-${{ github.run_id }}
+          path: .agent/out/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Fail the run if the turn was rejected
+        if: steps.validate.outcome != 'success'
+        run: |
+          echo "::error::The build turn was rejected by validation. See the Jira comment and the uploaded artifact."
+          exit 1
