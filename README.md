@@ -24,6 +24,7 @@ Then follow **[docs/factory/SETUP.md](docs/factory/SETUP.md)**.
 | `.github/workflows/` | The poller, design, and build start/setup/turn/teardown |
 | `bootstrap/` | Scripts that configure GitHub and Jira from nothing |
 | `docs/` | How it works, how to run it, and why it is built this way |
+| `PLAN.md` | The build plan this repository was built from. Historical — where it and the code disagree, the code is right and [the changelog](docs/factory/CHANGELOG.md) says why |
 
 ## Checks
 
