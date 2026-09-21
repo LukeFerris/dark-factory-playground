@@ -64,6 +64,9 @@ failing, and it does not clean up after itself.
 ## If something rejects a payload
 
 Fix it here and record what changed in `docs/factory/CHANGELOG.md`. Do not work
-around it in the caller. The Jira payloads in `jira.sh` in particular follow the
-documented shapes but have not been run against a live site — see the note at
-the top of that file.
+around it in the caller.
+
+The Jira payloads in `jira.sh` have been checked field-by-field against
+Atlassian's published OpenAPI spec — every endpoint exists and is undeprecated,
+and every schema-required field is sent. They have still never run against a
+live site, which needs Checkpoint B; see the note at the top of that file.

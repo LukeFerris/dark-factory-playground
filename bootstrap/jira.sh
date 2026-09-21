@@ -9,11 +9,16 @@
 # Idempotent: every step looks for what it needs before creating it, so a
 # re-run after a partial failure picks up where it stopped.
 #
-# NOTE ON VERIFICATION: the payloads here follow the documented shapes for Jira
-# Cloud REST v3 and Agile 1.0, but they have not been run against a live site —
-# that needs the Checkpoint B credentials. Run --dry-run first and read the
-# payloads it prints. If the API rejects one, fix it here and record the
-# correction in docs/factory/CHANGELOG.md rather than patching around it.
+# NOTE ON VERIFICATION: every endpoint below has been checked against
+# Atlassian's published OpenAPI spec (swagger-v3.v3.json) — each one exists, is
+# undeprecated, and the request bodies carry every field the schema marks
+# required. That sweep found and fixed two real defects; see the 2026-09-21
+# entries in docs/factory/CHANGELOG.md.
+#
+# That is schema conformance, NOT a live run. None of this has touched a real
+# Jira site — that needs the Checkpoint B credentials. Run --dry-run first and
+# read the payloads it prints. If the API rejects one, fix it here and record
+# the correction in docs/factory/CHANGELOG.md rather than patching around it.
 #
 # Usage:  bootstrap/jira.sh [--dry-run]
 
@@ -171,8 +176,12 @@ section "Workflow"
 
 WORKFLOW_NAME="Factory"
 
-workflow_exists="$(jira_get "/rest/api/3/workflow/search?queryString=$WORKFLOW_NAME" \
-  | jq -r --arg n "$WORKFLOW_NAME" '[.values[]? | select(.id.name == $n)] | length')"
+# /rest/api/3/workflow/search (singular) was REMOVED on 1 June 2026 — see
+# changelog CHANGE-2569. The replacement is /rest/api/3/workflows/search, which
+# also changed shape: a workflow's name is now a plain `.name` string, where the
+# old endpoint nested it under `.id.name`.
+workflow_exists="$(jira_get "/rest/api/3/workflows/search?queryString=$(printf '%s' "$WORKFLOW_NAME" | jq -sRr @uri)" \
+  | jq -r --arg n "$WORKFLOW_NAME" '[.values[]? | select(.name == $n)] | length')"
 
 if [[ "${workflow_exists:-0}" != "0" ]]; then
   ok "\"$WORKFLOW_NAME\" already exists"
@@ -185,21 +194,39 @@ else
   # from "Building" or from "In review". A tightly drawn workflow would turn
   # those into JiraTransitionError and leave cards stuck with nobody told. The
   # gate on this pipeline is the PR review, not the Jira workflow.
+  # Carry name/category/description through from STATUS_SPEC as well as the id:
+  # the bulk-create payload needs all of them (see the schema note below).
   statuses_json="$(jq -n --argjson spec "$STATUS_SPEC" --argjson have "$existing_statuses" '
-    [ $spec[] as $s | ($have[] | select(.name == $s.name)) | { statusReference: .id, name: .name } ]
+    [ $spec[] as $s | ($have[] | select(.name == $s.name)) as $h
+      | { statusReference: $h.id, id: $h.id, name: $s.name,
+          statusCategory: $s.category, description: $s.description } ]
   ')"
 
+  # Both status arrays below carry fields the API reference marks REQUIRED, and
+  # omitting them is a 400 rather than a default:
+  #   - top-level statuses[] (WorkflowStatusUpdate) requires name and
+  #     statusCategory as well as statusReference. `id` is what tells Jira to
+  #     REUSE the status created above rather than mint a new one; without it
+  #     the call fails with `Status name "..." must be unique`.
+  #   - workflows[].statuses[] (StatusLayoutUpdate) requires `properties`, even
+  #     when it is empty.
   payload="$(jq -n \
     --arg name "$WORKFLOW_NAME" \
     --argjson statuses "$statuses_json" \
     '{
       scope: { type: "GLOBAL" },
-      statuses: [ $statuses[] | { statusReference: .statusReference, id: .statusReference } ],
+      statuses: [ $statuses[] | {
+        statusReference: .statusReference,
+        id: .id,
+        name: .name,
+        statusCategory: .statusCategory,
+        description: .description
+      } ],
       workflows: [{
         name: $name,
         description: "Factory state machine. Every status is globally reachable; see bootstrap/jira.sh for why.",
         startPointLayout: { x: 0, y: 0 },
-        statuses: [ $statuses[] as $s | { statusReference: $s.statusReference, layout: { x: 0, y: 0 } } ],
+        statuses: [ $statuses[] as $s | { statusReference: $s.statusReference, layout: { x: 0, y: 0 }, properties: {} } ],
         transitions: (
           [{
             id: "1",

@@ -61,3 +61,53 @@ to open a pull request, and a branch cut from `main` with no commits has nothing
 to open a PR against. Turn 1 is granted by the card reaching "Ready for build" —
 itself a human action — and every turn after it is granted by a human comment, as
 planned. Auto-continue remains off.
+
+### `/rest/api/3/workflow/search` was removed on 1 June 2026
+
+**Plan said:** nothing specific; `bootstrap/jira.sh` was written against the
+workflow-search endpoint that was current when the plan was drafted.
+
+**Actual:** `GET /rest/api/3/workflow/search` (singular *workflow*) is gone —
+Atlassian removed it on 1 June 2026, three months before this build, per
+changelog CHANGE-2569. The replacement is `GET /rest/api/3/workflows/search`
+(plural), which also changed response shape: a workflow's name is a plain
+`.name` string, where the removed endpoint nested it under `.id.name`.
+
+**Done:** `bootstrap/jira.sh` calls the plural endpoint and selects on `.name`.
+The query string is URI-encoded, matching how the filter and board lookups
+further down the script already build theirs.
+
+**How it was found:** by checking every endpoint the repo calls against
+Atlassian's published OpenAPI spec (`swagger-v3.v3.json`) rather than against
+the prose docs. The `deprecated: true` flag on the removed path is what
+surfaced it. The same sweep confirmed every other endpoint in `jira.sh` and all
+seven used by the factory CLI (`search/jql`, issue read, comment read/write,
+transition list/execute, field list) are current and undeprecated.
+
+### The bulk workflow-create payload was missing three required fields
+
+**Plan said:** create the workflow via `POST /rest/api/3/workflows/create`.
+
+**Actual:** the endpoint is correct and current, but the payload the script
+built would have been rejected. Checked against the OpenAPI schema:
+
+- `WorkflowStatusUpdate` (the top-level `statuses[]`) marks **`name` and
+  `statusCategory`** required. The script sent only `statusReference` and `id`.
+- `StatusLayoutUpdate` (the per-workflow `statuses[]`) marks **`properties`**
+  required even when empty. The script omitted it.
+
+`id` was already being sent, which is the field that makes the call reuse the
+statuses created in the previous step instead of trying to mint new ones — its
+absence is the widely-reported `Status name "..." must be unique` failure.
+
+**Done:** `STATUS_SPEC`'s name, category and description are now carried through
+into both arrays, and the inner array sends `properties: {}`. The constructed
+payload was checked field-by-field against the schema's required lists with the
+real `STATUS_SPEC` and a simulated status-search response: 10 statuses, 11
+transitions (1 `INITIAL` + 10 `GLOBAL`), unique transition ids, and every
+`toStatusReference` resolving to a declared status.
+
+**Still unverified:** this is schema conformance, not a live call. `jira.sh` has
+still never run against a real Jira site — that needs Checkpoint B. What changed
+is that the first live run should now fail for interesting reasons, if at all,
+rather than on three missing required fields.

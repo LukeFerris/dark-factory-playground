@@ -152,5 +152,7 @@ it does mean throughput is bounded by attention.
 **Unresolved.** A malicious dependency in `app/package.json` is caught only by a
 human reading the diff. `Bash(curl:*)` on build turns is an outbound channel,
 mitigated by that step holding no credentials rather than by being closed. And
-`bootstrap/jira.sh` has not yet been run against a live Jira site — its payloads
-follow the documented shapes but are unverified.
+`bootstrap/jira.sh` has not yet been run against a live Jira site. Its payloads
+have been checked field-by-field against Atlassian's published OpenAPI spec —
+which caught a removed endpoint and three missing required fields — but schema
+conformance is not a live call, and the script remains unproven in practice.
