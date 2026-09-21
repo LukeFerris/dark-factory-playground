@@ -1,0 +1,66 @@
+factory/src/schema.ts
+  s_ca61438cef765a::t_70bcdb470ff2d5 1-164
+factory/src/validate.test.ts
+  s_ca61438cef765a::t_0e2fafdb554df2 1-77
+factory/tsconfig.json
+  s_ca61438cef765a::t_3dd240a87eeef1 1-9
+factory/src/validate.ts
+  s_ca61438cef765a::t_3500033d9ba3ff 1-122
+factory/src/meta.ts
+  s_ca61438cef765a::t_e357d81e905ab4 1-49
+factory/src/env.ts
+  s_ca61438cef765a::t_aca3c5e2a4d0f4 1-56
+factory/bin/factory.js
+  s_ca61438cef765a::t_92ca1c854bedf7 1-13
+factory/src/adf.ts
+  s_ca61438cef765a::t_745f8863de201a 1-57
+factory/vitest.config.ts
+  s_ca61438cef765a::t_0b233203df7bd8 1-9
+factory/src/report.ts
+  s_ca61438cef765a::t_afa84a407a7852 1-126
+factory/src/branch.ts
+  s_ca61438cef765a::t_2ae9f7662ad6f8 1-35
+factory/eslint.config.js
+  s_ca61438cef765a::t_d817d9c896a410 1-19
+factory/src/github.ts
+  s_ca61438cef765a::t_fea6061755b906 1-237
+factory/package.json
+  s_ca61438cef765a::t_2cce718c4d14b0 1-27,29-30
+  s_ca61438cef765a::t_a245731bd1d74a 28
+factory/src/preview.ts
+  s_ca61438cef765a::t_69445a6e7b3cc3 1-161
+factory/src/report.test.ts
+  s_ca61438cef765a::t_596e8d3d72f195 1-117
+factory/src/gather.ts
+  s_ca61438cef765a::t_876b73474b804d 1-126
+factory/src/github.test.ts
+  s_ca61438cef765a::t_6a8754a61c2fd0 1-52
+factory/src/git.ts
+  s_ca61438cef765a::t_f9c58889d300dc 1-41
+factory/src/cli.ts
+  s_ca61438cef765a::t_de320652855897 1-177
+factory/src/jira.test.ts
+  s_ca61438cef765a::t_825e28069e454a 1-120
+factory/src/publish.ts
+  s_ca61438cef765a::t_b42d15e7f7472d 1,4-77,86-137
+  s_ca61438cef765a::t_7a462184bf218a 78-85
+  s_ca61438cef765a::t_5b9134e2907b38 2-3
+factory/src/jira.ts
+  s_ca61438cef765a::t_2e7edcd7b73e2b 1-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ffc3d1d664297a4dee6c2e4f58d027275b84df96",
+  "prompts": {},
+  "sessions": {
+    "s_ca61438cef765a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ec30c70-d2e4-4321-8701-e092e972127a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
