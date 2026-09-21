@@ -1,0 +1,167 @@
+# Setting the factory up
+
+From an empty GitHub repository and no Jira site to a card that builds itself.
+Budget an hour or so, most of it waiting for Jira.
+
+Four steps need a human, because they involve credentials that can only be
+issued once or UI that has no API. They are marked **Checkpoint A** to
+**Checkpoint D** below, and `.env.example` marks the values each one produces.
+
+## Before you start
+
+| You need | Why |
+| --- | --- |
+| Node 22 (`.nvmrc` pins it) | The workspaces and CI both build on 22 |
+| `gh`, `git`, `jq`, `curl` | The bootstrap scripts shell out to all four |
+| `claude` | `npm i -g @anthropic-ai/claude-code` |
+| Docker (optional) | Only to build preview images locally |
+| A GitHub account you control | The App is installed on your own repository |
+| A Jira Cloud site (Free is enough) | `https://<you>.atlassian.net` |
+| An Anthropic API key | The agent's only credential |
+
+```bash
+git clone <this repo> && cd dark-factory-playground
+cp .env.example .env
+npm ci
+bootstrap/preflight.sh
+```
+
+Preflight will fail on the checkpoint values — that is expected. It should pass
+everything else. Two failures worth calling out now:
+
+- **`gh active account`** — `gh` can hold several accounts and only one is
+  active. If you are signed in as more than one, `gh auth switch -u $GH_OWNER`.
+- **`gh workflow scope`** — pushing `.github/workflows/**` needs the `workflow`
+  scope. `gh auth refresh -h github.com -u $GH_OWNER -s workflow`.
+
+---
+
+## Checkpoint A — the GitHub App
+
+An App, not a personal access token. A PAT would carry your own permissions
+everywhere; an App carries exactly the permissions you grant it, on exactly the
+repositories you install it on, and its commits are plainly attributed to a bot.
+
+1. **Settings → Developer settings → GitHub Apps → New GitHub App.**
+2. Name it `<your-handle>-factory`. Homepage URL can be the repository.
+3. **Uncheck Webhook → Active.** There are no webhooks; the poller does the
+   polling.
+4. Repository permissions — grant exactly these, and nothing else:
+
+   | Permission | Access | Used for |
+   | --- | --- | --- |
+   | Contents | Read and write | Pushing `design/*` and `build/*` branches |
+   | Pull requests | Read and write | Opening and updating the draft PR |
+   | Issues | Read and write | Reading and posting PR comments, labels |
+   | Actions | Read and write | The poller dispatching the stage workflows |
+   | Deployments | Read and write | Recording the preview Deployment |
+   | Packages | Read and write | Pushing and deleting the `pr-<n>` image |
+   | Metadata | Read-only | Mandatory |
+
+   Grant nothing else. In particular **do not** grant Administration, Members,
+   or anything organisation-level.
+5. **Where can this App be installed?** Only on this account.
+6. Create it. On the App's page:
+   - note the **App ID** → `FACTORY_APP_ID`
+   - **Generate a private key**, save the `.pem` to `secrets/factory-app.pem`
+     → `FACTORY_APP_KEY_PATH` (`secrets/` is git-ignored; the key is shown once)
+   - note the App's **slug** from its URL; the bot login is `<slug>[bot]`
+     → `FACTORY_BOT_LOGIN`
+7. **Install App** → your account → **Only select repositories** → this one.
+
+> The App must not be able to push to `main`, approve, or merge. That is not set
+> here — it comes from the `main protection` ruleset that `bootstrap/github.sh`
+> creates with no bypass actors. Do not add one.
+
+---
+
+## Checkpoint B — Jira Cloud
+
+1. Create a free Jira Cloud site if you do not have one:
+   `https://<you>.atlassian.net` → `JIRA_BASE`.
+2. Your Atlassian account email → `JIRA_USER`.
+3. **id.atlassian.com → Security → API tokens → Create API token.** Copy it
+   once → `JIRA_TOKEN`.
+4. Leave `JIRA_PROJECT_KEY=DF` unless you want a different key.
+
+You need permission to create projects, statuses and workflows on the site —
+site admin on a personal site, which you will have by default.
+
+---
+
+## Checkpoint C — the Anthropic key
+
+`console.anthropic.com` → API keys → Create key → `ANTHROPIC_API_KEY`.
+
+This is the only credential the agent ever sees, and it never sees it directly:
+it is set on the Agent step of a workflow and nowhere else.
+
+---
+
+## Run the bootstrap
+
+With `.env` filled in:
+
+```bash
+bootstrap/preflight.sh          # should now pass with no warnings that matter
+
+bootstrap/github.sh --dry-run   # read what it intends to do
+bootstrap/github.sh
+
+bootstrap/jira.sh --dry-run     # read the payloads; Jira's API is fussy
+bootstrap/jira.sh
+
+bootstrap/smoke.sh
+```
+
+Then push, so GitHub registers the workflows:
+
+```bash
+git push -u origin main
+```
+
+`smoke.sh` will report the workflows as unregistered until this push lands on
+the default branch.
+
+---
+
+## Checkpoint D — board columns
+
+The Agile API cannot map statuses onto board columns, so this is a drag in the
+UI, and it is the one thing `smoke.sh` cannot verify for you.
+
+**Board → ⋯ → Configure board → Columns**, and arrange:
+
+| Column | Statuses |
+| --- | --- |
+| Backlog | Backlog |
+| Ready | Ready for design, Ready for build |
+| In progress | Designing, Building |
+| Review | Design review, In review |
+| Blocked | Blocked on architect, Blocked on engineer |
+| Done | Done |
+
+Put every status in exactly one column. A status left in the unmapped pile
+still works — the factory transitions by status name, not by column — but the
+card vanishes from the board, which makes the whole thing much harder to watch.
+
+---
+
+## First card
+
+```bash
+bootstrap/smoke.sh --card
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
+gh run watch --repo "$GH_OWNER/$GH_REPO"
+```
+
+That files a real card ("greet the user by name"), moves it to *Ready for
+design*, and kicks the poller rather than waiting ten minutes. Within a few
+minutes you should have a `design/DF-1-…` branch and a draft PR with a design
+document on it.
+
+Review the design. Move the card to *Ready for build*. Wait for the poller. Then
+grant turns by commenting on the PR until you are happy, and merge.
+
+`STATE-MACHINE.md` describes each status and who moves it. `RUNBOOK.md` covers
+what to do when one of these steps does not do what it says here.
