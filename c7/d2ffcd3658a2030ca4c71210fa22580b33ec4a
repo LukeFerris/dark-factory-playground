@@ -1,0 +1,63 @@
+app/src/App.tsx
+  s_ca61438cef765a::t_adf130feeab89d 1-10
+.env.example
+  s_ca61438cef765a::t_10cfc36f6279c1 1-20
+app/src/components/Hello.tsx
+  s_ca61438cef765a::t_25ddbeee65a430 1-11
+app/eslint.config.js
+  s_ca61438cef765a::t_4bd47d6a24515f 1-32
+app/vite.config.ts
+  s_ca61438cef765a::t_2e8856099c0238 1-3
+  s_ca61438cef765a::t_77e2ae1bfbca0e 4-14
+app/tsconfig.json
+  s_ca61438cef765a::t_0cfc8180664060 1-9
+app/package.json
+  s_ca61438cef765a::t_a245731bd1d74a 34
+  s_ca61438cef765a::t_af30103b7a0b64 1-33,35-36
+.nvmrc
+  s_ca61438cef765a::t_f0ecff84e8e93d 1
+app/src/hooks/useGreeting.ts
+  s_ca61438cef765a::t_b24267dfdb86dd 1-12
+app/nginx.conf
+  s_ca61438cef765a::t_5051f94b9e52f7 1-19
+tsconfig.base.json
+  s_ca61438cef765a::t_9a65f5e75c3734 1-21
+.github/CODEOWNERS
+  s_ca61438cef765a::t_f75c8a99e8bf76 1-11
+app/src/components/Hello.test.tsx
+  s_ca61438cef765a::t_17a92baa5b36b2 1-15
+app/index.html
+  s_ca61438cef765a::t_b2a1d155435cbb 1-12
+.gitignore
+  s_ca61438cef765a::t_81a643c6d564cd 1-19
+package.json
+  s_ca61438cef765a::t_41ebad34bdbddb 1-20
+.github/workflows/ci.yml
+  s_ca61438cef765a::t_31898118bf06fd 1-44
+app/src/main.tsx
+  s_ca61438cef765a::t_951846f2a65b09 1-14
+app/src/App.test.tsx
+  s_ca61438cef765a::t_abb20a3a07e27c 1-11
+app/src/setupTests.ts
+  s_ca61438cef765a::t_5c6dd51db2c7eb 1
+app/Dockerfile
+  s_ca61438cef765a::t_537399faf26c9c 1-29
+package-lock.json
+  s_ca61438cef765a::t_f7454dd835d591 1-5918
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c7d2ffcd3658a2030ca4c71210fa22580b33ec4a",
+  "prompts": {},
+  "sessions": {
+    "s_ca61438cef765a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ec30c70-d2e4-4321-8701-e092e972127a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
