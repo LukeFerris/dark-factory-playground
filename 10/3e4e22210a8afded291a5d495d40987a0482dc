@@ -1,0 +1,21 @@
+README.md
+  s_6735740180f350::t_7d696b8fbfece9 27
+PLAN.md
+  s_6735740180f350::t_235e73498786eb 1-495
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "103e4e22210a8afded291a5d495d40987a0482dc",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
