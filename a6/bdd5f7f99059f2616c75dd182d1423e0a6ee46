@@ -1,0 +1,27 @@
+bootstrap/jira.sh
+  s_a760e7bcf8ca9e::t_33ba4f7c2f9d5c 197-198,200-202,205-212,218-224,229
+  s_a760e7bcf8ca9e::t_8abd2418b039ee 179-184
+  s_a760e7bcf8ca9e::t_f448c9f362b26f 12-21
+docs/adr/0001-factory-architecture.md
+  s_a760e7bcf8ca9e::t_cddb2d21b1a4e7 155-158
+docs/factory/CHANGELOG.md
+  s_a760e7bcf8ca9e::t_013e48bc348c30 64-113
+bootstrap/README.md
+  s_a760e7bcf8ca9e::t_2c47d6e442bb67 67-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a6bdd5f7f99059f2616c75dd182d1423e0a6ee46",
+  "prompts": {},
+  "sessions": {
+    "s_a760e7bcf8ca9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8df3a8d1-06dc-4624-9af6-8c3c4bc2a638",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
