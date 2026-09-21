@@ -1,0 +1,237 @@
+import { spawnSync } from 'node:child_process'
+
+/**
+ * Every GitHub call shells out to `gh api`.
+ *
+ * That is deliberate: it keeps the credential question in the workflow YAML
+ * (whatever is in GH_TOKEN) instead of in this code, so no step needs to know
+ * how to mint or hold an App token.
+ */
+export type Runner = (args: string[], input?: string) => { status: number; stdout: string; stderr: string }
+
+export const ghRunner: Runner = (args, input) => {
+  const result = spawnSync('gh', args, {
+    encoding: 'utf8',
+    ...(input === undefined ? {} : { input }),
+  })
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+  }
+}
+
+let runner: Runner = ghRunner
+/** Test seam — swap in a stub so unit tests never shell out. */
+export function setRunner(next: Runner): void {
+  runner = next
+}
+export function getRunner(): Runner {
+  return runner
+}
+
+export function gh(args: string[], input?: string): string {
+  const result = runner(args, input)
+  if (result.status !== 0) {
+    throw new Error(`gh ${args.join(' ')} failed (${result.status}): ${result.stderr.trim()}`)
+  }
+  return result.stdout
+}
+
+export function ghJson<T>(args: string[], input?: string): T {
+  const out = gh(args, input).trim()
+  return (out === '' ? null : JSON.parse(out)) as T
+}
+
+export function repoSlug(): string {
+  const fromEnv = process.env['GITHUB_REPOSITORY']
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv
+  const owner = process.env['GH_OWNER']
+  const repo = process.env['GH_REPO']
+  if (owner === undefined || repo === undefined || owner === '' || repo === '') {
+    throw new Error('Cannot determine repository: set GITHUB_REPOSITORY, or GH_OWNER and GH_REPO.')
+  }
+  return `${owner}/${repo}`
+}
+
+export interface PullRequest {
+  number: number
+  url: string
+  body: string
+  isDraft: boolean
+  headRefOid: string
+}
+
+export function findPrForBranch(branch: string): PullRequest | null {
+  const out = ghJson<PullRequest[]>([
+    'pr',
+    'list',
+    '--repo',
+    repoSlug(),
+    '--head',
+    branch,
+    '--state',
+    'open',
+    '--json',
+    'number,url,body,isDraft,headRefOid',
+  ])
+  return out !== null && out.length > 0 ? (out[0] as PullRequest) : null
+}
+
+export function createDraftPr(branch: string, title: string, body: string): PullRequest {
+  gh([
+    'pr',
+    'create',
+    '--repo',
+    repoSlug(),
+    '--head',
+    branch,
+    '--base',
+    'main',
+    '--title',
+    title,
+    '--body-file',
+    '-',
+    '--draft',
+  ], body)
+  const pr = findPrForBranch(branch)
+  if (pr === null) throw new Error(`Created a PR for ${branch} but could not read it back.`)
+  return pr
+}
+
+export function updatePrBody(number: number, body: string): void {
+  gh(['pr', 'edit', String(number), '--repo', repoSlug(), '--body-file', '-'], body)
+}
+
+export function setPrTitle(number: number, title: string): void {
+  gh(['pr', 'edit', String(number), '--repo', repoSlug(), '--title', title])
+}
+
+export function addLabel(number: number, label: string): void {
+  gh(['pr', 'edit', String(number), '--repo', repoSlug(), '--add-label', label])
+}
+
+export function markReady(number: number): void {
+  gh(['pr', 'ready', String(number), '--repo', repoSlug()])
+}
+
+export function commentOnPr(number: number, body: string): void {
+  gh(['pr', 'comment', String(number), '--repo', repoSlug(), '--body-file', '-'], body)
+}
+
+export interface PrComment {
+  author: string
+  createdAt: string
+  body: string
+}
+
+export function prComments(number: number): PrComment[] {
+  const out = ghJson<{ comments?: Array<{ author?: { login?: string }; createdAt?: string; body?: string }> }>([
+    'pr',
+    'view',
+    String(number),
+    '--repo',
+    repoSlug(),
+    '--json',
+    'comments',
+  ])
+  return (out?.comments ?? []).map((c) => ({
+    author: c.author?.login ?? 'unknown',
+    createdAt: c.createdAt ?? '',
+    body: c.body ?? '',
+  }))
+}
+
+/**
+ * The machine-readable block the factory keeps at the bottom of every PR body.
+ *
+ * It is how a later turn recovers state (which card, which turn, where the
+ * preview is) without having to re-derive it. Humans edit the prose above it;
+ * the factory only ever rewrites what is between the markers.
+ */
+export const FACTORY_BLOCK_START = '<!-- factory'
+export const FACTORY_BLOCK_END = 'factory -->'
+
+export interface FactoryBlock {
+  key: string
+  stage: string
+  turn: number
+  preview_url?: string
+}
+
+export function renderFactoryBlock(block: FactoryBlock): string {
+  return `${FACTORY_BLOCK_START}\n${JSON.stringify(block, null, 2)}\n${FACTORY_BLOCK_END}`
+}
+
+export function parseFactoryBlock(body: string): FactoryBlock | null {
+  const start = body.indexOf(FACTORY_BLOCK_START)
+  if (start === -1) return null
+  const end = body.indexOf(FACTORY_BLOCK_END, start)
+  if (end === -1) return null
+  const json = body.slice(start + FACTORY_BLOCK_START.length, end).trim()
+  try {
+    return JSON.parse(json) as FactoryBlock
+  } catch {
+    return null
+  }
+}
+
+/** Replaces the factory block in a body, or appends one if there is none. */
+export function upsertFactoryBlock(body: string, block: FactoryBlock): string {
+  const rendered = renderFactoryBlock(block)
+  const start = body.indexOf(FACTORY_BLOCK_START)
+  if (start === -1) return `${body.trimEnd()}\n\n${rendered}\n`
+  const end = body.indexOf(FACTORY_BLOCK_END, start)
+  if (end === -1) return `${body.trimEnd()}\n\n${rendered}\n`
+  return body.slice(0, start) + rendered + body.slice(end + FACTORY_BLOCK_END.length)
+}
+
+export function createDeployment(sha: string, environment: string, environmentUrl: string): void {
+  const deployment = ghJson<{ id: number }>([
+    'api',
+    `repos/${repoSlug()}/deployments`,
+    '-X',
+    'POST',
+    '-f',
+    `ref=${sha}`,
+    '-f',
+    `environment=${environment}`,
+    '-F',
+    'auto_merge=false',
+    '-F',
+    'transient_environment=true',
+    '-f',
+    'required_contexts[]',
+  ])
+  gh([
+    'api',
+    `repos/${repoSlug()}/deployments/${deployment.id}/statuses`,
+    '-X',
+    'POST',
+    '-f',
+    'state=success',
+    '-f',
+    `environment_url=${environmentUrl}`,
+  ])
+}
+
+export function deactivateDeployments(environment: string): void {
+  const deployments = ghJson<Array<{ id: number }>>([
+    'api',
+    `repos/${repoSlug()}/deployments?environment=${encodeURIComponent(environment)}`,
+  ])
+  for (const d of deployments ?? []) {
+    try {
+      gh([
+        'api',
+        `repos/${repoSlug()}/deployments/${d.id}/statuses`,
+        '-X',
+        'POST',
+        '-f',
+        'state=inactive',
+      ])
+    } catch {
+      // A deployment we cannot mark inactive is not worth failing teardown over.
+    }
+  }
+}

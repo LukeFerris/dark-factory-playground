@@ -1,0 +1,122 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { changedFiles } from './git.ts'
+import { RESULT_PATH, writeFileEnsuringDir } from './meta.ts'
+import { ALLOWED_PATHS, ALWAYS_DENIED, ResultSchema, type Result, type Stage } from './schema.ts'
+
+/**
+ * Minimal glob matcher for the allow/deny lists.
+ *
+ * Supports `**` (any number of path segments) and `*` (within one segment).
+ * Deliberately not a dependency: the patterns are ours, they are short, and a
+ * general-purpose glob library would widen what this security check depends on.
+ */
+export function matchesGlob(path: string, pattern: string): boolean {
+  const escaped = pattern
+    .split('')
+    .map((c) => ('\\^$.|?+()[]{}'.includes(c) ? `\\${c}` : c))
+    .join('')
+
+  const regex = escaped
+    // `/**` at the end also matches the bare directory prefix.
+    .replace(/\/\*\*/g, '(?:/.*)?')
+    .replace(/\*\*/g, '.*')
+    // A single `*` must not cross a path separator.
+    .replace(/(?<!\.)\*/g, '[^/]*')
+
+  return new RegExp(`^${regex}$`).test(path)
+}
+
+export interface ScopeViolation {
+  path: string
+  reason: 'denied' | 'not-allowed'
+}
+
+export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
+  const allowed = ALLOWED_PATHS[stage]
+  const violations: ScopeViolation[] = []
+
+  for (const file of files) {
+    if (ALWAYS_DENIED.some((p) => matchesGlob(file, p))) {
+      violations.push({ path: file, reason: 'denied' })
+      continue
+    }
+    if (!allowed.some((p) => matchesGlob(file, p))) {
+      violations.push({ path: file, reason: 'not-allowed' })
+    }
+  }
+  return violations
+}
+
+export interface ValidateOutcome {
+  ok: boolean
+  result: Result
+  violations: ScopeViolation[]
+  problems: string[]
+}
+
+/**
+ * Validates the turn: the result file parses against the contract, and the diff
+ * stays inside the stage's allowed paths.
+ *
+ * On failure it OVERWRITES result.json with a synthetic `failed` result naming
+ * the problem, so the `report` step further down the workflow still has
+ * something coherent to put on the card. Exiting 4 without doing that would
+ * leave the card silently stuck.
+ */
+export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
+  const problems: string[] = []
+  let result: Result | null = null
+
+  if (!existsSync(RESULT_PATH)) {
+    problems.push('The agent did not write .agent/out/result.json.')
+  } else {
+    try {
+      const parsed = ResultSchema.safeParse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
+      if (parsed.success) {
+        result = parsed.data
+      } else {
+        problems.push(
+          `result.json does not match the contract: ${parsed.error.issues
+            .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+            .join('; ')}`,
+        )
+      }
+    } catch (error) {
+      problems.push(`result.json is not valid JSON: ${(error as Error).message}`)
+    }
+  }
+
+  // Contract rules the schema alone cannot express.
+  if (result !== null) {
+    if ((result.status === 'blocked' || result.status === 'question') && result.questions.length === 0) {
+      problems.push(`status is "${result.status}" but no questions were given.`)
+    }
+    if (result.status === 'failed' && result.reason.trim() === '') {
+      problems.push('status is "failed" but no reason was given.')
+    }
+  }
+
+  const violations = checkScope(stage, changedFiles(base))
+  for (const v of violations) {
+    problems.push(
+      v.reason === 'denied'
+        ? `${v.path} is never writable by an agent.`
+        : `${v.path} is outside the paths a ${stage} turn may write.`,
+    )
+  }
+
+  if (problems.length === 0 && result !== null) {
+    return { ok: true, result, violations, problems }
+  }
+
+  const synthetic: Result = {
+    status: 'failed',
+    summary: `The ${stage} turn was rejected by validation.`,
+    artifacts: result?.artifacts ?? [],
+    questions: result?.questions ?? [],
+    assumptions: result?.assumptions ?? [],
+    reason: problems.join('\n'),
+  }
+  writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(synthetic, null, 2)}\n`)
+  return { ok: false, result: synthetic, violations, problems }
+}
