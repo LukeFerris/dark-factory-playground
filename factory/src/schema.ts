@@ -28,6 +28,29 @@ export const QuestionSchema = z.object({
 })
 export type Question = z.infer<typeof QuestionSchema>
 
+/**
+ * One acceptance criterion and the steps that prove it.
+ *
+ * The two are separate things and read differently: the criterion is a claim
+ * about the finished app that a reviewer can agree or disagree with before any
+ * code exists, and the steps are what that reviewer does to find out whether it
+ * is true.
+ *
+ * They are one object rather than two parallel lists so they cannot drift. A
+ * criterion with no steps is unprovable and a step proving nothing in
+ * particular is busywork; pairing them makes both impossible to write.
+ */
+export const CriterionSchema = z.object({
+  /** What must be true when the card is done. An outcome, not an action. */
+  criterion: z.string().min(1),
+  /**
+   * The exact browser actions that prove it, in order, with the app already
+   * open. The last one is an observation, not an action.
+   */
+  steps: z.array(z.string()).default([]),
+})
+export type Criterion = z.infer<typeof CriterionSchema>
+
 export const ResultSchema = z.object({
   status: ResultStatus,
   /** One line of "what I did", then optional detail. Required in every case. */
@@ -35,15 +58,16 @@ export const ResultSchema = z.object({
   /** Background for the card comment: why this shape, and what to read next. */
   context: z.string().default(''),
   /**
-   * How a human checks the card worked: the steps they take in the browser,
-   * in order, with the app already open.
+   * What has to be true when the card is done, each paired with the browser
+   * steps that prove it.
    *
-   * Required when `status` is `ready_for_review`. That rule lives in
-   * `validate`, not here, because zod cannot express it without making the
-   * whole parse conditional — and `validate` is where a broken contract turns
-   * into a Jira comment a human can read rather than a stack trace.
+   * Required when `status` is `ready_for_review`, and each criterion needs at
+   * least one step. Those rules live in `validate`, not here, because zod
+   * cannot express them without making the whole parse conditional — and
+   * `validate` is where a broken contract turns into a Jira comment a human can
+   * read rather than a stack trace.
    */
-  acceptance_criteria: z.array(z.string()).default([]),
+  acceptance_criteria: z.array(CriterionSchema).default([]),
   /** Repo-relative paths the turn produced or changed. */
   artifacts: z.array(z.string()).default([]),
   /** Populated when status is `blocked` or `question`. */
@@ -147,10 +171,29 @@ export function toJsonSchema(): unknown {
       },
       acceptance_criteria: {
         type: 'array',
-        items: { type: 'string' },
         default: [],
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['criterion', 'steps'],
+          properties: {
+            criterion: {
+              type: 'string',
+              minLength: 1,
+              description:
+                'What must be true when the card is done. An outcome a reviewer can agree or disagree with, not an action and not an implementation detail.',
+            },
+            steps: {
+              type: 'array',
+              items: { type: 'string' },
+              minItems: 1,
+              description:
+                'The exact browser actions that prove this one criterion, in order, with the app already open. The last one is an observation, not an action.',
+            },
+          },
+        },
         description:
-          'The exact steps a person takes in the browser, with the app already open, to check this card worked. One step per entry, in order, naming what is on screen. Required when status is ready_for_review.',
+          'The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review.',
       },
       artifacts: {
         type: 'array',

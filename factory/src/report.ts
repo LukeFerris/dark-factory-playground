@@ -9,11 +9,11 @@ import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './sch
 /**
  * Builds the Jira comment for a finished turn.
  *
- * The shape is Summary / Context / Acceptance criteria, then whatever the turn
- * needs a human to know. That is the house ticket template, and the point of
- * keeping to it is that a card written by an agent reads the same as a card
- * written by a person — so a reviewer scanning the board does not have to
- * switch modes.
+ * The shape is Summary / Context / Acceptance criteria / Proving it, then
+ * whatever the turn needs a human to know. That is the house ticket template
+ * plus a walkthrough, and the point of keeping to it is that a card written by
+ * an agent reads the same as a card written by a person — so a reviewer
+ * scanning the board does not have to switch modes.
  *
  * Every comment links to the Actions run that produced it — that is an
  * acceptance criterion, and it is what makes a surprising card state
@@ -46,20 +46,33 @@ export function buildComment(
   }
 
   if (result.acceptance_criteria.length > 0) {
+    // Two sections, not one. The criteria are what a reviewer argues with; the
+    // steps are what they do. Collapsing them into a single numbered list —
+    // which is what this used to be — leaves nowhere to state what "done"
+    // means except as a sequence of clicks.
     blocks.push(adf.heading('Acceptance criteria', 4))
-    // A design turn has built nothing, so its steps are a contract for the
-    // build rather than something you can go and do. Saying which it is stops
-    // a reviewer opening a preview that does not exist yet.
+    // A design turn has built nothing, so its criteria are a contract for the
+    // build rather than something you can go and check. Saying which it is
+    // stops a reviewer opening a preview that does not exist yet.
+    if (stage === 'design') {
+      blocks.push(adf.paragraph(adf.text('What the build has to make true:')))
+    }
+    blocks.push(adf.bulletList(result.acceptance_criteria.map((c) => [adf.text(c.criterion)])))
+
+    blocks.push(adf.heading('Proving it', 4))
     blocks.push(
       adf.paragraph(
         adf.text(
           stage === 'design'
-            ? 'What the build has to make true. With the app open in a browser:'
+            ? 'Once the build lands, with the app open in a browser:'
             : 'With the app open in a browser:',
         ),
       ),
     )
-    blocks.push(adf.orderedList(result.acceptance_criteria.map((c) => [adf.text(c)])))
+    for (const c of result.acceptance_criteria) {
+      blocks.push(adf.paragraph(adf.strong(c.criterion)))
+      blocks.push(adf.orderedList(c.steps.map((s) => [adf.text(s)])))
+    }
   }
 
   if (result.questions.length > 0) {
