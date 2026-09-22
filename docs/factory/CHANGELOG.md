@@ -36,6 +36,47 @@ unremarkable for a playground, but it is a real machine kept busy for something
 idle most of the time. `FACTORY_POLL_WINDOW_SECONDS=0` restores exactly the old
 one-pass-per-tick behaviour.
 
+### The board existed, worked, and was invisible
+
+**Plan said:** create a filter and a Kanban board over it, then map the statuses
+onto columns by hand, because the Agile API cannot do it.
+
+**Actual:** three separate faults, each hidden by the next.
+
+**The board had no project.** `POST /rest/agile/1.0/board` takes an optional
+`location`, and without it Jira files the board as cross-project: it exists, it
+works, and the project's sidebar never links to it. Nothing reports this.
+`GET /board?projectKeyOrId=DF` returns it either way, because that matches on
+the board's filter rather than its location — so the check that looked most
+like a verification was the one that could not see the problem. The only tells
+are `location` missing from `GET /board/{id}` and `isBoardCrossProject: true`
+in the config model.
+
+**The template made a second board.** `kanban-classic` creates `DF board`
+automatically, with none of the factory's statuses mapped. That one *is*
+attached to the project, so it is what the sidebar opens — meaning the board
+you land on is the wrong one, and the right one is unreachable from the
+project. Seven factory statuses sat in its Unmapped pile.
+
+**The columns were never set.** Correct as documented, but the reason given was
+wrong. The *documented* Agile API cannot map statuses to columns —
+`/board/{id}/configuration` is read-only. The board settings UI drives
+`PUT /rest/greenhopper/1.0/rapidviewconfig/columns`, which works fine, and
+`PUT /rest/greenhopper/1.0/rapidviewconfig/boardLocation` attaches an existing
+board to a project.
+
+**Done:** `bootstrap/jira.sh` passes `location` on create, repairs a board that
+lacks one, maps all ten columns, and warns about any other board on the
+project. Both greenhopper calls go through a new `jira_try_write`, which
+returns a rejection instead of calling `die` — an undocumented endpoint
+changing under us should cost a minute of dragging, not abort the bootstrap.
+`smoke.sh` now checks the board's location and that all ten statuses are
+mapped, instead of only that a board by that name exists.
+
+**Worth keeping in mind:** "the API returned it" is not "a person can reach it".
+Both the board and its columns were present and queryable the whole time. The
+check that passed was asking a question adjacent to the one that mattered.
+
 ### Every secret was set to a single hyphen
 
 **Plan said:** `bootstrap/github.sh` sets three secrets from `.env`.

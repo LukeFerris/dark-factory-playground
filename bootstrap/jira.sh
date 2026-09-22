@@ -98,6 +98,34 @@ jira_write() {
   printf '%s' "$body"
 }
 
+# jira_write, but a rejection is returned instead of fatal, and no body comes
+# back. For the two calls that go to /rest/greenhopper/, which is the API the
+# board settings UI drives and is not in Atlassian's published spec: it can
+# change without notice, and when it does the fallback is a minute of dragging
+# in the UI — not a reason to stop configuring Jira.
+jira_try_write() {
+  local method="$1" path="$2" payload="$3" body status
+
+  if (( DRY_RUN )); then
+    printf '  %s %s %s\n' "$(_colour 90 'would call:')" "$method" "$path" >&2
+    printf '%s\n' "$payload" | jq . | sed 's/^/      /' >&2
+    return 0
+  fi
+
+  body="$(printf '%s' "$payload" | curl -sS -w '\n%{http_code}' \
+    -X "$method" \
+    -u "$JIRA_USER:$JIRA_TOKEN" \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -H 'X-Atlassian-Token: no-check' \
+    --max-time 60 \
+    --data-binary @- \
+    "$JIRA_BASE$path")"
+  status="${body##*$'\n'}"
+
+  [[ "$status" -lt 400 ]]
+}
+
 section "Site: $JIRA_BASE"
 ACCOUNT_ID="$(jira_get /rest/api/3/myself | jq -r '.accountId // empty')"
 [[ -n "$ACCOUNT_ID" ]] || die "Could not read /rest/api/3/myself. Run bootstrap/preflight.sh."
@@ -454,17 +482,108 @@ else
 fi
 
 BOARD_NAME="Dark Factory"
-board_exists="$(jira_get "/rest/agile/1.0/board?name=$(printf '%s' "$BOARD_NAME" | jq -sRr @uri)" \
-  | jq -r '[.values[]?] | length')"
+BOARD_ID="$(jira_get "/rest/agile/1.0/board?name=$(printf '%s' "$BOARD_NAME" | jq -sRr @uri)" \
+  | jq -r '[.values[]?] | .[0].id // empty')"
 
-if [[ "${board_exists:-0}" != "0" ]]; then
-  ok "board \"$BOARD_NAME\" already exists"
+if [[ -n "$BOARD_ID" ]]; then
+  ok "board \"$BOARD_NAME\" already exists (id $BOARD_ID)"
 else
-  payload="$(jq -n --arg n "$BOARD_NAME" --arg f "${FILTER_ID:-0}" '{
-    name: $n, type: "kanban", filterId: ($f | tonumber)
+  # `location` is what ties the board to the project. Without it the board is
+  # created, works, and never appears in the project's sidebar — Jira files it
+  # as a cross-project board instead. Nothing reports this: the board is in
+  # GET /board?projectKeyOrId= either way, because that matches on the filter.
+  payload="$(jq -n --arg n "$BOARD_NAME" --arg f "${FILTER_ID:-0}" --arg p "$PROJECT_ID" '{
+    name: $n, type: "kanban", filterId: ($f | tonumber),
+    location: { type: "project", projectKeyOrId: $p }
   }')"
-  jira_write POST /rest/agile/1.0/board "$payload" >/dev/null
-  (( DRY_RUN )) || ok "created board \"$BOARD_NAME\""
+  BOARD_ID="$(jira_write POST /rest/agile/1.0/board "$payload" | jq -r '.id // empty')"
+  (( DRY_RUN )) || ok "created board \"$BOARD_NAME\" (id $BOARD_ID)"
+fi
+
+# Repair a board made by an earlier run that did not set a location.
+if [[ -n "$BOARD_ID" ]] && ! (( DRY_RUN )); then
+  if [[ -z "$(jira_get "/rest/agile/1.0/board/$BOARD_ID" | jq -r '.location.projectId // empty')" ]]; then
+    if jira_try_write PUT /rest/greenhopper/1.0/rapidviewconfig/boardLocation \
+      "$(jq -n --argjson b "$BOARD_ID" --argjson p "$PROJECT_ID" \
+        '{rapidViewId: $b, locationType: "project", locationId: $p}')"; then
+      ok "attached board to project $JIRA_PROJECT_KEY"
+    else
+      warn "board \"$BOARD_NAME\" (id $BOARD_ID) has no project location, so it will not
+       appear in the $JIRA_PROJECT_KEY sidebar. Set it by hand:
+       Board → ⋯ → Configure board → Details → Location."
+    fi
+  fi
+fi
+
+# ------------------------------------------------------------ board columns
+#
+# One column per status, left to right in the order a card travels. Each
+# "Blocked on …" sits just before the review status it shares a parent with,
+# because both are exits from the same running state and the blocked one goes
+# backwards.
+#
+# The documented Agile API cannot do this — /board/{id}/configuration is
+# read-only. This is the endpoint the board settings UI drives, and it is not
+# in Atlassian's published API: treat a failure here as cosmetic and map the
+# columns by hand rather than letting it stop the bootstrap.
+BOARD_COLUMNS='[
+  "Backlog", "Ready for design", "Designing", "Blocked on architect",
+  "Design review", "Ready for build", "Building", "Blocked on engineer",
+  "In review", "Done"
+]'
+
+map_board_columns() {
+  local pairs='[]' name id kanplan payload
+
+  while IFS= read -r name; do
+    id="$(status_id_by_name "$name")"
+    if [[ -z "$id" ]]; then
+      warn "no status id for \"$name\"; leaving board columns alone"
+      return 0
+    fi
+    pairs="$(printf '%s' "$pairs" | jq --arg n "$name" --arg i "$id" '. + [{name: $n, id: $i}]')"
+  done < <(printf '%s' "$BOARD_COLUMNS" | jq -r '.[]')
+
+  # With the Kanban backlog on, the first column is the backlog view rather
+  # than a column on the board, and it has to keep that flag or Jira rejects
+  # the layout. Backlog cards then live in the Backlog tab — which suits a
+  # status the factory never touches.
+  kanplan="$(jira_get "/rest/greenhopper/1.0/rapidviewconfig/editmodel?rapidViewId=$BOARD_ID" \
+    | jq -r '.isKanPlanEnabled // false')"
+
+  payload="$(printf '%s' "$pairs" | jq --argjson b "$BOARD_ID" --argjson kp "$kanplan" '{
+    currentStatisticsField: { id: "issueCount_" },
+    rapidViewId: $b,
+    mappedColumns: [ to_entries[] | {
+      name: .value.name,
+      mappedStatuses: [{ id: .value.id }],
+      min: "", max: "",
+      isKanPlanColumn: ($kp and .key == 0)
+    }]
+  }')"
+
+  if jira_try_write PUT /rest/greenhopper/1.0/rapidviewconfig/columns "$payload"; then
+    (( DRY_RUN )) || ok "mapped ten statuses onto ten columns"
+  else
+    warn "could not set board columns; map them by hand (see docs/factory/SETUP.md, Checkpoint D)"
+  fi
+}
+
+if [[ -n "$BOARD_ID" ]]; then
+  map_board_columns
+fi
+
+# The project template creates its own board, named after the project and with
+# none of the factory's statuses mapped. It is the board the sidebar links to,
+# so it is the one you will land on by accident. Not deleted here: a board is
+# not this script's to destroy, and it may not be the only thing using it.
+other_boards="$(jira_get "/rest/agile/1.0/board?projectKeyOrId=$JIRA_PROJECT_KEY" \
+  | jq -r --arg n "$BOARD_NAME" '.values[]? | select(.name != $n) | "\(.id) \(.name)"')"
+if [[ -n "$other_boards" ]]; then
+  warn "another board exists on $JIRA_PROJECT_KEY and has none of these columns:
+$(printf '%s\n' "$other_boards" | sed 's/^/       /')
+       The project template creates one. Delete it so you cannot land on it by mistake:
+       curl -u \"\$JIRA_USER:\$JIRA_TOKEN\" -X DELETE \"\$JIRA_BASE/rest/agile/1.0/board/<id>\""
 fi
 
 section "Done"
@@ -472,5 +591,4 @@ if (( DRY_RUN )); then
   info "Dry run only. Re-run without --dry-run to apply."
 else
   ok "Jira is configured."
-  warn "Map the ten statuses onto board columns by hand — the Agile API cannot do it. This is Checkpoint D; see docs/factory/SETUP.md."
 fi

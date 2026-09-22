@@ -156,23 +156,50 @@ The first poller run is what proves it — a failure at *Mint App token* is in
 
 ## Checkpoint D — board columns
 
-The Agile API cannot map statuses onto board columns, so this is a drag in the
-UI, and it is the one thing `smoke.sh` cannot verify for you.
+`bootstrap/jira.sh` does this now. It is still a checkpoint because it is the
+step most likely to need a human: it goes through an undocumented endpoint, and
+if Atlassian changes it the script warns and carries on rather than failing.
 
-**Board → ⋯ → Configure board → Columns**, and arrange:
+Ten columns, one status each, in the order a card travels:
 
-| Column | Statuses |
-| --- | --- |
-| Backlog | Backlog |
-| Ready | Ready for design, Ready for build |
-| In progress | Designing, Building |
-| Review | Design review, In review |
-| Blocked | Blocked on architect, Blocked on engineer |
-| Done | Done |
+| # | Column | # | Column |
+| --- | --- | --- | --- |
+| 1 | Backlog | 6 | Ready for build |
+| 2 | Ready for design | 7 | Building |
+| 3 | Designing | 8 | Blocked on engineer |
+| 4 | Blocked on architect | 9 | In review |
+| 5 | Design review | 10 | Done |
 
-Put every status in exactly one column. A status left in the unmapped pile
-still works — the factory transitions by status name, not by column — but the
-card vanishes from the board, which makes the whole thing much harder to watch.
+Each *Blocked on …* sits just before the review status it shares a parent with:
+both are exits from the same running state, and the blocked one goes backwards.
+
+`smoke.sh` checks all ten are mapped. A status left unmapped still works — the
+factory transitions by name, never by column — but its cards vanish from the
+board, which is the worst way to find out.
+
+**Column 1 is the backlog, not a board column.** With the Kanban backlog
+enabled, *Backlog* cards appear in the **Backlog** tab rather than on the board.
+That suits a status the factory never touches.
+
+If the script warned instead, do it by hand at **Board → ⋯ → Configure board →
+Columns**. Collapsing the ten into fewer columns is fine — group each stage with
+its twin (*Ready for design* with *Ready for build*, and so on) so both laps
+look the same — but keep **Done** rightmost, because Jira's completion rule
+follows the last column.
+
+### Two boards
+
+The `kanban-classic` template creates its own board, named `<PROJECT> board`,
+with none of the factory's statuses mapped. `bootstrap/jira.sh` creates a second
+one called **Dark Factory** and warns about the first, which is the one the
+sidebar links to by default. Delete it so you cannot land on it by mistake:
+
+```bash
+curl -u "$JIRA_USER:$JIRA_TOKEN" -X DELETE "$JIRA_BASE/rest/agile/1.0/board/<id>"
+```
+
+Check the name before you delete — `smoke.sh` names the stray board, and the
+factory's is always *Dark Factory*.
 
 ---
 
