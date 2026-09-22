@@ -126,15 +126,47 @@ card is, and a tightly drawn workflow converts that into an error after the turn
 has already done its work. The gate on this pipeline is the PR review, not the
 Jira workflow.
 
-### The preview environment is stubbed
+### The preview has two backends, and the stub is the default
 
-`build-setup.yml` builds the app image, pushes it to GHCR as `pr-<n>`, and
-records a GitHub Deployment pointing at the package. Nothing serves it.
+`FACTORY_PREVIEW_BACKEND` selects between them.
 
-The real target is Azure Static Web Apps, documented in `SELF-HOSTING.md` with a
-commented-out job ready to enable. Stubbing it keeps the POC free of a cloud
-subscription while still proving the lifecycle: an artifact per PR, torn down
-when the PR closes, and a `PREVIEW_URL` handed to the build agent.
+`ghcr` is the stub: build the app image, push it to GHCR as `pr-<n>`, record a
+GitHub Deployment pointing at the package. Nothing serves it. It stays the
+default because it needs no cloud subscription and still proves the lifecycle —
+an artifact per PR, torn down when the PR closes, and a `PREVIEW_URL` handed to
+the build agent.
+
+`azure` is the real one: `az acr build` into an Azure Container Registry, then
+one Azure Container App per PR with external ingress. Azure issues the
+certificate and returns the FQDN, so the preview is a working HTTPS site with no
+DNS or TLS configuration anywhere in this repository.
+
+Container Apps rather than the Static Web Apps originally planned, because the
+app is already a container carrying its own nginx config — SPA fallback, cache
+headers — and Static Web Apps would require re-expressing all of that in its own
+format. Registry is ACR rather than GHCR because Container Apps pulling from a
+private GHCR repository needs a durable GitHub credential stored inside Azure,
+and storing credentials in more places is the thing this architecture is most
+concerned with not doing. ACR pulls with a managed identity and stores nothing;
+Azure sign-in is OIDC, so the repository holds no Azure secret either.
+
+### The preview is raised by the pull request, not by a dispatch
+
+`build-setup.yml` triggers on `labeled` (with `factory:active`, which
+`factory publish` adds at the end of turn 1) and on `synchronize` (every later
+turn's push). It is a separate workflow from `build-start.yml` because it needs
+`packages: write`, `deployments: write` and `id-token: write`, and none of those
+may be in scope while an agent runs.
+
+The label works as a trigger only because it is applied with the App
+installation token. Events created with `GITHUB_TOKEN` do not start workflow
+runs; events created with an App token do. The poller already depends on that
+distinction, and this is the second place it is load bearing.
+
+The alternative — `build-start.yml` dispatching `build-setup.yml` — is what was
+built first, and it was wrong in a way that was hard to see: it raised the
+preview exactly once, so the preview showed turn 1 for the life of the PR while
+every document claimed it tracked the branch.
 
 ## Consequences
 
@@ -148,6 +180,13 @@ between them, because composite actions would have made the credential
 boundaries harder to see and that boundary is the point. A build turn needs a
 human comment, so an unattended factory does nothing overnight — by design, but
 it does mean throughput is bounded by attention.
+
+**Unverified.** The `azure` backend has never run against a live subscription.
+It is written, documented and unit-tested through a stubbed `az` runner, which
+proves the command strings are the ones intended and proves nothing about
+whether they work. That is why it is opt-in and the stub is the default. The
+first thing expected to fail is the `AcrPull` role assignment, which presents as
+a successful create followed by `ImagePullFailure`.
 
 **Unresolved.** A malicious dependency in `app/package.json` is caught only by a
 human reading the diff. `Bash(curl:*)` on build turns is an outbound channel,

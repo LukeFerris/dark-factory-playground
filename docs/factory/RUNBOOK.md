@@ -14,9 +14,11 @@ Most failures are a missing repository variable or a renamed Jira status, and
 
 ## Reading a failure
 
-Every turn uploads `.agent/out/` as an artifact, retained 14 days. It contains
-`result.json` (what the agent decided) and `transcript.json` (what it actually
-did). The Jira comment always links the Actions run that produced it.
+Every turn uploads `.agent/in/` and `.agent/out/` as an artifact, retained 14
+days. `out/` holds `result.json` (what the agent decided) and `transcript.json`
+(what it actually did); `in/` holds the card, the design and `meta.json` — the
+exact inputs the agent was handed. The Jira comment always links the Actions run
+that produced it.
 
 ```bash
 gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log-failed
@@ -33,6 +35,38 @@ The CLI's exit codes are a contract:
 | 2 | Jira rejected the credentials | `JIRA_BOT_EMAIL` variable, `JIRA_BOT_TOKEN` secret |
 | 3 | No transition to that status | Jira status names vs `STATUS_TRANSITIONS` |
 | 4 | Validation rejected the turn | `result.json`'s `reason` |
+
+### Replaying a turn on your own machine
+
+The runner is destroyed when the job ends, so there is nothing to shell into.
+There does not need to be: a turn is a pure function of `.agent/in/`. The agent
+reads files and writes files and touches nothing else, so the artifact is a
+complete reproduction and replays locally, as many times as you like, for free.
+
+```bash
+gh run download <run-id> --repo "$GH_OWNER/$GH_REPO"
+rm -rf .agent/in && cp -R <artifact-dir>/in .agent/in
+```
+
+Then run the same `claude -p` invocation as the workflow's Agent step. Copy it
+from `.github/workflows/design.yml` or `build-turn.yml` rather than from here,
+so the allow-list cannot drift out of sync with what actually ran.
+
+**Install the same CLI version, or it is not the same turn.** Agent steps pin
+`@anthropic-ai/claude-code` to the repository variable `FACTORY_AGENT_VERSION`,
+defaulting to the version in the workflow. Read the pin, do not guess it:
+
+```bash
+gh variable get FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
+  || grep -m1 claude-code .github/workflows/design.yml
+```
+
+Bump it deliberately — the flag surface is version-coupled, and a CLI release
+can change how a turn behaves:
+
+```bash
+gh variable set FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" --body 2.1.230
+```
 
 ---
 
@@ -149,15 +183,70 @@ gh variable set JIRA_BOT_EMAIL --repo "$GH_OWNER/$GH_REPO" --body "$JIRA_USER"
 
 ## The preview is missing
 
-The preview is a stub: an image at `ghcr.io/<owner>/<repo>:pr-<n>` and a GitHub
-Deployment pointing at it. Nothing serves it — see `SELF-HOSTING.md`.
+First: which backend?
+
+```bash
+gh variable get FACTORY_PREVIEW_BACKEND --repo "$GH_OWNER/$GH_REPO"   # ghcr or azure
+```
+
+**`build-setup.yml` never ran.** It triggers on the PR's own `labeled` and
+`synchronize` events, not on a dispatch from `build-start.yml`. Check the label
+is actually there:
+
+```bash
+gh pr view <n> --repo "$GH_OWNER/$GH_REPO" --json labels
+gh run list --workflow build-setup.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+```
+
+If `factory:active` is present but no run exists, the label was probably applied
+with `GITHUB_TOKEN` rather than the App token — events made with `GITHUB_TOKEN`
+do not start workflow runs. `factory publish` uses the App token precisely for
+this. Re-applying the label by hand also works, and so does the manual path:
+
+```bash
+gh workflow run build-setup.yml -f pr=<n>
+```
+
+**The preview is stale rather than missing.** It should follow the branch — the
+`synchronize` trigger re-raises it on every push. A preview stuck on turn 1
+means the `synchronize` runs are failing; read them, they are separate runs.
+
+### `ghcr` backend
 
 `build-setup.yml` needs `packages: write` and `deployments: write`, and the App
 needs Packages and Deployments write. If the image pushed but the Deployment did
 not appear, it is the App's permissions; a permission added after installation
-needs accepting on the installation page.
+needs accepting on the installation page. Nothing serves the image — that is
+expected, see `SELF-HOSTING.md`.
 
-To retry: `gh workflow run build-setup.yml -f pr=<n>`.
+### `azure` backend
+
+**UNVERIFIED — this path has not been run against a live subscription.** Expect
+the first failures to be setup rather than code.
+
+| Symptom | Usually |
+| --- | --- |
+| `AADSTS700213` / no matching federated identity | The federated credential's subject does not match. It needs one for `repo:<owner>/<repo>:pull_request`, not just `ref:refs/heads/main` |
+| `Missing required environment variable AZURE_…` | A repository variable is unset; the message names which |
+| `az acr build` denied | The service principal needs `AcrPush` on the registry |
+| Create succeeds, app never starts, `ImagePullFailure` | The app's managed identity has no `AcrPull`. `--registry-identity system` only grants it if the deploying principal can make role assignments — see SELF-HOSTING |
+| `no ingress FQDN` | The app exists but ingress is internal or absent. Delete it and let the next push recreate it |
+| The URL resolves but the first request hangs a few seconds | Cold start. `--min-replicas 0` is deliberate |
+
+```bash
+az containerapp show -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" \
+  --query properties.configuration.ingress.fqdn -o tsv
+az containerapp logs show -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" --tail 50
+```
+
+**Previews that outlived their PRs** are a running cost, not just clutter.
+`build-teardown.yml` deletes the app and the image tag, and logs rather than
+fails if either step cannot. To sweep by hand:
+
+```bash
+az containerapp list -g "$AZURE_RESOURCE_GROUP" --query "[].name" -o tsv | grep -- '-preview-pr-'
+az containerapp delete -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" --yes
+```
 
 ---
 

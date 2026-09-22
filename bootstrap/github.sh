@@ -119,9 +119,18 @@ section "Rulesets"
 
 # Rulesets are matched by name, so re-running updates rather than duplicates.
 upsert_ruleset() {
-  local name="$1" payload="$2" id
+  local name="$1" payload="$2" id existing
 
-  id="$(gh api "repos/$REPO_SLUG/rulesets" --jq ".[] | select(.name == \"$name\") | .id" 2>/dev/null || true)"
+  # Rulesets need GitHub Pro on a private repository, and the 403 that comes
+  # back is a JSON body. Reading it with --jq would put that body where an id
+  # belongs, so list first and check the call actually succeeded: a missing
+  # ruleset is a normal state, an unreachable API is not.
+  if ! existing="$(gh api "repos/$REPO_SLUG/rulesets" 2>&1)"; then
+    die "cannot read rulesets on $REPO_SLUG: ${existing//$'\n'/ }
+       Rulesets require GitHub Pro on a private repository, or a public one.
+       Without them the App is not contained: nothing stops it pushing to main."
+  fi
+  id="$(printf '%s' "$existing" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id')"
 
   if [[ -n "$id" ]]; then
     if (( DRY_RUN )); then

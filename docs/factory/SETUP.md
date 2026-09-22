@@ -6,6 +6,7 @@ Budget an hour or so, most of it waiting for Jira.
 Four steps need a human, because they involve credentials that can only be
 issued once or UI that has no API. They are marked **Checkpoint A** to
 **Checkpoint D** below, and `.env.example` marks the values each one produces.
+**Checkpoint E** is optional and comes after the factory is already working.
 
 ## Before you start
 
@@ -32,7 +33,9 @@ everything else. Two failures worth calling out now:
 - **`gh active account`** — `gh` can hold several accounts and only one is
   active. If you are signed in as more than one, `gh auth switch -u $GH_OWNER`.
 - **`gh workflow scope`** — pushing `.github/workflows/**` needs the `workflow`
-  scope. `gh auth refresh -h github.com -u $GH_OWNER -s workflow`.
+  scope. Switch to the right account first, then `gh auth refresh -h
+  github.com -s workflow` — `refresh` has no account flag and always acts on
+  whichever account is active.
 
 ---
 
@@ -165,3 +168,38 @@ grant turns by commenting on the PR until you are happy, and merge.
 
 `STATE-MACHINE.md` describes each status and who moves it. `RUNBOOK.md` covers
 what to do when one of these steps does not do what it says here.
+
+---
+
+## Checkpoint E — real preview environments (optional)
+
+Out of the box the preview is a stub: an image per PR, and nothing serving it.
+That is enough to watch the factory work. To get a real running site per pull
+request, on its own HTTPS URL, switch the backend to Azure Container Apps.
+
+**Do this after Checkpoint D, not instead of it.** Get a card through the loop
+first; a broken preview is much easier to diagnose when everything else is known
+good.
+
+> **This path is unverified.** It is written and unit-tested but has never run
+> against a live subscription. Expect the first failure to be a role assignment.
+> `RUNBOOK.md`, "The preview is missing", lists the ones to expect.
+
+You need an Azure subscription. The full walkthrough — resource group, registry,
+Container Apps environment, federated credential and the nine repository
+variables — is in `SELF-HOSTING.md` under "Backend: `azure` — Container Apps".
+In outline:
+
+1. Create the resource group, an ACR, and a Container Apps environment.
+2. Register a federated credential for this repository, so no Azure secret is
+   stored in GitHub. It needs a subject for `pull_request`, not only for `main`.
+3. Grant the service principal `Contributor` on the resource group and
+   `AcrPush` on the registry.
+4. `gh variable set FACTORY_PREVIEW_BACKEND --body azure`, plus the eight
+   `AZURE_*` variables.
+5. Push to any open build PR. `build-setup.yml` runs on `synchronize`, so the
+   next turn raises the preview without anything else being triggered.
+
+Switching back is one variable: set `FACTORY_PREVIEW_BACKEND` to `ghcr`, or
+unset it. Tear down any Container Apps left behind first — an app that outlives
+its PR keeps billing.

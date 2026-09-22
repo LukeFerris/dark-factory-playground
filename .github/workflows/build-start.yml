@@ -2,8 +2,12 @@ name: factory build start
 
 # Turn 1 of a build. Dispatched by the poller when a card reaches "Ready for
 # build". Cuts the build/* branch, runs the first turn against the approved
-# design, opens the draft PR, and then hands off to build-setup to raise the
-# preview and post the kickoff comment.
+# design, and opens the draft PR.
+#
+# It does NOT raise the preview. `factory publish` labels the new PR
+# factory:active, and that label is what starts build-setup.yml — so the
+# preview is raised by the PR's own event rather than by a dispatch from here.
+# Same for every later push. See the header of build-setup.yml.
 #
 # Every later turn is granted by a human comment and runs in build-turn.yml.
 # There is no auto-continue.
@@ -55,8 +59,11 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}" --stage build
 
+      # Pinned deliberately. The flag surface is version-coupled — see the
+      # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
+      # release change how a turn behaves with nobody watching.
       - name: Install the agent
-        run: npm i -g @anthropic-ai/claude-code
+        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}"
 
       # ANTHROPIC_API_KEY is the only credential here. PREVIEW_URL is empty on
       # turn 1 — there is nothing deployed until build-setup runs.
@@ -107,14 +114,6 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           npm run --silent factory -- publish --stage build
 
-      - name: Read the PR number
-        id: pr
-        if: always()
-        run: |
-          set -euo pipefail
-          pr="$(jq -r '.pr // empty' .agent/in/meta.json 2>/dev/null || true)"
-          echo "number=${pr}" >> "$GITHUB_OUTPUT"
-
       - name: Report
         if: always()
         env:
@@ -129,17 +128,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ inputs.key }}-turn1-${{ github.run_id }}
-          path: .agent/out/
+          # Inputs as well as outputs. A turn is a pure function of .agent/in,
+          # so shipping both is what makes a failed turn replayable locally.
+          path: |
+            .agent/in/
+            .agent/out/
           retention-days: 14
           if-no-files-found: warn
-
-      # Raising the preview needs packages: write and deployments: write, which
-      # this job deliberately does not have. build-setup.yml has them instead.
-      - name: Hand off to build-setup
-        if: steps.validate.outcome == 'success' && steps.pr.outputs.number != ''
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh workflow run build-setup.yml -f pr="${{ steps.pr.outputs.number }}"
 
       - name: Fail the run if the turn was rejected
         if: steps.validate.outcome != 'success'

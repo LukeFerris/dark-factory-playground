@@ -1,12 +1,34 @@
 # Self-hosting
 
 Everything in this repository runs on GitHub-hosted runners against a free Jira
-site, and the preview environment is a stub. This document says what the stub
-actually does, and what it would take to make each piece real.
+site. The preview environment has two backends, selected by the
+`FACTORY_PREVIEW_BACKEND` repository variable. This document says what each one
+does and what it takes to turn the second one on.
 
-## The preview, as built
+## When the preview is raised
 
-`build-setup.yml` does three things:
+Both backends are raised by `build-setup.yml`, which triggers on the pull
+request itself rather than on a dispatch:
+
+| Event | Effect |
+| --- | --- |
+| `labeled` with `factory:active` | Raise the preview, post the kickoff comment |
+| `synchronize` (any push to the PR) | Re-raise the preview at the new commit |
+| `pull_request: closed` (`build-teardown.yml`) | Tear it down |
+
+The label arrives at the end of turn 1, when `factory publish` adds it. That
+works as a trigger only because the label is applied with the **App
+installation token** — events created with `GITHUB_TOKEN` deliberately do not
+start new workflow runs, and this is the one place the distinction is load
+bearing.
+
+`synchronize` is what makes the preview track the branch. Every build turn
+pushes, so every build turn re-enters `preview-up`; both backends are
+idempotent for a given PR number.
+
+## Backend: `ghcr` (default)
+
+The stub, and what runs with no cloud account at all.
 
 1. `docker build -f app/Dockerfile .` — a multi-stage build that compiles the
    app on `node:22-alpine` and serves it from `nginx:alpine` as a non-root user
@@ -15,42 +37,116 @@ actually does, and what it would take to make each piece real.
 3. Creates a GitHub Deployment in the `preview` environment whose target URL is
    the GHCR package page.
 
-`build-teardown.yml` reverses it when the PR closes: the Deployment is marked
-inactive and the `pr-<n>` package version is deleted.
-
 **Nothing serves the image.** The "preview URL" on the PR is a link to a
 container registry page, not a running application. What the stub proves is the
 plumbing — an artifact exists per pull request, its lifecycle is tied to the
-PR's, and the build agent is handed a `PREVIEW_URL` it can act on. Swapping in
-real hosting is a change to one job.
+PR's, and the build agent is handed a `PREVIEW_URL` it can act on.
 
 The Dockerfile is real and works. `docker build -f app/Dockerfile .` from the
 repository root produces a ~50MB image that serves the built SPA. Note the build
 context is the **repository root**, not `app/` — `app/` alone is not installable
 because it is a workspace of the root `package.json`.
 
-## Making the preview real: Azure Static Web Apps
+## Backend: `azure` — Container Apps
 
-This was the intended target, and there is a commented-out job at the foot of
-`.github/workflows/build-setup.yml` ready for it.
+> **UNVERIFIED.** This path has never run against a live Azure subscription.
+> The `az` command shapes follow the documented CLI surface and are unit-tested
+> through a stubbed runner, but nothing here has been watched working. Treat it
+> the way `bootstrap/jira.sh` was treated before Checkpoint B: written
+> carefully, believed, unproven. That is why the default is still `ghcr`.
 
-1. Create a Static Web App in the Azure portal. Choose **Other** as the
-   deployment source — the GitHub integration would write its own workflow.
-2. **Manage deployment token** → copy it.
-3. `gh secret set AZURE_SWA_TOKEN --repo "$GH_OWNER/$GH_REPO"`
-4. Uncomment the `deploy-azure` job.
-5. Point `factory preview-up` at the resulting URL instead of the package page:
-   the `previewUp` function in `factory/src/preview.ts` decides what goes into
-   the Deployment's `environment_url` and into the PR's factory block.
+One Container App per pull request, named `<prefix>-preview-pr-<n>`, serving the
+same image the stub builds. `factory/src/azure.ts` holds every `az` call.
 
-Static Web Apps gives a per-environment hostname of the shape
-`https://<name>-pr-<n>.<region>.azurestaticapps.net`, which is why the job passes
-`deployment_environment: pr-<n>`. Free tier allows three staging environments at
-once, so a busy factory will need the Standard tier or a teardown that keeps up.
+**Why Container Apps and not Static Web Apps**, which was the original plan: the
+app is already a container with an nginx config in it, and Static Web Apps only
+serves static files — the SPA fallback and the cache headers would have to be
+re-expressed in its own config format. Container Apps runs what the Dockerfile
+already describes. It also scales to zero, which is what makes one environment
+per open PR affordable.
 
-Nothing about the factory is Azure-specific. Any host that can serve a directory
-of static files per pull request works — Cloudflare Pages, Netlify, S3 plus
-CloudFront, or a single VM running the images the stub already builds.
+**Why ACR and not GHCR as the registry.** Container Apps pulling from a private
+GHCR repository needs a durable GitHub credential stored inside Azure. That is
+exactly the credential-spreading this project exists to avoid. With ACR the pull
+uses the app's system-assigned managed identity and nothing is stored anywhere.
+The build is also `az acr build`, which uploads the context and builds it in
+ACR Tasks, so the runner needs no Docker daemon at all.
+
+### HTTPS
+
+There is nothing to wire. `--ingress external --target-port 8080` gives the app
+a managed hostname of the shape
+
+```
+https://<app>-<suffix>.<region>.azurecontainerapps.io
+```
+
+with a certificate Azure issues and renews. `deployPreview` reads it back from
+`properties.configuration.ingress.fqdn` and that is the URL that lands on the
+Deployment, in the PR's factory block, and in the agent's `PREVIEW_URL`. No DNS
+records, no certificate, no nginx TLS config. A custom domain is possible later
+and is not needed for this.
+
+### Setting it up
+
+Once, by hand. Names are yours; these are the ones the variables expect.
+
+```bash
+az group create -n rg-factory-preview -l westeurope
+az acr create -n <acrname> -g rg-factory-preview --sku Basic
+az containerapp env create -n cae-factory -g rg-factory-preview -l westeurope
+```
+
+Then a federated credential, so the repository holds no Azure secret:
+
+```bash
+az ad app create --display-name factory-preview
+# note the appId, then create a service principal and a federated credential
+# for  repo:<owner>/<repo>:ref:refs/heads/main  and for  repo:<owner>/<repo>:pull_request
+az role assignment create --assignee <appId> --role Contributor \
+  --scope /subscriptions/<sub>/resourceGroups/rg-factory-preview
+az role assignment create --assignee <appId> --role AcrPush \
+  --scope /subscriptions/<sub>/resourceGroups/rg-factory-preview/providers/Microsoft.ContainerRegistry/registries/<acrname>
+```
+
+`--registry-identity system` asks Azure to grant the app's own identity `AcrPull`
+at create time. That only works if the deploying principal can make role
+assignments; if it cannot, grant `AcrPull` to each app's identity yourself, or
+give the service principal **User Access Administrator** on the resource group.
+This is the step most likely to be the first thing that fails.
+
+Finally the repository variables:
+
+```bash
+gh variable set FACTORY_PREVIEW_BACKEND --body azure
+gh variable set AZURE_CLIENT_ID --body <appId>
+gh variable set AZURE_TENANT_ID --body <tenantId>
+gh variable set AZURE_SUBSCRIPTION_ID --body <subscriptionId>
+gh variable set AZURE_RESOURCE_GROUP --body rg-factory-preview
+gh variable set AZURE_ACR_NAME --body <acrname>
+gh variable set AZURE_CONTAINERAPPS_ENVIRONMENT --body cae-factory
+gh variable set AZURE_PREVIEW_REPOSITORY --body dark-factory-playground
+gh variable set AZURE_PREVIEW_PREFIX --body df          # optional, defaults to df
+```
+
+All variables, no secrets: OIDC means there is nothing long-lived to store.
+`AZURE_PREVIEW_PREFIX` is what keeps two factories sharing one Container Apps
+environment from colliding on `pr-1`.
+
+### What it costs to leave running
+
+Previews are created with `--min-replicas 0`, so an app nobody is looking at
+runs no replicas and bills nothing but its share of the environment. The trade
+is a few seconds of cold start on the first request after idle — worth saying
+out loud on the PR, because a reviewer who clicks and sees nothing for four
+seconds assumes it is broken.
+
+### Other hosts
+
+Nothing about the factory is Azure-specific. `previewUp` in
+`factory/src/preview.ts` is a switch on one variable; any host that can run a
+container per pull request and hand back a URL fits the same shape — Cloud Run,
+Fly, ECS, or a single VM running the images the stub already builds.
 
 ## Running the agent somewhere other than GitHub Actions
 
@@ -100,7 +196,14 @@ six workflows. Two things to think about first:
   build turn's `npm run build` runs on hardware that persists. Use ephemeral
   runners, or containers, or both.
 - **`docker build` in `build-setup.yml`** needs a Docker daemon the runner can
-  reach.
+  reach — on the `ghcr` backend only. The `azure` backend builds in ACR Tasks
+  and needs no daemon, just the `az` CLI.
+
+A self-hosted runner is also the one place caching the agent CLI pays off. On
+an ephemeral GitHub-hosted runner it does not: the payload is a ~270MB platform
+binary, and a cache restore moves the same bytes over the same network as the
+install did. On a persistent runner the npm cache and any Docker layers survive
+between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 
 ## Cost
 
@@ -108,7 +211,9 @@ six workflows. Two things to think about first:
 | --- | --- |
 | Anthropic API | The dominant cost. Capped per step by `--max-budget-usd` |
 | GitHub Actions | Free on public repositories; the poller is 144 short runs/day |
-| GHCR storage | One image per open PR, deleted on close |
+| GHCR storage | One image per open PR, deleted on close (`ghcr` backend) |
+| Azure Container Apps | Scales to zero; an idle preview bills nothing (`azure` backend) |
+| Azure Container Registry | Basic tier, one tag per open PR, deleted on close |
 | Jira Cloud Free | Free to 10 users |
 
 The poller is the only thing that runs unattended, and it does nothing but one

@@ -93,8 +93,11 @@ jobs:
           echo "preview=$(jq -r '.preview_url // empty' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
           echo "turn=$(jq -r '.turn' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
 
+      # Pinned deliberately. The flag surface is version-coupled — see the
+      # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
+      # release change how a turn behaves with nobody watching.
       - name: Install the agent
-        run: npm i -g @anthropic-ai/claude-code
+        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}"
 
       # ANTHROPIC_API_KEY and PREVIEW_URL. Nothing else — no App token, no Jira
       # token, no repository variables.
@@ -147,7 +150,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ steps.gather.outputs.key }}-turn${{ steps.gather.outputs.turn }}-${{ github.run_id }}
-          path: .agent/out/
+          # Inputs as well as outputs. A turn is a pure function of .agent/in,
+          # so shipping both is what makes a failed turn replayable locally.
+          path: |
+            .agent/in/
+            .agent/out/
           retention-days: 14
           if-no-files-found: warn
 

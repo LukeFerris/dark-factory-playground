@@ -30,6 +30,23 @@ exfiltrate credentials finds none to take.
 The App token is minted per step by `actions/create-github-app-token`, lives for
 an hour, and is never in scope while the agent is running.
 
+The same holds for the preview's Azure credential, and slightly more strongly.
+It is obtained by OIDC in `build-setup.yml` and `build-teardown.yml` — two
+workflows that never run an agent — so there is nothing long-lived to store in
+the repository at all, and the credential does not exist in any job an agent can
+reach. This is why raising the preview is a separate workflow rather than a step
+of `build-start.yml`: `packages: write`, `deployments: write` and `id-token:
+write` must not be in scope while the agent runs.
+
+| Credential | Where it lives | In scope during an agent step |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | Repository secret | **Yes** — the only one |
+| `PREVIEW_URL` | Step output | Yes, but it is a URL, not a credential |
+| App installation token | Minted per step, 1 hour | No |
+| `JIRA_BOT_TOKEN` | Repository secret | No |
+| `GITHUB_TOKEN` | Actions, read-only repository-wide | No |
+| Azure | OIDC, minted per run, no stored secret | No — different workflow entirely |
+
 ### 2. The tool allow-list
 
 | Stage | Tools |
@@ -147,6 +164,15 @@ threat model:
   previews from CI instead.
 - **A compromised Anthropic API key.** It is the one credential the agent's
   environment holds. Rotate it like any other.
+- **`build-setup.yml` builds the PR's code with `packages: write` and an Azure
+  credential in scope.** That is inherent to previewing a branch — you cannot
+  preview code without running it. Two things bound it. The workflow file itself
+  is read from the base branch on a `pull_request` event, so the agent cannot
+  change what runs; and `factory validate` rejects any turn touching `.github/`,
+  `factory/`, `bootstrap/` or `.agent/` before it reaches the branch. What is
+  *not* bounded is `npm ci` and the Docker build running install scripts from
+  `app/package.json` — the same gap as the dependency point above, with a
+  narrower credential in the room. The control is the human reading the diff.
 - **Anyone with write access to this repository.** They can edit the workflows,
   the manuals and the validator. Every control here assumes the repository
   itself is trusted; `CODEOWNERS` marks those paths but does not enforce review

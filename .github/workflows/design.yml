@@ -55,8 +55,11 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}" --stage design
 
+      # Pinned deliberately. The flag surface is version-coupled — see the
+      # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
+      # release change how a turn behaves with nobody watching.
       - name: Install the agent
-        run: npm i -g @anthropic-ai/claude-code
+        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}"
 
       # No GitHub token, no Jira token, no repository variables. The agent reads
       # its manual and .agent/in, and writes .agent/out. Tools are allow-listed;
@@ -120,7 +123,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: design-${{ inputs.key }}-${{ github.run_id }}
-          path: .agent/out/
+          # Inputs as well as outputs. A turn is a pure function of .agent/in,
+          # so shipping both is what makes a failed turn replayable locally.
+          path: |
+            .agent/in/
+            .agent/out/
           retention-days: 14
           if-no-files-found: warn
 

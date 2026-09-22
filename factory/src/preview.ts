@@ -14,18 +14,43 @@ import {
   upsertFactoryBlock,
 } from './github.ts'
 import { readMeta, updateMeta } from './meta.ts'
+import {
+  azureConfig,
+  buildImage,
+  deletePreviewApp,
+  deletePreviewImage,
+  deployPreview,
+} from './azure.ts'
 
 /**
- * Preview environments — STUB.
+ * Preview environments — one per pull request.
  *
- * This builds the nginx image and pushes it to GHCR tagged `pr-<N>`, then
- * records a GitHub Deployment whose environment_url points at the package page.
- * That is not a running site: it is a real, inspectable artifact per PR, which
- * is enough to exercise the factory's plumbing end to end.
+ * Two backends, chosen by `FACTORY_PREVIEW_BACKEND`:
  *
- * The real thing is Azure Static Web Apps, which has native per-PR preview
- * environments. See docs/factory/SELF-HOSTING.md for the swap.
+ * - `azure` (UNVERIFIED) builds the image in Azure Container Registry and runs
+ *   it as an Azure Container App with external ingress. That is a real, running
+ *   site on an HTTPS URL, which is what a preview is supposed to be.
+ * - `ghcr` (default) is the stub: it builds the nginx image, pushes it to GHCR
+ *   tagged `pr-<N>`, and records a Deployment pointing at the package page.
+ *   Nothing serves it. It exists so the factory's plumbing can be exercised end
+ *   to end with no cloud account at all.
+ *
+ * The default stays `ghcr` deliberately: the Azure path has never run against a
+ * live subscription, so it is opt-in until someone has watched it work. See
+ * docs/factory/SELF-HOSTING.md.
  */
+
+export type PreviewBackend = 'ghcr' | 'azure'
+
+export function previewBackend(): PreviewBackend {
+  const value = optional('FACTORY_PREVIEW_BACKEND', 'ghcr').toLowerCase()
+  if (value !== 'ghcr' && value !== 'azure') {
+    throw new Error(
+      `FACTORY_PREVIEW_BACKEND must be "ghcr" or "azure", not "${value}".`,
+    )
+  }
+  return value
+}
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { cwd: REPO_ROOT, stdio: 'inherit' })
@@ -44,15 +69,16 @@ function packageUrl(): string {
   return `https://github.com/${owner}/${repo}/pkgs/container/${repo}`
 }
 
-export function previewUp(prNumber: number, dryRun = false): string {
-  const image = imageRef(prNumber)
-  const url = packageUrl()
-
-  if (dryRun) {
-    console.log(`preview-up --dry-run: would build and push ${image}`)
-    return url
+/** Builds and publishes the image, and returns the URL a human should open. */
+function raise(prNumber: number): string {
+  if (previewBackend() === 'azure') {
+    const config = azureConfig()
+    const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
+    buildImage(config, prNumber)
+    return deployPreview(config, prNumber, prefix)
   }
 
+  const image = imageRef(prNumber)
   run('docker', ['build', '-f', 'app/Dockerfile', '-t', image, '.'])
 
   // GHCR login uses whatever token the workflow put in GH_TOKEN; the job needs
@@ -66,6 +92,27 @@ export function previewUp(prNumber: number, dryRun = false): string {
   if (login.status !== 0) throw new Error('docker login ghcr.io failed')
 
   run('docker', ['push', image])
+  return packageUrl()
+}
+
+/**
+ * Raises (or re-raises) the preview and records the URL in the three places
+ * that need it: the Deployment, the PR's factory block, and meta.json.
+ *
+ * Safe to call repeatedly for the same PR. That matters now the workflow runs
+ * on `synchronize` as well as `labeled` — every build turn pushes, so every
+ * build turn re-enters here and the preview follows the branch instead of
+ * showing turn 1 forever.
+ */
+export function previewUp(prNumber: number, dryRun = false): string {
+  const backend = previewBackend()
+
+  if (dryRun) {
+    console.log(`preview-up --dry-run: would raise the ${backend} preview for PR #${prNumber}`)
+    return backend === 'azure' ? 'https://<container-app>.azurecontainerapps.io' : packageUrl()
+  }
+
+  const url = raise(prNumber)
 
   const pr = ghJson<{ headRefOid: string; body: string }>([
     'pr',
@@ -90,17 +137,42 @@ export function previewUp(prNumber: number, dryRun = false): string {
     // meta.json only exists inside a turn; preview-up also runs on its own.
   }
 
-  console.log(`preview-up: ${image} -> ${url}`)
+  console.log(`preview-up (${backend}): ${url}`)
   return url
 }
 
 export function previewDown(prNumber: number, dryRun = false): void {
+  const backend = previewBackend()
+
   if (dryRun) {
-    console.log(`preview-down --dry-run: would delete the pr-${prNumber} package version`)
+    console.log(`preview-down --dry-run: would tear down the ${backend} preview for PR #${prNumber}`)
     return
   }
 
   deactivateDeployments('preview')
+
+  if (backend === 'azure') {
+    const config = azureConfig()
+    const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
+
+    // Two independent attempts, not one block. A Container App that outlives
+    // its PR bills by the hour; an image tag that outlives its PR only bills
+    // for storage. Losing the first is much worse than losing the second, so
+    // neither failure is allowed to skip the other.
+    try {
+      deletePreviewApp(config, prNumber, prefix)
+      console.log(`preview-down: deleted the Container App for PR #${prNumber}`)
+    } catch (error) {
+      console.error(`preview-down: could not delete the Container App: ${(error as Error).message}`)
+    }
+    try {
+      deletePreviewImage(config, prNumber)
+      console.log(`preview-down: deleted the pr-${prNumber} image tag`)
+    } catch (error) {
+      console.error(`preview-down: could not delete the image tag: ${(error as Error).message}`)
+    }
+    return
+  }
 
   // Find the GHCR version tagged pr-<N> and delete just that one.
   try {

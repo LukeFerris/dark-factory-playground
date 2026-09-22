@@ -69,8 +69,11 @@ jira_write() {
   local method="$1" path="$2" payload="$3" body status
 
   if (( DRY_RUN )); then
-    printf '  %s %s %s\n' "$(_colour 90 'would call:')" "$method" "$path"
-    printf '%s\n' "$payload" | jq . | sed 's/^/      /'
+    # Callers capture this function's stdout and pipe it to jq, so the
+    # rehearsal log has to go to stderr. It is still on the terminal; it just
+    # is not mistaken for the response body.
+    printf '  %s %s %s\n' "$(_colour 90 'would call:')" "$method" "$path" >&2
+    printf '%s\n' "$payload" | jq . | sed 's/^/      /' >&2
     printf '%s' '{}'
     return 0
   fi

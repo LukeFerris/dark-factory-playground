@@ -114,6 +114,34 @@ if [[ -n "${FACTORY_APP_KEY_PATH:-}" ]]; then
   fi
 fi
 
+# The preview backend is opt-in, so its variables are only checked when someone
+# has actually opted in. Naming the missing one here beats discovering it half
+# way through a preview build that has already pushed an image.
+case "${FACTORY_PREVIEW_BACKEND:-ghcr}" in
+  ghcr)
+    pass "preview backend" "ghcr (stub — nothing serves the image)"
+    ;;
+  azure)
+    warn "preview backend" "azure — UNVERIFIED path, see SELF-HOSTING.md"
+    for var in AZURE_RESOURCE_GROUP AZURE_ACR_NAME AZURE_CONTAINERAPPS_ENVIRONMENT AZURE_PREVIEW_REPOSITORY; do
+      if [[ -n "${!var:-}" ]]; then
+        pass "$var" "${!var}"
+      else
+        fail "$var" "not set — required when FACTORY_PREVIEW_BACKEND=azure"
+      fi
+    done
+    # az is only needed locally; in Actions the runner image ships it.
+    if command -v az >/dev/null 2>&1; then
+      pass "az" "$(command -v az)"
+    else
+      warn "az" "not on PATH — only needed to run preview-up locally"
+    fi
+    ;;
+  *)
+    fail "preview backend" "FACTORY_PREVIEW_BACKEND=${FACTORY_PREVIEW_BACKEND} is not ghcr or azure"
+    ;;
+esac
+
 # ------------------------------------------------------------------ toolchain
 
 check_command() {
@@ -175,7 +203,9 @@ if check_command gh; then
     elif [[ "$scopes" == *"'workflow'"* ]]; then
       pass "gh workflow scope" "present on the $GH_OWNER token"
     else
-      fail "gh workflow scope" "missing — run: gh auth refresh -h github.com -u $GH_OWNER -s workflow"
+      # gh auth refresh has no account flag: it refreshes whichever account is
+      # active. The check above has already pinned that to $GH_OWNER.
+      fail "gh workflow scope" "missing — run: gh auth refresh -h github.com -s workflow"
     fi
   fi
 fi

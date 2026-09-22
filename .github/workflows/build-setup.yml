@@ -2,16 +2,31 @@ name: factory build setup
 
 # Raises the preview for a build PR and posts the kickoff comment. Split out of
 # build-start.yml because this is the only agent-adjacent job that needs
-# packages: write and deployments: write, and those permissions must not be in
-# scope while the agent is running.
+# packages: write, deployments: write and an Azure credential, and none of those
+# may be in scope while the agent is running.
 #
-# The preview is a stub: it builds app/Dockerfile, pushes it to GHCR as
-# ghcr.io/<owner>/<repo>:pr-<n>, and records a GitHub Deployment in the
-# `preview` environment pointing at the package. Nothing serves it. The real
-# target is Azure Static Web Apps — see docs/factory/SELF-HOSTING.md and the
-# commented job at the foot of this file.
+# Triggered by the `factory:active` label landing on the PR, and re-triggered by
+# every push to it. Both matter:
+#
+#   labeled     — `factory publish` adds factory:active at the end of turn 1.
+#                 It does that with the App token, and events made with an App
+#                 installation token DO start workflow runs (events made with
+#                 GITHUB_TOKEN do not), so the label is a usable trigger.
+#   synchronize — every later turn pushes. Without this the preview would show
+#                 turn 1 forever, which is worse than having no preview.
+#
+# workflow_dispatch stays as the manual retry path; see RUNBOOK.
+#
+# On `pull_request` the workflow file is read from the base branch, so the agent
+# cannot edit what runs here — but the *code* being checked out and built is the
+# PR's. That is inherent to previewing a branch. The boundary holding it is the
+# same one the rest of the factory rests on: `factory validate` rejects any turn
+# touching .github/, factory/, bootstrap/ or .agent/ before it reaches the
+# branch. No credential minted in this job is ever handed to an agent step.
 
 on:
+  pull_request:
+    types: [labeled, synchronize]
   workflow_dispatch:
     inputs:
       pr:
@@ -23,20 +38,35 @@ permissions:
   contents: read
 
 concurrency:
-  group: factory-preview-${{ inputs.pr }}
+  group: factory-preview-${{ inputs.pr || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   preview:
+    # `labeled` fires for every label, so match the exact one rather than
+    # testing the label set — otherwise adding any unrelated label to an active
+    # PR would re-post the kickoff comment.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'factory:active') ||
+      (github.event.action == 'synchronize' &&
+       contains(github.event.pull_request.labels.*.name, 'factory:active'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
       deployments: write
+      id-token: write
+    env:
+      PR: ${{ inputs.pr || github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v4
         with:
+          # The PR's head, not the merge commit Actions checks out by default.
+          # A preview of a merge commit is a preview of something that exists
+          # nowhere and that nobody asked to look at.
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -45,6 +75,24 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Federated credentials — no Azure secret is stored in this repository.
+      # The id-token: write permission above lets Actions mint a short-lived
+      # OIDC token that Azure exchanges for one scoped to the preview resource
+      # group. Skipped entirely when the backend is the GHCR stub.
+      - name: Sign in to Azure
+        if: vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # `az containerapp` ships as an extension. Adding it explicitly beats
+      # relying on dynamic install, which prompts by default and so hangs.
+      - name: Add the containerapp extension
+        if: vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        run: az extension add --name containerapp --upgrade --only-show-errors
 
       - name: Mint App token
         id: app-token
@@ -60,42 +108,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: npm run --silent factory -- preview-up "${{ inputs.pr }}"
+          FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
+          AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
+          AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
+        run: npm run --silent factory -- preview-up "${PR}"
 
+      # Once per PR, not once per push. The kickoff comment explains how turns
+      # are granted; repeating it on every turn would bury the conversation it
+      # is asking the human to have.
       - name: Post the kickoff comment
+        if: github.event.action != 'synchronize'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-        run: npm run --silent factory -- kickoff "${{ inputs.pr }}"
-
-# ---------------------------------------------------------------------------
-# Real preview environment, not built for the POC.
-#
-# The stub above proves the plumbing — an image exists per PR and a Deployment
-# records it — without standing up hosting. To serve the preview for real, add
-# an Azure Static Web Apps deployment token as a secret and enable this job.
-# Full walkthrough in docs/factory/SELF-HOSTING.md.
-#
-#  deploy-azure:
-#    runs-on: ubuntu-latest
-#    needs: preview
-#    permissions:
-#      contents: read
-#      deployments: write
-#    steps:
-#      - uses: actions/checkout@v4
-#        with:
-#          persist-credentials: false
-#      - uses: actions/setup-node@v4
-#        with:
-#          node-version-file: .nvmrc
-#          cache: npm
-#      - run: npm ci
-#      - run: npm run build --workspace @factory/app
-#      - uses: Azure/static-web-apps-deploy@v1
-#        with:
-#          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_TOKEN }}
-#          action: upload
-#          app_location: app/dist
-#          skip_app_build: true
-#          deployment_environment: pr-${{ inputs.pr }}
+        run: npm run --silent factory -- kickoff "${PR}"

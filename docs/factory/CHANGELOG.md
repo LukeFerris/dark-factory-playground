@@ -7,7 +7,160 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-22
+
+### Two bootstrap scripts wrote log output where a caller expected JSON
+
+Both found by running the bootstrap for the first time against a live account
+and a live Jira site. Neither could have been caught by unit tests: both only
+appear when a real API answers.
+
+**`jira.sh` — `--dry-run` could not get past the first write.** `jira_write`
+printed its "would call" rehearsal — the method, the path and the pretty-printed
+payload — to stdout. Every caller captures that stdout and pipes it to `jq`
+(`PROJECT_ID="$(jira_write POST /rest/api/3/project "$payload" | jq -r '.id')"`),
+so `jq` was handed the log text and died with `Invalid numeric literal at line
+1, column 4`. The rehearsal now goes to stderr: still on the terminal, no longer
+mistaken for a response body. Four capture sites were affected. One of them,
+the board creation, redirected stdout to `/dev/null`, so its payload had never
+been visible in a dry run at all — it is now.
+
+**`github.sh` — a 403 was parsed as a ruleset id.** `upsert_ruleset` read the
+existing id with `gh api .../rulesets --jq ... 2>/dev/null || true`. Rulesets
+need GitHub Pro on a private repository; on a free plan the call returns a JSON
+error body, which `--jq` passed straight through into `$id`. The script then
+believed the ruleset existed and would have issued
+`PUT repos/<slug>/rulesets/{"message":"Upgrade to GitHub Pro..."}`. It now lists
+first, checks the call succeeded, and dies with the plain reason — a missing
+ruleset is a normal state, an unreachable ruleset API is not. This matters more
+than a tidy error message: the `main protection` ruleset is the entire
+containment story, and failing silently on it means the App is uncontained.
+
+### Notes from the first live bootstrap
+
+Neither is a defect; both cost time to diagnose and are worth writing down.
+
+*Jira ships a global status called "Building".* `jira.sh` creates nine of its
+ten statuses and reuses that one. The skip is the idempotency check working, not
+a missing status.
+
+*`GET /rest/api/3/field` lags behind field creation.* Immediately after
+`jira.sh` creates `Acceptance criteria` and `Design owner`, both are returned by
+`/rest/api/3/field/search` and both resolve by id, but the unpaginated
+`/rest/api/3/field` does not list them for some minutes. `smoke.sh` reports them
+missing during that window, and `factory/src/gather.ts` reads the same endpoint —
+where a miss is silent, because the acceptance criteria simply render as
+`_(none given)_`. If an early card comes back with no acceptance criteria, this
+is the first thing to check.
+
 ## 2026-09-21
+
+### The preview was raised once and never rebuilt, and nothing served it
+
+**Plan said:** a preview environment per pull request, raised by `build-setup`.
+
+**Actual:** two separate gaps, one of them silently wrong in the documentation.
+
+*It was raised once.* `build-start.yml` dispatched `build-setup.yml` at the end
+of turn 1, and nothing dispatched it again. `build-turn.yml` did not. So the
+preview showed turn 1's build for the life of the PR, while every diagram and
+document in the repository described it as tracking the branch. A preview that
+is confidently stale is worse than no preview: a reviewer clicks it, sees the
+old build, and reports a bug that does not exist.
+
+*Nothing served it.* The GHCR path builds a real image and records a real
+Deployment, but the "preview URL" was a link to a container registry page.
+
+**Done, for the trigger:** `build-setup.yml` now runs on the pull request's own
+`labeled` and `synchronize` events instead of a dispatch. The hand-off step and
+the now-unused PR-number step are gone from `build-start.yml`. This works
+because `factory publish` applies `factory:active` with the **App installation
+token**, and events made with an App token start workflow runs where events made
+with `GITHUB_TOKEN` do not — the same distinction the poller already depends on.
+`synchronize` covers every later turn, so the preview follows the branch. The
+`labeled` gate matches `github.event.label.name` exactly rather than testing the
+label set, or adding any unrelated label to an active PR would re-post the
+kickoff comment; the kickoff step is additionally skipped on `synchronize`.
+Checkout takes the head SHA, not the merge commit — a preview of a merge commit
+is a preview of something that exists nowhere.
+
+**Done, for the hosting:** a second backend, selected by the
+`FACTORY_PREVIEW_BACKEND` repository variable. `azure` builds the image with
+`az acr build` (in ACR Tasks, so the runner needs no Docker daemon) and runs it
+as one Azure Container App per PR with external ingress on 8080. Azure issues
+and renews the certificate and hands back an
+`https://<app>.<region>.azurecontainerapps.io` FQDN, which becomes the
+Deployment URL, the PR factory block's `preview_url` and the agent's
+`PREVIEW_URL`. `--min-replicas 0` means an unvisited preview costs nothing, at
+the price of a few seconds of cold start. Teardown deletes the app and the image
+tag as two independent attempts, because an app that outlives its PR bills by
+the hour while a stray image tag only bills for storage.
+
+**Registry is ACR, not GHCR,** deliberately. Container Apps pulling from a
+private GHCR repository would need a durable GitHub credential stored inside
+Azure — exactly the credential-spreading the security model exists to prevent.
+ACR pulls with the app's system-assigned managed identity and stores nothing.
+
+**Azure sign-in is OIDC,** so the repository holds no Azure secret at all: nine
+repository variables and zero secrets. `id-token: write` is granted only in
+`build-setup.yml` and `build-teardown.yml`, neither of which runs an agent.
+
+**Container Apps, not Static Web Apps,** which the plan named. The app is
+already a container carrying its own nginx config; Static Web Apps serves static
+files only, so the SPA fallback and cache headers would have to be re-expressed
+in its config format. The commented-out `deploy-azure` job is deleted.
+
+**Not verified.** No part of the Azure path has run against a live subscription.
+The `az` command shapes follow the documented CLI surface and are pinned by 13
+unit tests through a stubbed runner, but a passing test of a command string is
+not evidence the command works — see the `shellcheck`/`actionlint` entry below
+for why that distinction is worth stating twice. The default stays `ghcr` until
+someone has watched it work. `preflight.sh` fails loudly on a half-configured
+`azure` backend rather than letting it fail mid-build.
+
+**Watch for:** `--registry-identity system` asks Azure to grant the app's own
+identity `AcrPull` at create time, which only succeeds if the deploying
+principal can make role assignments. That is the most likely first failure, and
+it presents as a successful create followed by `ImagePullFailure`.
+
+**Also watch for:** `build-setup.yml` now builds the PR's own code while holding
+`packages: write` and an Azure credential. The workflow file is read from the
+base branch so the agent cannot change what runs, and `factory validate` keeps
+`.github/`, `factory/` and `bootstrap/` out of reach — but `npm ci` and the
+Docker build still run install scripts from `app/package.json`. Recorded in
+SECURITY.md under what this does not defend against.
+
+### The agent CLI was installed unpinned, and turns were not reproducible
+
+**Plan said:** install the agent on the runner and run it headless.
+
+**Actual:** all three agent workflows ran `npm i -g @anthropic-ai/claude-code`
+with no version. Every job pulled whatever was latest at that moment. That is a
+live risk rather than a theoretical one: the `--max-turns` entry below is this
+repo already having been bitten by version-coupled flags, and an unpinned
+install means a CLI release can change how a turn behaves at 3am with nobody
+watching. Turns were also not reproducible after the fact — the artifact
+carried `.agent/out/` but not `.agent/in/`, so a failed turn shipped the answer
+without the question.
+
+**Done:** the install is pinned to `${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}`
+in `design.yml`, `build-start.yml` and `build-turn.yml`, matching how the budget
+variables already work. Artifacts now carry `.agent/in/` as well as
+`.agent/out/`. Because a turn is a pure function of `.agent/in/`, those two
+changes together make any turn replayable on a laptop with no runner involved —
+see RUNBOOK, "Replaying a turn on your own machine". That is a better debugging
+story than shelling into a live runner would have been, because it repeats.
+
+**Not done, deliberately:** caching or pre-baking the CLI. Measured, a cold
+install is ~2–4s and the payload is a ~270MB platform binary delivered as an
+optional dependency. A cache restore or a container pull moves the same 270MB
+over the same network, so on an ephemeral runner there is nothing to win. It
+only pays off on a persistent self-hosted runner, where a layer cache survives
+between jobs — see SELF-HOSTING.md.
+
+**Watch for:** `create-github-app-token@v1` and the other actions are still
+mutable major tags rather than commit SHAs. That is the remaining unpinned
+dependency, and it is the one that mints the App token.
 
 ### `claude --max-turns` does not exist; turns are bounded by spend instead
 
