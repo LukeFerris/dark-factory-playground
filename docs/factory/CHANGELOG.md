@@ -9,6 +9,33 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### The poller polls in a loop, because cron cannot go below five minutes
+
+**Plan said:** a scheduled workflow every ten minutes.
+
+**Actual:** ten minutes is a long time to watch nothing happen, and the obvious
+fix does not exist — GitHub's floor for `schedule:` is five minutes, and
+scheduled runs are routinely later than their slot under load. There is no cron
+that gives a thirty-second reaction.
+
+**Done:** the cron drops to `*/5` and stops being where latency comes from. A
+run now loops, polling every `FACTORY_POLL_INTERVAL_SECONDS` (default 30) until
+`FACTORY_POLL_WINDOW_SECONDS` (default 270) is up, and the cron only starts the
+next run. Both are repository variables and both are overridable per dispatch.
+Checkout, `npm ci` and minting the App token dominate the cost of a run, so
+passes after the first are nearly free.
+
+Neither value is trusted: a non-numeric or missing one falls back to the
+default, the interval is floored at 5s so a bad value cannot spin the loop, and
+the window is capped at 3000s because the App token is minted once and lasts an
+hour.
+
+**The cost, stated plainly:** a window just under the cron interval means a
+runner is up almost continuously. That is free on a public repository and
+unremarkable for a playground, but it is a real machine kept busy for something
+idle most of the time. `FACTORY_POLL_WINDOW_SECONDS=0` restores exactly the old
+one-pass-per-tick behaviour.
+
 ### Two bootstrap scripts wrote log output where a caller expected JSON
 
 Both found by running the bootstrap for the first time against a live account

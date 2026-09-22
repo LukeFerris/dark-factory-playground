@@ -80,14 +80,24 @@ from `main protection`'s bypass list.
 
 ### Polling, not webhooks
 
-A scheduled workflow every ten minutes, querying Jira by JQL.
+A workflow querying Jira by JQL, started on a schedule and polling in a loop
+while it runs.
 
 Webhooks would be faster and would need a public endpoint, a shared secret, and
-something to run it. Polling needs none of those, and ten minutes of latency is
-irrelevant when the next step takes several minutes and the one after it waits
-for a human. The poller claims a card (moves it out of the waiting status)
-*before* dispatching, so a failed dispatch leaves the card visibly stuck rather
-than handing it to two agents on the next tick.
+something to run it. Polling needs none of those, and latency here is largely
+irrelevant: the next step takes several minutes and the one after it waits for a
+human. The poller claims a card (moves it out of the waiting status) *before*
+dispatching, so a failed dispatch leaves the card visibly stuck rather than
+handing it to two agents on the next tick.
+
+Latency is not set by the cron. GitHub's floor for `schedule:` is five minutes
+and scheduled runs are frequently later than that under load, so a run instead
+polls every `FACTORY_POLL_INTERVAL_SECONDS` (default 30) for
+`FACTORY_POLL_WINDOW_SECONDS` (default 270) and the cron only starts the next
+run. Checkout, `npm ci` and minting the App token cost far more than a pass, so
+this is cheaper than it sounds — but it does mean a runner is busy almost
+continuously while the schedule is enabled. Set the window to 0 for one pass per
+cron tick.
 
 ### The result contract is a file, not a parsed transcript
 
@@ -175,7 +185,8 @@ human merges but does not write. The agent cannot modify its own constraints.
 Every turn is auditable — the transcript is an artifact, the decision is a
 committed JSON file, the Jira comment links the run.
 
-**Bad.** Ten minutes of polling latency. Six workflows with real duplication
+**Bad.** A runner up almost continuously, to buy polling latency that a webhook
+would give for nothing. Six workflows with real duplication
 between them, because composite actions would have made the credential
 boundaries harder to see and that boundary is the point. A build turn needs a
 human comment, so an unattended factory does nothing overnight — by design, but
