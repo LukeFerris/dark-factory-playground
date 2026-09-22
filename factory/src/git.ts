@@ -9,6 +9,20 @@ export function git(args: string[], allowFailure = false): string {
   return result.stdout ?? ''
 }
 
+/**
+ * Runs git and reports whether it succeeded, for commands where failure is an
+ * outcome to branch on rather than a bug. `git` itself throws, and `git(…,
+ * true)` swallows the status along with the failure — neither is usable when
+ * the caller has to clean up after a failed command.
+ */
+export function gitSucceeds(args: string[]): boolean {
+  const result = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
+  if (result.status !== 0) {
+    console.error(`git ${args.join(' ')}: ${(result.stderr ?? '').trim()}`)
+  }
+  return result.status === 0
+}
+
 export function currentBranch(): string {
   return git(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
 }
