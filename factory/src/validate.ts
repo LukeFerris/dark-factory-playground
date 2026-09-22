@@ -47,6 +47,35 @@ export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
   return violations
 }
 
+/**
+ * The contract rules the JSON Schema cannot express — each one a relationship
+ * between `status` and another field.
+ *
+ * Pulled out of `validate` so it can be tested without a git repository and a
+ * result file on disk, which is the only reason these rules used to go
+ * unchecked.
+ */
+export function contractProblems(result: Result): string[] {
+  const problems: string[] = []
+
+  if ((result.status === 'blocked' || result.status === 'question') && result.questions.length === 0) {
+    problems.push(`status is "${result.status}" but no questions were given.`)
+  }
+  if (result.status === 'failed' && result.reason.trim() === '') {
+    problems.push('status is "failed" but no reason was given.')
+  }
+  // Only on a finished turn. A blocked or failed turn has nothing to verify
+  // yet, and demanding steps for work that did not happen would just teach the
+  // agent to invent them.
+  if (result.status === 'ready_for_review' && result.acceptance_criteria.length === 0) {
+    problems.push(
+      'status is "ready_for_review" but acceptance_criteria is empty. A finished turn has to say how a person checks it in the browser.',
+    )
+  }
+
+  return problems
+}
+
 export interface ValidateOutcome {
   ok: boolean
   result: Result
@@ -86,15 +115,7 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
     }
   }
 
-  // Contract rules the schema alone cannot express.
-  if (result !== null) {
-    if ((result.status === 'blocked' || result.status === 'question') && result.questions.length === 0) {
-      problems.push(`status is "${result.status}" but no questions were given.`)
-    }
-    if (result.status === 'failed' && result.reason.trim() === '') {
-      problems.push('status is "failed" but no reason was given.')
-    }
-  }
+  if (result !== null) problems.push(...contractProblems(result))
 
   const violations = checkScope(stage, changedFiles(base))
   for (const v of violations) {
@@ -112,6 +133,11 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
   const synthetic: Result = {
     status: 'failed',
     summary: `The ${stage} turn was rejected by validation.`,
+    context: result?.context ?? '',
+    // Carried through rather than dropped: if the agent wrote usable steps and
+    // then strayed outside its paths, the steps are still the clearest
+    // statement of what it was trying to do.
+    acceptance_criteria: result?.acceptance_criteria ?? [],
     artifacts: result?.artifacts ?? [],
     questions: result?.questions ?? [],
     assumptions: result?.assumptions ?? [],

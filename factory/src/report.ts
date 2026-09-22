@@ -9,6 +9,12 @@ import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './sch
 /**
  * Builds the Jira comment for a finished turn.
  *
+ * The shape is Summary / Context / Acceptance criteria, then whatever the turn
+ * needs a human to know. That is the house ticket template, and the point of
+ * keeping to it is that a card written by an agent reads the same as a card
+ * written by a person — so a reviewer scanning the board does not have to
+ * switch modes.
+ *
  * Every comment links to the Actions run that produced it — that is an
  * acceptance criterion, and it is what makes a surprising card state
  * diagnosable without going digging.
@@ -30,7 +36,31 @@ export function buildComment(
     failed: `${stage} turn failed`,
   }
   blocks.push(adf.heading(headline[result.status]))
+
+  blocks.push(adf.heading('Summary', 4))
   blocks.push(adf.paragraph(adf.text(result.summary.trim())))
+
+  if (result.context.trim() !== '') {
+    blocks.push(adf.heading('Context', 4))
+    blocks.push(adf.paragraph(adf.text(result.context.trim())))
+  }
+
+  if (result.acceptance_criteria.length > 0) {
+    blocks.push(adf.heading('Acceptance criteria', 4))
+    // A design turn has built nothing, so its steps are a contract for the
+    // build rather than something you can go and do. Saying which it is stops
+    // a reviewer opening a preview that does not exist yet.
+    blocks.push(
+      adf.paragraph(
+        adf.text(
+          stage === 'design'
+            ? 'What the build has to make true. With the app open in a browser:'
+            : 'With the app open in a browser:',
+        ),
+      ),
+    )
+    blocks.push(adf.orderedList(result.acceptance_criteria.map((c) => [adf.text(c)])))
+  }
 
   if (result.questions.length > 0) {
     blocks.push(adf.heading('Questions', 4))

@@ -25,6 +25,19 @@
       "minLength": 1,
       "description": "First line becomes the commit message subject. Always required."
     },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "One or two lines of background for the Jira comment: why this shape, and where to read the detail. Not a restatement of summary."
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "The exact steps a person takes in the browser, with the app already open, to check this card worked. One step per entry, in order, naming what is on screen. Required when status is ready_for_review."
+    },
     "artifacts": {
       "type": "array",
       "items": {

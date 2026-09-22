@@ -7,6 +7,8 @@ function result(over: Partial<Result> = {}): Result {
   return {
     status: 'ready_for_review',
     summary: 'Wrote the design.',
+    context: '',
+    acceptance_criteria: [],
     artifacts: [],
     questions: [],
     assumptions: [],
@@ -66,6 +68,49 @@ describe('buildComment', () => {
   it('renders the failure reason in a code block when the turn failed', () => {
     const doc = buildComment('build', result({ status: 'failed', reason: 'out of scope' }), null, null, null)
     expect(textOf(doc)).toContain('out of scope')
+  })
+
+  it('follows the ticket template: Summary, then Context, then Acceptance criteria', () => {
+    const doc = buildComment(
+      'design',
+      result({ context: 'Smallest change that satisfies the card.', acceptance_criteria: ['Type Ada.'] }),
+      null,
+      null,
+      null,
+    )
+    const headings = doc.content
+      .filter((n) => n.type === 'heading' && (n['attrs'] as { level: number }).level === 4)
+      .map(textOf)
+    expect(headings).toEqual(['Summary', 'Context', 'Acceptance criteria'])
+  })
+
+  it('omits Context when the agent left it empty', () => {
+    const doc = buildComment('design', result({ acceptance_criteria: ['Type Ada.'] }), null, null, null)
+    expect(textOf(doc)).not.toContain('Context')
+  })
+
+  it('numbers the acceptance criteria, because they are steps in order', () => {
+    const doc = buildComment(
+      'build',
+      result({ acceptance_criteria: ['Type Ada.', 'The heading reads Hello, Ada.'] }),
+      null,
+      null,
+      null,
+    )
+    const list = doc.content.find((n) => n.type === 'orderedList')
+    expect(list).toBeDefined()
+    expect((list?.['content'] as unknown[]).length).toBe(2)
+    expect(textOf(list)).toContain('The heading reads Hello, Ada.')
+  })
+
+  it('says a design turn has not built the thing yet, and a build turn has', () => {
+    const steps = { acceptance_criteria: ['Type Ada.'] }
+    expect(textOf(buildComment('design', result(steps), null, null, null))).toContain(
+      'What the build has to make true',
+    )
+    expect(textOf(buildComment('build', result(steps), null, null, null))).not.toContain(
+      'What the build has to make true',
+    )
   })
 
   it('produces a valid ADF doc envelope', () => {

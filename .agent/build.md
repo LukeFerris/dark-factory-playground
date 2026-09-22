@@ -101,8 +101,57 @@ requirement is not.
 
 Record assumptions in `assumptions[]`, one per entry, phrased so a reviewer can
 disagree with them. List changed files in `artifacts[]` as repository-relative
-paths. `summary` is read by a human in a Jira comment: two or three sentences on
-what now works, not a diff summary.
+paths.
+
+## What lands on the Jira card
+
+Three fields in `result.json` become the comment a human reads on the card, and
+after a build turn that human is about to open the preview and try it.
+
+### `summary`
+
+Two or three sentences on what now works. Not a diff summary.
+
+### `context`
+
+One or two lines: anything a reviewer needs before they start clicking — a
+dependency you added, a case you knowingly left for a later turn, which turn
+this is. Skip it if there is nothing; an empty `context` is omitted.
+
+### `acceptance_criteria`
+
+**The exact steps a person takes in their browser to check this card worked**,
+against the preview linked in the same comment. Start from the app already open
+in front of them; do not include building it or starting a server. One step per
+entry, in the order they happen. The last step is an observable outcome.
+
+Write what is on screen, in the words on screen. A step naming a component, a
+file, a prop, a test or a CSS selector is not a step a user can take.
+
+| | Example |
+|---|---|
+| ✅ | `Type "Ada" into the field labelled "Your name".` |
+| ✅ | `The heading reads "Hello, Ada" as you type, without pressing anything.` |
+| ✅ | `Clear the field. The heading goes back to "Hello, there".` |
+| ❌ | `NameField renders the greeting from state.` |
+| ❌ | `Verify the greeting updates correctly.` |
+| ❌ | `Run npm test and check it passes.` |
+
+Write each step as plain prose and quote what is on screen with `"` — no
+Markdown. Jira comments are not Markdown, so asterisks and backticks reach the
+card as literal asterisks and backticks.
+
+Start from the design's acceptance criteria — they are in `task.md` on the
+card — and correct them to what you actually built. If a step there is no
+longer true, change it and say why in `summary`; do not quietly drop it.
+
+**Only list steps you believe pass.** These are a claim about working software,
+not a to-do list. If a step does not pass, the turn is `continue` or `blocked`,
+and you say which step and why.
+
+**A `ready_for_review` turn with an empty `acceptance_criteria` is rejected by
+validation.** A `continue` turn does not need them, though carrying the working
+ones forward helps the next reviewer.
 
 ## Ground rules
 

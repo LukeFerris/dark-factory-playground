@@ -32,6 +32,18 @@ export const ResultSchema = z.object({
   status: ResultStatus,
   /** One line of "what I did", then optional detail. Required in every case. */
   summary: z.string().min(1),
+  /** Background for the card comment: why this shape, and what to read next. */
+  context: z.string().default(''),
+  /**
+   * How a human checks the card worked: the steps they take in the browser,
+   * in order, with the app already open.
+   *
+   * Required when `status` is `ready_for_review`. That rule lives in
+   * `validate`, not here, because zod cannot express it without making the
+   * whole parse conditional — and `validate` is where a broken contract turns
+   * into a Jira comment a human can read rather than a stack trace.
+   */
+  acceptance_criteria: z.array(z.string()).default([]),
   /** Repo-relative paths the turn produced or changed. */
   artifacts: z.array(z.string()).default([]),
   /** Populated when status is `blocked` or `question`. */
@@ -126,6 +138,19 @@ export function toJsonSchema(): unknown {
         type: 'string',
         minLength: 1,
         description: 'First line becomes the commit message subject. Always required.',
+      },
+      context: {
+        type: 'string',
+        default: '',
+        description:
+          'One or two lines of background for the Jira comment: why this shape, and where to read the detail. Not a restatement of summary.',
+      },
+      acceptance_criteria: {
+        type: 'array',
+        items: { type: 'string' },
+        default: [],
+        description:
+          'The exact steps a person takes in the browser, with the app already open, to check this card worked. One step per entry, in order, naming what is on screen. Required when status is ready_for_review.',
       },
       artifacts: {
         type: 'array',
