@@ -63,11 +63,57 @@ What could go wrong, and the approaches considered and rejected — with the
 reason. A reviewer disagreeing with the design usually wants to reopen an
 alternative, and it saves them re-deriving it.
 
+### Acceptance criteria
+
+What has to be true when this card is done, and for each one the exact steps a
+person takes in the browser to prove it.
+
+Two different things, kept apart on purpose. A **criterion** is a claim about
+the finished app, written so a reviewer can agree or disagree with it before any
+code exists. Its **steps** are what that reviewer actually does to find out
+whether it holds. Merge them and you lose the first: a list of clicks never says
+what "done" means.
+
+One subsection per criterion, the criterion as the heading, its steps numbered
+beneath:
+
+```markdown
+#### The greeting reads "Hi there, world" when the page loads
+
+1. Open the app.
+2. Look at the line beneath the heading.
+3. It reads "Hi there, world".
+
+#### The word "Hello" appears nowhere on the page
+
+1. Press Cmd-F and search the page for "Hello".
+2. No match is found.
+```
+
+Criteria are outcomes, not actions and not implementation: "the greeting updates
+as you type" and not "add an onChange handler" or "NameField re-renders". Steps
+start from the app already open — not building it, not starting a server — and
+the last step of each group is an observation rather than an action, because
+that is the bit that decides whether the criterion holds.
+
+Cover the empty and error cases, not just the happy path. If part of the card
+cannot be checked in a browser at all, say so in the criterion's steps in one
+line and cover it under Test strategy instead.
+
+This section and the `acceptance_criteria` field in `result.json` say the same
+thing — the field is what reaches the Jira card, this is what the build agent
+reads. A criterion you cannot write steps for is a requirement you have not
+pinned down, and that is an open question rather than a vague criterion.
+
 ### Test strategy
 
 The tests the build stage should write: what each one asserts and at what level
 (unit, component, integration). Name the behaviours, not the test framework. A
 design with no test strategy produces untested code.
+
+These are not the same as the acceptance criteria above. The criteria are what a
+person checks by hand once; the tests are what stops it regressing. A criterion
+with no test behind it is a criterion that holds exactly until the next card.
 
 ### Open questions
 

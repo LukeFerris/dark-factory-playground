@@ -120,10 +120,36 @@ this is. Skip it if there is nothing; an empty `context` is omitted.
 
 ### `acceptance_criteria`
 
-**The exact steps a person takes in their browser to check this card worked**,
-against the preview linked in the same comment. Start from the app already open
-in front of them; do not include building it or starting a server. One step per
-entry, in the order they happen. The last step is an observable outcome.
+A list of objects, each one a criterion paired with the steps that prove it:
+
+```json
+"acceptance_criteria": [
+  {
+    "criterion": "The greeting reads \"Hi there, world\" when the page loads.",
+    "steps": [
+      "Open the preview linked in this comment.",
+      "Look at the line beneath the heading.",
+      "It reads \"Hi there, world\"."
+    ]
+  }
+]
+```
+
+**`criterion` — what is now true, that was not before.** An outcome a reviewer
+can agree or disagree with. Not an action, and not an implementation detail.
+
+| | Example |
+|---|---|
+| ✅ | `The greeting updates as you type, without pressing anything.` |
+| ✅ | `An empty name field falls back to "Hi there, world".` |
+| ❌ | `Type "Ada" into the field.` — that is a step, not a criterion |
+| ❌ | `NameField renders the greeting from state.` — implementation, and it stops being true on the next refactor |
+| ❌ | `The greeting works correctly.` — "correctly" is the thing in question |
+
+**`steps` — the exact browser actions that prove that one criterion**, against
+the preview linked in the same comment. Start from the app already open in front
+of the reader; do not include building it or starting a server. One action per
+entry, in the order they happen. The last step of each group is an observation.
 
 Write what is on screen, in the words on screen. A step naming a component, a
 file, a prop, a test or a CSS selector is not a step a user can take.
@@ -131,39 +157,39 @@ file, a prop, a test or a CSS selector is not a step a user can take.
 | | Example |
 |---|---|
 | ✅ | `Type "Ada" into the field labelled "Your name".` |
-| ✅ | `The heading reads "Hello, Ada" as you type, without pressing anything.` |
-| ✅ | `Clear the field. The heading goes back to "Hello, there".` |
-| ❌ | `NameField renders the greeting from state.` |
+| ✅ | `The heading reads "Hello, Ada".` |
+| ❌ | `The component re-renders on change.` |
 | ❌ | `Verify the greeting updates correctly.` |
 | ❌ | `Run npm test and check it passes.` |
 
-Write each step as plain prose and quote what is on screen with `"` — no
-Markdown. Jira comments are not Markdown, so asterisks and backticks reach the
-card as literal asterisks and backticks.
+Write each criterion and each step as plain prose and quote what is on screen
+with `"` — no Markdown. Jira comments are not Markdown, so asterisks and
+backticks reach the card as literal asterisks and backticks.
 
-**Every entry is an action to take or a thing to observe. Nothing else.** If
-part of the card cannot be checked in a browser — the behaviour has no visible
-control, or it is only reachable from a test — say so in `context` and leave it
-out of the list. An entry explaining why you cannot check something is not a
+**Every entry in `steps` is an action to take or a thing to observe. Nothing
+else.** If part of the card cannot be checked in a browser — the behaviour has
+no visible control, or it is only reachable from a test — say so in `context`
+and leave it out. An entry explaining why you cannot check something is not a
 step, and a reader counting numbered steps will try to follow it.
 
 | | Example |
 |---|---|
-| ✅ in `acceptance_criteria` | `Reload the page. The line still reads "Hi there, world".` |
+| ✅ in `steps` | `Reload the page. The line still reads "Hi there, world".` |
 | ✅ in `context` | `The app has no input field yet, so the blank-name fallback is covered by tests rather than in the browser.` |
 | ❌ anywhere | `There is no text field, so there is no empty case to try here.` |
 
-Start from the design's acceptance criteria — they are in `task.md` on the
-card — and correct them to what you actually built. If a step there is no
-longer true, change it and say why in `summary`; do not quietly drop it.
+Start from the design's acceptance criteria — they are in `task.md` on the card
+and in `docs/design/<KEY>/design.md` — and correct them to what you actually
+built. If a criterion there is no longer true, change it and say why in
+`summary`; do not quietly drop it.
 
-**Only list steps you believe pass.** These are a claim about working software,
-not a to-do list. If a step does not pass, the turn is `continue` or `blocked`,
-and you say which step and why.
+**Only list criteria you have seen hold, with steps you have followed.** These
+are a claim about working software, not a to-do list. If one does not hold, the
+turn is `continue` or `blocked`, and you say which criterion and why.
 
-**A `ready_for_review` turn with an empty `acceptance_criteria` is rejected by
-validation.** A `continue` turn does not need them, though carrying the working
-ones forward helps the next reviewer.
+**A `ready_for_review` turn with an empty `acceptance_criteria`, or with a
+criterion that has no steps, is rejected by validation.** A `continue` turn does
+not need them, though carrying the working ones forward helps the next reviewer.
 
 ## Ground rules
 

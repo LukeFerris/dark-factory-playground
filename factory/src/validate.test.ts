@@ -7,7 +7,9 @@ function result(over: Partial<Result> = {}): Result {
     status: 'ready_for_review',
     summary: 'Did the thing.',
     context: '',
-    acceptance_criteria: ['Type Ada into the field labelled Your name.'],
+    acceptance_criteria: [
+      { criterion: 'The heading greets the name you typed.', steps: ['Type "Ada". It reads "Hello, Ada".'] },
+    ],
     artifacts: [],
     questions: [],
     assumptions: [],
@@ -17,7 +19,7 @@ function result(over: Partial<Result> = {}): Result {
 }
 
 describe('contractProblems', () => {
-  it('passes a finished turn that says how to check it', () => {
+  it('passes a finished turn that says what is true and how to check it', () => {
     expect(contractProblems(result())).toEqual([])
   })
 
@@ -27,7 +29,21 @@ describe('contractProblems', () => {
     expect(problems[0]).toContain('acceptance_criteria is empty')
   })
 
-  it('does not ask a blocked or failed turn for steps it cannot have', () => {
+  it('rejects a criterion nobody can check, naming it', () => {
+    const problems = contractProblems(
+      result({
+        acceptance_criteria: [
+          { criterion: 'The greeting updates as you type.', steps: ['Type "Ada".'] },
+          { criterion: 'It is accessible.', steps: [] },
+        ],
+      }),
+    )
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('It is accessible.')
+    expect(problems[0]).toContain('no steps')
+  })
+
+  it('does not ask a blocked or failed turn for criteria it cannot have', () => {
     const blocked = result({
       status: 'blocked',
       acceptance_criteria: [],

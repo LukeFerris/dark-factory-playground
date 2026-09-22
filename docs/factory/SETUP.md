@@ -242,13 +242,19 @@ it is real compute for something that is idle most of the time. Set the window
 to `0` to go back to one pass per tick, and dispatch the poller by hand when you
 want a card picked up now.
 
-Review the design. The card comment is written to be read on its own: a
-summary, the context, and a numbered list of the steps you would take in a
-browser to check the card worked. After a design turn those steps are the
-contract the build has to satisfy, so disagreeing with them is the cheapest
-place to disagree — they are what the build agent is handed. After a build turn
-they are a claim about working software, and the preview link sits right above
-them.
+Review the design. The card comment is written to be read on its own: a summary,
+the context, the acceptance criteria, and under "Proving it" the exact browser
+steps for each one.
+
+Read the criteria first and the steps second. The criteria are the contract the
+build has to satisfy, so a criterion you disagree with is the cheapest thing in
+the whole pipeline to fix — it is a comment on a card, before any code exists,
+and it is what the build agent is handed. The steps are only how you check; if
+the steps look wrong but the criterion is right, say that, because the build
+turn is allowed to correct them and will.
+
+After a build turn the same section is a claim about working software rather
+than a contract, and the preview link sits right above it.
 
 Move the card to *Ready for build*. Wait for the poller. Then grant turns by
 commenting on the PR until you are happy, and merge.

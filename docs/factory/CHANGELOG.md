@@ -9,6 +9,47 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### An acceptance criterion and a click are not the same thing
+
+**Previous entry said:** `acceptance_criteria` is a numbered list of the steps a
+person takes in their browser to check the card worked.
+
+**Actual:** that collapsed two things into one and lost the more important of
+them. DF-2's card came back with five numbered clicks under the heading
+"Acceptance criteria" and no statement anywhere of what "done" meant. A
+reviewer could follow the steps; they could not disagree with the requirement,
+because the requirement was never written down — only the procedure for
+observing it. Worse, it is the procedure that ages: rename a label and every
+"criterion" on the card is false, while the thing actually being asked for has
+not changed at all.
+
+**Done:** `acceptance_criteria` is now a list of `{ criterion, steps }`. The
+criterion is what has to be true when the card is done — an outcome a reviewer
+can argue with before any code exists. The steps are the browser actions that
+prove that one criterion, and nothing else. The card comment and the PR body
+render both: bulleted criteria under "Acceptance criteria", then a "Proving it"
+section with each criterion in bold above its own numbered walkthrough.
+
+They are one object rather than two parallel arrays so they cannot drift. Two
+lists would need the agent to keep them in the same order and the same length,
+and nothing would notice when it stopped doing so.
+
+**The design document gets the same section**, which was the other half of the
+miss. `docs/design/README.md` now requires an "Acceptance criteria" heading
+between "Risks and alternatives" and "Test strategy", one subsection per
+criterion with its steps numbered beneath. The card comment is what a reviewer
+reads; the design document is what the *build agent* reads, and shipping the
+criteria only to Jira left the stage that has to satisfy them working from
+prose. The new heading also states what it is not: the test strategy is what
+stops a criterion regressing, the criterion is what a person checks by hand
+once, and neither substitutes for the other.
+
+**Enforced:** `validate` already rejected a `ready_for_review` turn with an
+empty `acceptance_criteria`; it now also rejects any criterion with no steps,
+naming the criterion in the message. A criterion nobody can check is a wish,
+and the failure mode this guards against is the easy one — writing three
+confident outcomes and steps for two of them.
+
 ### The card comment never linked the pull request
 
 **Plan said:** every Jira comment links the PR, the preview and the Actions run.

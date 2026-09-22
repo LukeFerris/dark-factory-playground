@@ -102,10 +102,42 @@ already says everything — an empty `context` is omitted from the comment.
 
 ### `acceptance_criteria`
 
-**The exact steps a person takes in their browser to check this card worked.**
-Start from the app already open in front of them; do not include building it,
-starting a server, or finding a URL. One step per entry, in the order they
-happen. The last step is an observable outcome, not an action.
+A list of objects, each one a criterion paired with the steps that prove it:
+
+```json
+"acceptance_criteria": [
+  {
+    "criterion": "The greeting reads \"Hi there, world\" when the page loads.",
+    "steps": [
+      "Open the app.",
+      "Look at the line beneath the heading.",
+      "It reads \"Hi there, world\"."
+    ]
+  }
+]
+```
+
+These are the same criteria you wrote under "Acceptance criteria" in the design
+document. Say the same thing in both places; this field is what reaches the
+Jira card, and the document is what the build agent reads.
+
+**`criterion` — what has to be true when this card is done.** An outcome a
+reviewer can agree or disagree with before any code exists. Not an action, and
+not an implementation detail.
+
+| | Example |
+|---|---|
+| ✅ | `The greeting updates as you type, without pressing anything.` |
+| ✅ | `An empty name field falls back to "Hi there, world".` |
+| ❌ | `Type "Ada" into the field.` — that is a step, not a criterion |
+| ❌ | `NameField renders the greeting from state.` — implementation, and it stops being true on the next refactor |
+| ❌ | `The greeting works correctly.` — "correctly" is the thing in question |
+
+**`steps` — the exact browser actions that prove that one criterion.** Start
+from the app already open in front of the reader; do not include building it,
+starting a server, or finding a URL. One action per entry, in the order they
+happen. The last step of each group is an observation, not an action — that is
+the bit that decides whether the criterion holds.
 
 Write what is on screen, in the words on screen. A step naming a component, a
 file, a prop, a test or a CSS selector is not a step a user can take.
@@ -113,46 +145,39 @@ file, a prop, a test or a CSS selector is not a step a user can take.
 | | Example |
 |---|---|
 | ✅ | `Type "Ada" into the field labelled "Your name".` |
-| ✅ | `The heading reads "Hello, Ada" as you type, without pressing anything.` |
-| ✅ | `Clear the field. The heading goes back to "Hello, there".` |
+| ✅ | `The heading reads "Hello, Ada".` |
 | ✅ | `Press Tab from the field. The focus ring lands on the "Reset" button.` |
-| ❌ | `NameField renders the greeting from state.` |
 | ❌ | `The component re-renders on change.` |
 | ❌ | `Verify the greeting updates correctly.` |
 | ❌ | `Run npm test and check it passes.` |
 
-The bad ones fail for three different reasons, and all three are worth
-avoiding: the first two describe the implementation, which a reviewer cannot
-see and which stops being true the moment the code is refactored; the third is
-not checkable, because "correctly" is exactly the thing in question; the fourth
-is not something done in a browser.
+Write each criterion and each step as plain prose and quote what is on screen
+with `"` — no Markdown. Jira comments are not Markdown, so asterisks and
+backticks reach the card as literal asterisks and backticks.
 
-Write each step as plain prose and quote what is on screen with `"` — no
-Markdown. Jira comments are not Markdown, so asterisks and backticks reach the
-card as literal asterisks and backticks.
-
-**Every entry is an action to take or a thing to observe. Nothing else.** If
-part of the card cannot be checked in a browser — the behaviour has no visible
-control, or it is only reachable from a test — say so in `context` and leave it
-out of the list. An entry explaining why you cannot check something is not a
+**Every entry in `steps` is an action to take or a thing to observe. Nothing
+else.** If part of the card cannot be checked in a browser — the behaviour has
+no visible control, or it is only reachable from a test — say so in `context`
+and leave it out. An entry explaining why you cannot check something is not a
 step, and a reader counting numbered steps will try to follow it.
 
 | | Example |
 |---|---|
-| ✅ in `acceptance_criteria` | `Reload the page. The line still reads "Hi there, world".` |
+| ✅ in `steps` | `Reload the page. The line still reads "Hi there, world".` |
 | ✅ in `context` | `The app has no input field yet, so the blank-name fallback is covered by tests rather than in the browser.` |
 | ❌ anywhere | `There is no text field, so there is no empty case to try here.` |
 
 Cover the empty and error cases too, not just the happy path. If the card's
-acceptance criteria in `task.md` already read as browser steps, carry them
-across and sharpen them — do not invent a different set.
+acceptance criteria in `task.md` already read as criteria, carry them across and
+add the steps — do not invent a different set.
 
-This list is the contract the build stage has to satisfy, so a step you cannot
-write is a requirement you have not pinned down. If you genuinely cannot write
-one, that is a `question`, not a vague step.
+This list is the contract the build stage has to satisfy, so a criterion you
+cannot write steps for is a requirement you have not pinned down. If you
+genuinely cannot write them, that is a `question`, not a vague criterion.
 
-**A `ready_for_review` turn with an empty `acceptance_criteria` is rejected by
-validation.** The design document is not enough on its own.
+**A `ready_for_review` turn with an empty `acceptance_criteria`, or with a
+criterion that has no steps, is rejected by validation.** The design document is
+not enough on its own.
 
 ## Ground rules
 
