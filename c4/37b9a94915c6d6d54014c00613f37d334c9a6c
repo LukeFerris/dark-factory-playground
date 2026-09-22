@@ -1,0 +1,25 @@
+bootstrap/github.sh
+  s_6735740180f350::t_9cbad7589c9e13 66-70,77-90,96
+docs/factory/SETUP.md
+  s_6735740180f350::t_d56e3bfcce0556 150-154
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_9b07792b7a6c08 39-65
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_fc9dcdb91c4cf7 97-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c437b9a94915c6d6d54014c00613f37d334c9a6c",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
