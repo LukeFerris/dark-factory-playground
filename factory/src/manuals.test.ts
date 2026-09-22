@@ -74,6 +74,10 @@ describe('agent manuals', () => {
       it('warns that a Jira comment is not Markdown', () => {
         expect(manual(stage)).toContain('Jira comments are not Markdown')
       })
+
+      it('keeps "why you cannot check this" out of the numbered steps', () => {
+        expect(manual(stage)).toContain('Every entry is an action to take or a thing to observe')
+      })
     })
   }
 

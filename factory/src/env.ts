@@ -54,3 +54,19 @@ export function runUrl(): string | null {
   if (repo === '' || id === '') return null
   return `${server}/${repo}/actions/runs/${id}`
 }
+
+/**
+ * The URL of a pull request by number, in the repository this is running in.
+ *
+ * Built from the environment rather than passed down a chain of workflow step
+ * outputs: `meta.json` already knows the number, and a step output only exists
+ * if the step that would have produced it ran. `report` runs on `always()`,
+ * precisely when `publish` may not have.
+ */
+export function prUrl(number: number | null): string | null {
+  if (number === null) return null
+  const server = optional('GITHUB_SERVER_URL', 'https://github.com')
+  const repo = optional('GITHUB_REPOSITORY')
+  if (repo === '') return null
+  return `${server}/${repo}/pull/${number}`
+}
