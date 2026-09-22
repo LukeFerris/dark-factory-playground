@@ -65,12 +65,23 @@ export function contractProblems(result: Result): string[] {
     problems.push('status is "failed" but no reason was given.')
   }
   // Only on a finished turn. A blocked or failed turn has nothing to verify
-  // yet, and demanding steps for work that did not happen would just teach the
-  // agent to invent them.
-  if (result.status === 'ready_for_review' && result.acceptance_criteria.length === 0) {
-    problems.push(
-      'status is "ready_for_review" but acceptance_criteria is empty. A finished turn has to say how a person checks it in the browser.',
-    )
+  // yet, and demanding criteria for work that did not happen would just teach
+  // the agent to invent them.
+  if (result.status === 'ready_for_review') {
+    if (result.acceptance_criteria.length === 0) {
+      problems.push(
+        'status is "ready_for_review" but acceptance_criteria is empty. A finished turn has to say what is now true.',
+      )
+    }
+    // A criterion nobody can check is a wish. Caught here rather than in the
+    // JSON Schema's minItems so the agent gets told which one, by name.
+    for (const c of result.acceptance_criteria) {
+      if (c.steps.length === 0) {
+        problems.push(
+          `acceptance criterion "${c.criterion}" has no steps. Every criterion needs the browser steps that prove it.`,
+        )
+      }
+    }
   }
 
   return problems
@@ -134,8 +145,8 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
     status: 'failed',
     summary: `The ${stage} turn was rejected by validation.`,
     context: result?.context ?? '',
-    // Carried through rather than dropped: if the agent wrote usable steps and
-    // then strayed outside its paths, the steps are still the clearest
+    // Carried through rather than dropped: if the agent wrote usable criteria
+    // and then strayed outside its paths, they are still the clearest
     // statement of what it was trying to do.
     acceptance_criteria: result?.acceptance_criteria ?? [],
     artifacts: result?.artifacts ?? [],

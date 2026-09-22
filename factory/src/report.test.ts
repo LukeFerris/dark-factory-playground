@@ -1,7 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { prUrl } from './env.ts'
 import { buildComment, targetStatus } from './report.ts'
-import { STATUS_TRANSITIONS, type Result } from './schema.ts'
+import { STATUS_TRANSITIONS, type Criterion, type Result } from './schema.ts'
 import { slugify, branchName } from './branch.ts'
+
+/** Two criteria with unequal step counts, so a flattened render is visible. */
+const CRITERIA: Criterion[] = [
+  {
+    criterion: 'The greeting names whoever you typed.',
+    steps: ['Type "Ada" into the field labelled "Your name".', 'The heading reads "Hello, Ada".'],
+  },
+  {
+    criterion: 'An empty field falls back to "Hello, there".',
+    steps: ['Clear the field. The heading reads "Hello, there".'],
+  },
+]
 
 function result(over: Partial<Result> = {}): Result {
   return {
@@ -70,10 +83,10 @@ describe('buildComment', () => {
     expect(textOf(doc)).toContain('out of scope')
   })
 
-  it('follows the ticket template: Summary, then Context, then Acceptance criteria', () => {
+  it('follows the ticket template: Summary, Context, Acceptance criteria, Proving it', () => {
     const doc = buildComment(
       'design',
-      result({ context: 'Smallest change that satisfies the card.', acceptance_criteria: ['Type Ada.'] }),
+      result({ context: 'Smallest change that satisfies the card.', acceptance_criteria: CRITERIA }),
       null,
       null,
       null,
@@ -81,36 +94,52 @@ describe('buildComment', () => {
     const headings = doc.content
       .filter((n) => n.type === 'heading' && (n['attrs'] as { level: number }).level === 4)
       .map(textOf)
-    expect(headings).toEqual(['Summary', 'Context', 'Acceptance criteria'])
+    expect(headings).toEqual(['Summary', 'Context', 'Acceptance criteria', 'Proving it'])
   })
 
   it('omits Context when the agent left it empty', () => {
-    const doc = buildComment('design', result({ acceptance_criteria: ['Type Ada.'] }), null, null, null)
+    const doc = buildComment('design', result({ acceptance_criteria: CRITERIA }), null, null, null)
     expect(textOf(doc)).not.toContain('Context')
   })
 
-  it('numbers the acceptance criteria, because they are steps in order', () => {
-    const doc = buildComment(
-      'build',
-      result({ acceptance_criteria: ['Type Ada.', 'The heading reads Hello, Ada.'] }),
-      null,
-      null,
-      null,
-    )
-    const list = doc.content.find((n) => n.type === 'orderedList')
-    expect(list).toBeDefined()
-    expect((list?.['content'] as unknown[]).length).toBe(2)
-    expect(textOf(list)).toContain('The heading reads Hello, Ada.')
+  // The whole point of the split: the criteria say what "done" means, the steps
+  // say how you find out. A single numbered list cannot do both.
+  it('bullets the criteria and numbers each criterion\'s steps separately', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null)
+
+    const bullets = doc.content.filter((n) => n.type === 'bulletList')
+    expect(bullets).toHaveLength(1)
+    expect((bullets[0]?.['content'] as unknown[]).length).toBe(2)
+    expect(textOf(bullets[0])).toContain('The greeting names whoever you typed.')
+    expect(textOf(bullets[0])).not.toContain('Type "Ada"')
+
+    // One numbered list per criterion, not one for the lot.
+    const numbered = doc.content.filter((n) => n.type === 'orderedList')
+    expect(numbered).toHaveLength(2)
+    expect((numbered[0]?.['content'] as unknown[]).length).toBe(2)
+    expect((numbered[1]?.['content'] as unknown[]).length).toBe(1)
+    expect(textOf(numbered[0])).toContain('The heading reads "Hello, Ada".')
+  })
+
+  it('heads each group of steps with the criterion they prove', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null)
+    const bold = doc.content
+      .filter((n) => n.type === 'paragraph')
+      .flatMap((n) => (n['content'] as Array<Record<string, unknown>>) ?? [])
+      .filter((n) => Array.isArray(n['marks']) && (n['marks'] as Array<{ type: string }>)[0]?.type === 'strong')
+      .map((n) => n['text'])
+    expect(bold).toEqual(CRITERIA.map((c) => c.criterion))
   })
 
   it('says a design turn has not built the thing yet, and a build turn has', () => {
-    const steps = { acceptance_criteria: ['Type Ada.'] }
-    expect(textOf(buildComment('design', result(steps), null, null, null))).toContain(
-      'What the build has to make true',
-    )
-    expect(textOf(buildComment('build', result(steps), null, null, null))).not.toContain(
-      'What the build has to make true',
-    )
+    const criteria = { acceptance_criteria: CRITERIA }
+    const design = textOf(buildComment('design', result(criteria), null, null, null))
+    expect(design).toContain('What the build has to make true')
+    expect(design).toContain('Once the build lands')
+
+    const build = textOf(buildComment('build', result(criteria), null, null, null))
+    expect(build).not.toContain('What the build has to make true')
+    expect(build).toContain('With the app open in a browser')
   })
 
   it('produces a valid ADF doc envelope', () => {
@@ -118,6 +147,32 @@ describe('buildComment', () => {
     expect(doc.type).toBe('doc')
     expect(doc.version).toBe(1)
     expect(Array.isArray(doc.content)).toBe(true)
+  })
+})
+
+describe('prUrl', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it('builds the URL from the repository it is running in', () => {
+    process.env['GITHUB_REPOSITORY'] = 'LukeFerris/dark-factory-playground'
+    delete process.env['GITHUB_SERVER_URL']
+    expect(prUrl(8)).toBe('https://github.com/LukeFerris/dark-factory-playground/pull/8')
+  })
+
+  it('honours a self-hosted server URL', () => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/widgets'
+    process.env['GITHUB_SERVER_URL'] = 'https://ghe.acme.internal'
+    expect(prUrl(3)).toBe('https://ghe.acme.internal/acme/widgets/pull/3')
+  })
+
+  it('returns null when there is no PR yet, or no repository to build one from', () => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/widgets'
+    expect(prUrl(null)).toBeNull()
+    delete process.env['GITHUB_REPOSITORY']
+    expect(prUrl(8)).toBeNull()
   })
 })
 

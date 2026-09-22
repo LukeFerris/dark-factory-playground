@@ -36,11 +36,16 @@ export function prBody(key: string, summary: string, result: Result, previewUrl:
     lines.push(
       '### Acceptance criteria',
       '',
+      ...result.acceptance_criteria.map((c) => `- ${c.criterion}`),
+      '',
+      '### Proving it',
+      '',
       'With the app open in a browser:',
       '',
-      ...result.acceptance_criteria.map((c, i) => `${i + 1}. ${c}`),
-      '',
     )
+    for (const c of result.acceptance_criteria) {
+      lines.push(`**${c.criterion}**`, '', ...c.steps.map((s, i) => `${i + 1}. ${s}`), '')
+    }
   }
   if (result.assumptions.length > 0) {
     lines.push('### Assumptions', '', ...result.assumptions.map((a) => `- ${a}`), '')

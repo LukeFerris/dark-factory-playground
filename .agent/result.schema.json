@@ -32,11 +32,31 @@
     },
     "acceptance_criteria": {
       "type": "array",
-      "items": {
-        "type": "string"
-      },
       "default": [],
-      "description": "The exact steps a person takes in the browser, with the app already open, to check this card worked. One step per entry, in order, naming what is on screen. Required when status is ready_for_review."
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criterion",
+          "steps"
+        ],
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What must be true when the card is done. An outcome a reviewer can agree or disagree with, not an action and not an implementation detail."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "The exact browser actions that prove this one criterion, in order, with the app already open. The last one is an observation, not an action."
+          }
+        }
+      },
+      "description": "The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review."
     },
     "artifacts": {
       "type": "array",

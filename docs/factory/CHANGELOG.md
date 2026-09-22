@@ -9,6 +9,108 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### Every turn after the first ran the manual as it was when the branch was cut
+
+**Plan said:** nothing about this, which is the point.
+
+**Actual:** found while trying to re-run DF-2's design turn against the new
+acceptance-criteria shape. It would have produced the old shape, and looked like
+the change had not worked.
+
+`prepare-branch` checks out the existing branch so a second turn updates the
+same PR. Everything the turn then runs comes out of that tree: the agent's
+prompt is literally `claude -p "$(cat .agent/design.md)"`, and `npm run factory`
+executes `factory/src/*.ts` — the branch's copies of both. DF-2's branch was cut
+at `a801ef1`, so a re-run would have used that day's manual, that day's
+`ResultSchema` and that day's `validate`, two merges behind.
+
+This is the worst shape a bug can take: the fix looks applied everywhere you
+check. `main` has it, the tests pass against it, a fresh card gets it — and
+every card already in flight quietly does not. Build cards are the real
+exposure, because multi-turn is their normal mode: turns are granted one at a
+time by a human comment, so turn 2 onward is where most build work happens, and
+all of it would have run a stale prompt against a stale validator.
+
+**Done:** a reused branch is merged up to `origin/main` before the turn starts.
+A conflict aborts the merge and fails the turn with the branch named, rather
+than resolving itself — the only files an agent commits are its own design or
+build output, so a conflict means something needs a human, and carrying on would
+run the turn against exactly the stale rules this exists to prevent.
+
+`validate` is unaffected either way: `changedFiles` diffs `origin/main...HEAD`,
+three dots, so it has always compared against the merge base and never counted
+main's own commits as the agent's work. After the merge the merge base *is*
+main's tip, and the diff is the branch's output alone.
+
+**Not unit-tested.** `git()` resolves its cwd from `REPO_ROOT`, so exercising
+this needs a scratch repository and a module-level refactor to point it
+somewhere else. Verified instead against the real case: a clone checked out at
+DF-2's branch merges main cleanly, picks up the new manual and the new
+`docs/design/README.md`, and leaves `validate` seeing exactly one changed file —
+`docs/design/DF-2/design.md`.
+
+### An acceptance criterion and a click are not the same thing
+
+**Previous entry said:** `acceptance_criteria` is a numbered list of the steps a
+person takes in their browser to check the card worked.
+
+**Actual:** that collapsed two things into one and lost the more important of
+them. DF-2's card came back with five numbered clicks under the heading
+"Acceptance criteria" and no statement anywhere of what "done" meant. A
+reviewer could follow the steps; they could not disagree with the requirement,
+because the requirement was never written down — only the procedure for
+observing it. Worse, it is the procedure that ages: rename a label and every
+"criterion" on the card is false, while the thing actually being asked for has
+not changed at all.
+
+**Done:** `acceptance_criteria` is now a list of `{ criterion, steps }`. The
+criterion is what has to be true when the card is done — an outcome a reviewer
+can argue with before any code exists. The steps are the browser actions that
+prove that one criterion, and nothing else. The card comment and the PR body
+render both: bulleted criteria under "Acceptance criteria", then a "Proving it"
+section with each criterion in bold above its own numbered walkthrough.
+
+They are one object rather than two parallel arrays so they cannot drift. Two
+lists would need the agent to keep them in the same order and the same length,
+and nothing would notice when it stopped doing so.
+
+**The design document gets the same section**, which was the other half of the
+miss. `docs/design/README.md` now requires an "Acceptance criteria" heading
+between "Risks and alternatives" and "Test strategy", one subsection per
+criterion with its steps numbered beneath. The card comment is what a reviewer
+reads; the design document is what the *build agent* reads, and shipping the
+criteria only to Jira left the stage that has to satisfy them working from
+prose. The new heading also states what it is not: the test strategy is what
+stops a criterion regressing, the criterion is what a person checks by hand
+once, and neither substitutes for the other.
+
+**Enforced:** `validate` already rejected a `ready_for_review` turn with an
+empty `acceptance_criteria`; it now also rejects any criterion with no steps,
+naming the criterion in the message. A criterion nobody can check is a wish,
+and the failure mode this guards against is the easy one — writing three
+confident outcomes and steps for two of them.
+
+### The card comment never linked the pull request
+
+**Plan said:** every Jira comment links the PR, the preview and the Actions run.
+
+**Actual:** it linked the run. `buildComment` takes a `prUrl`, `report` takes a
+`--pr-url`, and neither workflow has ever passed one — `publish` prints the URL
+and sets no step output, so the flag was unreachable from the only place that
+calls it. Two cards went through before anyone noticed, because a comment that
+links *something* looks like a comment that links everything.
+
+**Done:** `report` no longer waits to be told. `meta.json` holds the PR number
+from the moment `publish` creates or finds it — and from turn one on a build —
+so `report` builds the URL from that and `GITHUB_REPOSITORY`. `--pr-url` still
+overrides, for a hand-run report.
+
+The step-output route was the obvious fix and is the wrong one: `report` runs
+on `always()`, which is exactly when `publish` may have been skipped, and a
+step output that does not exist yields an empty string. Reading meta instead
+means a **rejected** turn also links the PR — which is the case where a human
+most needs to go and look at it.
+
 ### The card comment says how to check the work, in a browser
 
 **Plan said:** `result.json` carries `summary`, `assumptions`, `questions`,
@@ -50,6 +152,14 @@ disk.
 backticks reach the card as literal punctuation. The manuals now say to quote
 on-screen text with `"` and write plain prose. If a future change wants real
 emphasis on the card, it needs marks in `adf.ts`, not Markdown in the string.
+
+**First live card (DF-2), and the one thing it got wrong:** the design produced
+five steps, and the fourth was not a step — "the page has no text field, so
+there is no name to type in" — a true and useful observation, parked where a
+reader counting numbered steps will try to follow it. Both manuals now say that
+every entry is an action or an observation, and that "why this cannot be
+checked in a browser" belongs in `context`, with an example of the same fact
+written correctly in each place.
 
 ### The poller polls in a loop, because cron cannot go below five minutes
 

@@ -55,8 +55,9 @@ export function bulletList(items: AdfNode[][]): AdfNode {
 /**
  * A numbered list. Each item is a list of inline nodes.
  *
- * Acceptance criteria are steps taken in order, so they are numbered rather
- * than bulleted — a reviewer following them needs to know which comes first.
+ * Used for the steps that prove a criterion: they are taken in order, so a
+ * reviewer following them needs to know which comes first. The criteria
+ * themselves are bulleted — they are true together, not in sequence.
  */
 export function orderedList(items: AdfNode[][]): AdfNode {
   return {
