@@ -9,6 +9,46 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### Every turn after the first ran the manual as it was when the branch was cut
+
+**Plan said:** nothing about this, which is the point.
+
+**Actual:** found while trying to re-run DF-2's design turn against the new
+acceptance-criteria shape. It would have produced the old shape, and looked like
+the change had not worked.
+
+`prepare-branch` checks out the existing branch so a second turn updates the
+same PR. Everything the turn then runs comes out of that tree: the agent's
+prompt is literally `claude -p "$(cat .agent/design.md)"`, and `npm run factory`
+executes `factory/src/*.ts` — the branch's copies of both. DF-2's branch was cut
+at `a801ef1`, so a re-run would have used that day's manual, that day's
+`ResultSchema` and that day's `validate`, two merges behind.
+
+This is the worst shape a bug can take: the fix looks applied everywhere you
+check. `main` has it, the tests pass against it, a fresh card gets it — and
+every card already in flight quietly does not. Build cards are the real
+exposure, because multi-turn is their normal mode: turns are granted one at a
+time by a human comment, so turn 2 onward is where most build work happens, and
+all of it would have run a stale prompt against a stale validator.
+
+**Done:** a reused branch is merged up to `origin/main` before the turn starts.
+A conflict aborts the merge and fails the turn with the branch named, rather
+than resolving itself — the only files an agent commits are its own design or
+build output, so a conflict means something needs a human, and carrying on would
+run the turn against exactly the stale rules this exists to prevent.
+
+`validate` is unaffected either way: `changedFiles` diffs `origin/main...HEAD`,
+three dots, so it has always compared against the merge base and never counted
+main's own commits as the agent's work. After the merge the merge base *is*
+main's tip, and the diff is the branch's output alone.
+
+**Not unit-tested.** `git()` resolves its cwd from `REPO_ROOT`, so exercising
+this needs a scratch repository and a module-level refactor to point it
+somewhere else. Verified instead against the real case: a clone checked out at
+DF-2's branch merges main cleanly, picks up the new manual and the new
+`docs/design/README.md`, and leaves `validate` seeing exactly one changed file —
+`docs/design/DF-2/design.md`.
+
 ### An acceptance criterion and a click are not the same thing
 
 **Previous entry said:** `acceptance_criteria` is a numbered list of the steps a
