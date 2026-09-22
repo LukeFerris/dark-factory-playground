@@ -6,8 +6,12 @@ Start here, always:
 
 ```bash
 bootstrap/smoke.sh              # names the missing secret, variable or status
-gh run list --repo "$GH_OWNER/$GH_REPO" --limit 10
+bootstrap/trace.sh --once       # every card's status next to the recent runs
 ```
+
+`trace.sh` without `--once` refreshes every five seconds and marks the cards
+waiting on a human. Most "nothing is happening" turns out to be a card sitting
+in a status the factory does not own, and that is the first thing it shows you.
 
 Most failures are a missing repository variable or a renamed Jira status, and
 `smoke.sh` names both.
