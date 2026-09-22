@@ -36,6 +36,33 @@ unremarkable for a playground, but it is a real machine kept busy for something
 idle most of the time. `FACTORY_POLL_WINDOW_SECONDS=0` restores exactly the old
 one-pass-per-tick behaviour.
 
+### Every secret was set to a single hyphen
+
+**Plan said:** `bootstrap/github.sh` sets three secrets from `.env`.
+
+**Actual:** it set all three to the literal string `-`. `set_secret` piped the
+value into `gh secret set … --body -`, borrowing a stdin convention that `gh`
+does not have: `--body` takes the value verbatim, and reads standard input only
+when the flag is omitted entirely. The pipe was written and then discarded.
+
+Nothing caught it. A secret cannot be read back, so `smoke.sh` can only check
+that a name exists — and all three did exist. The first symptom arrived from a
+workflow days later, as `actions/create-github-app-token@v1` failing with
+`Invalid keyData` / `ERR_OSSL_ASN1_NOT_ENOUGH_DATA`. That is OpenSSL's way of
+saying the PEM it was handed is one byte long.
+
+**Done:** dropped the flag so the pipe is actually read. The App key now goes
+through a separate `set_secret_file`, redirected straight from the file, because
+`$(cat …)` strips the trailing newline and a PEM is the one value here where the
+exact bytes are not worth reasoning about. The dry run prints byte counts, which
+is what makes the failure visible next time: 1 byte is obviously wrong, 1679 is
+obviously a key.
+
+**Worth keeping in mind:** this class of bug is invisible by design. Write-only
+values cannot be verified through the API that stores them, so the only proof a
+secret is right is a workflow using it successfully. Until a run passes, treat
+every ✓ next to a secret as "a name was created".
+
 ### Two bootstrap scripts wrote log output where a caller expected JSON
 
 Both found by running the bootstrap for the first time against a live account
