@@ -1,0 +1,75 @@
+factory/src/validate.test.ts
+  s_6735740180f350::t_15868e97f6c7ff 1-2,4
+  s_6735740180f350::t_376a310d7a41c1 155-191
+  s_6735740180f350::t_2c272cae0b8889 116-126
+factory/src/meta.ts
+  s_6735740180f350::t_c9d6aa3e2c0ea8 19-32
+  s_6735740180f350::t_9a0843d0ffec40 59-72
+bootstrap/github.sh
+  s_6735740180f350::t_6540012601526a 16
+  s_6735740180f350::t_cec4d0c847f289 209
+  s_6735740180f350::t_646087050b7ae9 179,181-185
+  s_6735740180f350::t_83f4f24cdeb9a6 138-141
+.github/workflows/build-start.yml
+  s_6735740180f350::t_02e649885eab94 60,93
+.github/workflows/design.yml
+  s_6735740180f350::t_02e649885eab94 56,85
+factory/src/publish.ts
+  s_6735740180f350::t_04a3f85cb82660 149-155
+  s_6735740180f350::t_c20498f99e881d 128-132
+  s_6735740180f350::t_7f0591e682e856 156
+docs/factory/STATE-MACHINE.md
+  s_6735740180f350::t_23ec126d3a9ca7 112
+.agent/design.md
+  s_6735740180f350::t_81170f36e504ad 21
+bootstrap/smoke.sh
+  s_6735740180f350::t_6540012601526a 103
+factory/src/gather.ts
+  s_6735740180f350::t_f9e78690d9d110 3
+  s_6735740180f350::t_dedd71591366a2 90-95
+.github/workflows/build-teardown.yml
+  s_6735740180f350::t_bc798d52760afc 24
+docs/factory/OVERVIEW.md
+  s_6735740180f350::t_8cdd4be7d7a6da 46-48,74-75
+.agent/README.md
+  s_6735740180f350::t_81170f36e504ad 14
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_cb20b23a4b0cc9 12-65
+factory/src/report.test.ts
+  s_6735740180f350::t_f551bf6088889e 213-217
+factory/src/branch.ts
+  s_6735740180f350::t_72a72125a08447 2
+  s_6735740180f350::t_3bae6e2bbd278f 14-28
+  s_6735740180f350::t_8d4388e5e206ef 69-71,75-78,80-81,91
+.github/workflows/build-turn.yml
+  s_6735740180f350::t_02e649885eab94 123
+  s_6735740180f350::t_7752ad5765ddb0 54-55
+docs/adr/0001-factory-architecture.md
+  s_6735740180f350::t_8cdd4be7d7a6da 56-57
+factory/src/cli.ts
+  s_6735740180f350::t_dbebe48fb7eee7 11
+  s_6735740180f350::t_da5f51dc5b9075 66,68,71
+  s_6735740180f350::t_e87ce7e7e2bed3 79-84
+docs/factory/SECURITY.md
+  s_6735740180f350::t_8cdd4be7d7a6da 101
+docs/factory/SETUP.md
+  s_6735740180f350::t_23ec126d3a9ca7 57,218-220
+.agent/build.md
+  s_6735740180f350::t_81170f36e504ad 21-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bc245ed43301e3675878401e05dc9fd8422b8c5b",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
