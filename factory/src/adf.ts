@@ -52,6 +52,23 @@ export function bulletList(items: AdfNode[][]): AdfNode {
   }
 }
 
+/**
+ * A numbered list. Each item is a list of inline nodes.
+ *
+ * Acceptance criteria are steps taken in order, so they are numbered rather
+ * than bulleted — a reviewer following them needs to know which comes first.
+ */
+export function orderedList(items: AdfNode[][]): AdfNode {
+  return {
+    type: 'orderedList',
+    attrs: { order: 1 },
+    content: items.map((inline) => ({
+      type: 'listItem',
+      content: [paragraph(...inline)],
+    })),
+  }
+}
+
 export function doc(...content: AdfNode[]): AdfDoc {
   return { type: 'doc', version: 1, content }
 }

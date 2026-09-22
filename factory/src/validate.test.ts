@@ -1,5 +1,53 @@
 import { describe, expect, it } from 'vitest'
-import { checkScope, matchesGlob } from './validate.ts'
+import { checkScope, contractProblems, matchesGlob } from './validate.ts'
+import type { Result } from './schema.ts'
+
+function result(over: Partial<Result> = {}): Result {
+  return {
+    status: 'ready_for_review',
+    summary: 'Did the thing.',
+    context: '',
+    acceptance_criteria: ['Type Ada into the field labelled Your name.'],
+    artifacts: [],
+    questions: [],
+    assumptions: [],
+    reason: '',
+    ...over,
+  }
+}
+
+describe('contractProblems', () => {
+  it('passes a finished turn that says how to check it', () => {
+    expect(contractProblems(result())).toEqual([])
+  })
+
+  it('rejects a finished turn with no acceptance criteria', () => {
+    const problems = contractProblems(result({ acceptance_criteria: [] }))
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('acceptance_criteria is empty')
+  })
+
+  it('does not ask a blocked or failed turn for steps it cannot have', () => {
+    const blocked = result({
+      status: 'blocked',
+      acceptance_criteria: [],
+      questions: [{ question: 'Debounce?', context: '', options: [] }],
+    })
+    expect(contractProblems(blocked)).toEqual([])
+
+    const failed = result({ status: 'failed', acceptance_criteria: [], reason: 'ran out of scope' })
+    expect(contractProblems(failed)).toEqual([])
+  })
+
+  it('still catches the older rules', () => {
+    expect(contractProblems(result({ status: 'question', questions: [] }))[0]).toContain(
+      'no questions were given',
+    )
+    expect(contractProblems(result({ status: 'failed', reason: '  ' }))[0]).toContain(
+      'no reason was given',
+    )
+  })
+})
 
 describe('matchesGlob', () => {
   it('matches ** across path segments', () => {

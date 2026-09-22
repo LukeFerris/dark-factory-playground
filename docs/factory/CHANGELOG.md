@@ -9,6 +9,48 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### The card comment says how to check the work, in a browser
+
+**Plan said:** `result.json` carries `summary`, `assumptions`, `questions`,
+`artifacts` and `reason`, and `report` turns them into a Jira comment.
+
+**Actual:** the first real card produced a comment that was accurate and
+useless to a reviewer. It said what the agent decided; it did not say what to
+go and do about it. Everything a human needed in order to check the work was a
+click away in the design document, which is exactly the click nobody makes.
+
+**Done:** two fields, `context` and `acceptance_criteria`, and the comment now
+follows the house ticket template — Summary, Context, Acceptance criteria, then
+the turn's own Questions and Assumptions. `acceptance_criteria` is a numbered
+list of the steps a person takes **in their browser, with the app already
+open**, to check the card worked. Not the test plan, not the diff: the steps.
+The same list goes into the PR body, under the preview link.
+
+Both manuals spell out what separates a step from an implementation note, with
+worked examples of each, and the rule that makes them checkable: the last step
+is an observable outcome, and a step naming a component, a file, a prop or a
+selector is not a step a user can take.
+
+**Enforced, not merely requested.** `validate` rejects a `ready_for_review`
+turn whose `acceptance_criteria` is empty, the same way it already rejects a
+`blocked` turn with no questions. A soft rule in a prompt is followed most of
+the time, and "most of the time" is how a card ends up back where it started.
+The rejection costs a re-run of a turn that had otherwise finished — that is
+the price, and it is worth paying, because the alternative is a reviewer
+reconstructing the steps themselves on every card. `blocked`, `question` and
+`failed` turns are exempt: they have nothing to verify, and asking for steps
+would only teach the agent to invent them.
+
+The three contract rules moved out of `validate` into an exported
+`contractProblems`, which is the first time any of them has been unit-tested —
+they were previously unreachable without a git repository and a result file on
+disk.
+
+**Watch for:** Jira comments are ADF, not Markdown, so `*emphasis*` and
+backticks reach the card as literal punctuation. The manuals now say to quote
+on-screen text with `"` and write plain prose. If a future change wants real
+emphasis on the card, it needs marks in `adf.ts`, not Markdown in the string.
+
 ### The poller polls in a loop, because cron cannot go below five minutes
 
 **Plan said:** a scheduled workflow every ten minutes.

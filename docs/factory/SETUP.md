@@ -242,8 +242,16 @@ it is real compute for something that is idle most of the time. Set the window
 to `0` to go back to one pass per tick, and dispatch the poller by hand when you
 want a card picked up now.
 
-Review the design. Move the card to *Ready for build*. Wait for the poller. Then
-grant turns by commenting on the PR until you are happy, and merge.
+Review the design. The card comment is written to be read on its own: a
+summary, the context, and a numbered list of the steps you would take in a
+browser to check the card worked. After a design turn those steps are the
+contract the build has to satisfy, so disagreeing with them is the cheapest
+place to disagree — they are what the build agent is handed. After a build turn
+they are a claim about working software, and the preview link sits right above
+them.
+
+Move the card to *Ready for build*. Wait for the poller. Then grant turns by
+commenting on the PR until you are happy, and merge.
 
 `STATE-MACHINE.md` describes each status and who moves it. `RUNBOOK.md` covers
 what to do when one of these steps does not do what it says here.

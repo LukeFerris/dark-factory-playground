@@ -24,8 +24,23 @@ function readResult(): Result {
 export function prBody(key: string, summary: string, result: Result, previewUrl: string | null): string {
   const lines: string[] = [`### ${key}: ${summary}`, '', result.summary.trim(), '']
 
+  if (result.context.trim() !== '') {
+    lines.push('### Context', '', result.context.trim(), '')
+  }
+  // Above the steps, not below: the reviewer needs the URL before the thing
+  // that tells them what to do in it.
   if (previewUrl !== null && previewUrl !== '') {
     lines.push(`**Preview:** ${previewUrl}`, '')
+  }
+  if (result.acceptance_criteria.length > 0) {
+    lines.push(
+      '### Acceptance criteria',
+      '',
+      'With the app open in a browser:',
+      '',
+      ...result.acceptance_criteria.map((c, i) => `${i + 1}. ${c}`),
+      '',
+    )
   }
   if (result.assumptions.length > 0) {
     lines.push('### Assumptions', '', ...result.assumptions.map((a) => `- ${a}`), '')

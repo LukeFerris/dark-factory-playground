@@ -60,6 +60,20 @@ describe('agent manuals', () => {
       it('tells the agent to write result.json even when the turn fails', () => {
         expect(manual(stage)).toContain('including when you fail')
       })
+
+      // The steps are the whole point of the card comment, and the only thing
+      // stopping them being a restatement of the diff is this instruction.
+      it('asks for acceptance criteria as browser steps, not implementation', () => {
+        const text = manual(stage)
+        expect(text).toContain('acceptance_criteria')
+        expect(text).toContain('steps a person takes in their browser')
+        expect(text).toContain('app already open')
+        expect(text).toMatch(/not a step a user can take/)
+      })
+
+      it('warns that a Jira comment is not Markdown', () => {
+        expect(manual(stage)).toContain('Jira comments are not Markdown')
+      })
     })
   }
 

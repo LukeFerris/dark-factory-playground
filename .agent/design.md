@@ -83,8 +83,64 @@ the acceptance criteria only describe the empty case."
 List the files you created or changed in `artifacts[]`, as repository-relative
 paths.
 
-`summary` is read by a human in a Jira comment. Two or three sentences on what
-you decided and why — not a list of the headings you filled in.
+## What lands on the Jira card
+
+Three fields in `result.json` become the comment a human reads on the card.
+Write them for that reader — someone who has not opened the PR and may not
+open it.
+
+### `summary`
+
+Two or three sentences on what you decided and why. Not a list of the headings
+you filled in, and not a restatement of the card.
+
+### `context`
+
+One or two lines of background: why this shape rather than another, and where
+the detail lives (`docs/design/<KEY>/design.md`). Skip it if the summary
+already says everything — an empty `context` is omitted from the comment.
+
+### `acceptance_criteria`
+
+**The exact steps a person takes in their browser to check this card worked.**
+Start from the app already open in front of them; do not include building it,
+starting a server, or finding a URL. One step per entry, in the order they
+happen. The last step is an observable outcome, not an action.
+
+Write what is on screen, in the words on screen. A step naming a component, a
+file, a prop, a test or a CSS selector is not a step a user can take.
+
+| | Example |
+|---|---|
+| ✅ | `Type "Ada" into the field labelled "Your name".` |
+| ✅ | `The heading reads "Hello, Ada" as you type, without pressing anything.` |
+| ✅ | `Clear the field. The heading goes back to "Hello, there".` |
+| ✅ | `Press Tab from the field. The focus ring lands on the "Reset" button.` |
+| ❌ | `NameField renders the greeting from state.` |
+| ❌ | `The component re-renders on change.` |
+| ❌ | `Verify the greeting updates correctly.` |
+| ❌ | `Run npm test and check it passes.` |
+
+The bad ones fail for three different reasons, and all three are worth
+avoiding: the first two describe the implementation, which a reviewer cannot
+see and which stops being true the moment the code is refactored; the third is
+not checkable, because "correctly" is exactly the thing in question; the fourth
+is not something done in a browser.
+
+Write each step as plain prose and quote what is on screen with `"` — no
+Markdown. Jira comments are not Markdown, so asterisks and backticks reach the
+card as literal asterisks and backticks.
+
+Cover the empty and error cases too, not just the happy path. If the card's
+acceptance criteria in `task.md` already read as browser steps, carry them
+across and sharpen them — do not invent a different set.
+
+This list is the contract the build stage has to satisfy, so a step you cannot
+write is a requirement you have not pinned down. If you genuinely cannot write
+one, that is a `question`, not a vague step.
+
+**A `ready_for_review` turn with an empty `acceptance_criteria` is rejected by
+validation.** The design document is not enough on its own.
 
 ## Ground rules
 
