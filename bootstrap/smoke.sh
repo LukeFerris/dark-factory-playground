@@ -100,7 +100,7 @@ for name in 'factory:active' 'factory:design' 'factory:build'; do
 done
 
 have_rules="$(gh api "repos/$REPO_SLUG/rulesets" --jq '[.[].name]' 2>/dev/null || printf '[]')"
-for name in 'factory design branches' 'factory build branches' 'main protection'; do
+for name in 'factory card branches' 'main protection'; do
   if printf '%s' "$have_rules" | jq -e --arg n "$name" 'index($n)' >/dev/null; then
     ok "ruleset \"$name\""
   else

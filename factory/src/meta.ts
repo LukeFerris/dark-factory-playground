@@ -16,6 +16,20 @@ export interface Meta {
   stage: Stage
   turn: number
   branch: string
+  /**
+   * The commit this turn started from — what `validate` diffs against.
+   *
+   * Not `origin/main`. A card's branch is long-running and carries every
+   * earlier turn's work, so diffing against main would hand each turn the
+   * accumulated output of all the ones before it. A build turn would then be
+   * rejected for the design document the design turn committed, which is
+   * outside a build turn's allowed paths and which it never touched.
+   *
+   * `gather` records the checked-out HEAD and `prepare-branch` overwrites it
+   * once the branch is checked out and merged up — the two entry points reach
+   * the branch in different orders, and the later writer is always right.
+   */
+  base_sha: string
   pr: number | null
   preview_url: string | null
 }
@@ -40,6 +54,20 @@ export function readMeta(): Meta {
 
 export function writeMeta(meta: Meta): void {
   writeFileEnsuringDir(META_PATH, `${JSON.stringify(meta, null, 2)}\n`)
+}
+
+/**
+ * The ref a turn's diff is measured from.
+ *
+ * Falls back to origin/main when there is no meta to read or nothing was
+ * recorded in it — a local replay, or the first run after this field was
+ * added. That fallback is the old behaviour, so a missing base_sha degrades to
+ * a stricter check rather than a silently absent one.
+ */
+export function turnBase(fallback = 'origin/main'): string {
+  if (!existsSync(META_PATH)) return fallback
+  const sha = readMeta().base_sha ?? ''
+  return sha.trim() === '' ? fallback : sha.trim()
 }
 
 export function updateMeta(patch: Partial<Meta>): Meta {

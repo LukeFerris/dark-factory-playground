@@ -13,7 +13,7 @@
 #               FACTORY_BOT_LOGIN
 #   · the `preview` environment
 #   · labels    factory:active, factory:design, factory:build
-#   · rulesets  design/* and build/* writable only by the App
+#   · rulesets  card/* writable only by the App
 #               main requires a PR, one approval and the `ci` check, no bypass
 #
 # Usage:  bootstrap/github.sh [--dry-run]
@@ -135,8 +135,10 @@ create_label() {
 }
 
 create_label 'factory:active' '0e8a16' 'Build turns may be granted on this PR'
-create_label 'factory:design' '1d76db' 'Opened by the design stage'
-create_label 'factory:build'  '5319e7' 'Opened by the build stage'
+# "has run on", not "opened". One pull request spans both stages now, so a PR
+# that reaches the build carries both of these.
+create_label 'factory:design' '1d76db' 'The design stage has run on this PR'
+create_label 'factory:build'  '5319e7' 'The build stage has run on this PR'
 
 # ----------------------------------------------------------------- rulesets
 
@@ -174,9 +176,13 @@ upsert_ruleset() {
   fi
 }
 
-# Agent branches: nobody may create, update or delete them except the App. That
+# Card branches: nobody may create, update or delete them except the App. That
 # is what stops a human accidentally pushing onto a branch mid-turn, and what
-# stops anything other than the factory fabricating a build/* branch.
+# stops anything other than the factory fabricating a card/* branch.
+#
+# One pattern, not one per stage. A card has a single branch that the design
+# turn opens and the build turns continue, so the design document is already in
+# the build agent's tree and nothing has to reach main for the build to start.
 agent_branch_ruleset() {
   local name="$1" pattern="$2"
   jq -n \
@@ -200,8 +206,7 @@ agent_branch_ruleset() {
     }'
 }
 
-upsert_ruleset 'factory design branches' "$(agent_branch_ruleset 'factory design branches' 'refs/heads/design/*')"
-upsert_ruleset 'factory build branches'  "$(agent_branch_ruleset 'factory build branches'  'refs/heads/build/*')"
+upsert_ruleset 'factory card branches' "$(agent_branch_ruleset 'factory card branches' 'refs/heads/card/*')"
 
 # main: a pull request, one human approval, and a green `ci`. bypass_actors is
 # empty on purpose — the App is not on it, so the factory cannot push to main,

@@ -54,7 +54,7 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 
    | Permission | Access | Used for |
    | --- | --- | --- |
-   | Contents | Read and write | Pushing `design/*` and `build/*` branches |
+   | Contents | Read and write | Pushing `card/*` branches |
    | Pull requests | Read and write | Opening and updating the draft PR |
    | Issues | Read and write | Reading and posting PR comments, labels |
    | Actions | Read and write | The poller dispatching the stage workflows |
@@ -215,7 +215,9 @@ That files a real card ("greet the user by name"), moves it to *Ready for
 design*, and starts a single poll immediately rather than waiting for the next
 scheduled one — `window_seconds=0` means one pass, so the run ends instead of
 idling for the rest of its window. Within a few minutes you should have a
-`design/DF-1-…` branch and a draft PR with a design document on it.
+`card/DF-1-…` branch and a draft PR with a design document on it. That branch
+and that PR are the card's for the rest of its life — the build turns commit to
+the same one.
 
 `bootstrap/trace.sh` is the thing to watch it with. It shows every card's status
 next to the last few Actions runs, refreshing every five seconds, and marks the

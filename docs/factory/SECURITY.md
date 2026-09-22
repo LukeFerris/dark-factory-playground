@@ -98,8 +98,7 @@ cases that matter — `**` crossing path segments, `*` not crossing `/`, and
 
 | Ruleset | Effect |
 | --- | --- |
-| `factory design branches` | `design/*` — creation, update, deletion blocked; the App is the sole bypass |
-| `factory build branches` | `build/*` — same |
+| `factory card branches` | `card/*` — creation, update, deletion blocked; the App is the sole bypass |
 | `main protection` | Requires a PR, one approving review, and a green `ci`. **`bypass_actors` is empty** |
 
 Nothing bypasses `main`. The App is not on that list and must not be added to

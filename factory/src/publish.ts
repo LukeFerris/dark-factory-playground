@@ -15,8 +15,6 @@ import {
 import { readMeta, updateMeta, RESULT_PATH } from './meta.ts'
 import { ALLOWED_PATHS, ResultSchema, type Result, type Stage } from './schema.ts'
 
-const STAGE_TITLE: Record<Stage, string> = { design: 'Design', build: 'Build' }
-
 function readResult(): Result {
   return ResultSchema.parse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
 }
@@ -127,7 +125,11 @@ export function publish(options: PublishOptions): PullRequest | null {
 
   git(['push', '--set-upstream', 'origin', meta.branch])
 
-  const title = `[${meta.key}] ${STAGE_TITLE[options.stage]}: ${options.cardSummary}`
+  // No stage in the title. One pull request carries the card from design to
+  // merge, so a title naming the stage would be wrong for most of its life —
+  // and build-turn.yml reads the Jira key back out of this, which is the one
+  // part that has to stay stable.
+  const title = `[${meta.key}] ${options.cardSummary}`
   const body = prBody(meta.key, options.cardSummary, result, meta.preview_url)
   const withBlock = upsertFactoryBlock(body, {
     key: meta.key,
@@ -139,12 +141,18 @@ export function publish(options: PublishOptions): PullRequest | null {
   let pr = findPrForBranch(meta.branch)
   if (pr === null) {
     pr = createDraftPr(meta.branch, title, withBlock)
-    addLabel(pr.number, `factory:${options.stage}`)
-    if (options.stage === 'build') addLabel(pr.number, 'factory:active')
   } else {
     setPrTitle(pr.number, title)
     updatePrBody(pr.number, withBlock)
   }
+
+  // Every turn, not only the one that creates the PR. The design stage opens
+  // it now, so by the time the build stage publishes there is already a pull
+  // request — and factory:active, which is the trigger build-setup.yml and
+  // build-turn.yml both key on, would never be applied at all. Adding a label
+  // that is already present is a no-op.
+  addLabel(pr.number, `factory:${options.stage}`)
+  if (options.stage === 'build') addLabel(pr.number, 'factory:active')
 
   // A finished turn takes the PR out of draft so a human can review it.
   if (result.status === 'ready_for_review' && pr.isDraft) {

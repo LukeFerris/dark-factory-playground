@@ -53,8 +53,8 @@ Four independent mechanisms, described fully in `../factory/SECURITY.md`:
 3. `factory validate` rejects any diff outside the stage's allowed paths, and
    always rejects `.agent/`, `.github/`, `factory/`, `bootstrap/` and the
    tooling configs.
-4. Branch rulesets: the App may push to `design/*` and `build/*` only, and
-   `main` has no bypass actors at all.
+4. Branch rulesets: the App may push to `card/*` only, and `main` has no
+   bypass actors at all.
 
 Point 3 is the one worth arguing for. **The agent cannot edit its own manual,
 its own workflow, its own validator, or the lint and type rules it is judged

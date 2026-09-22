@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { checkScope, contractProblems, matchesGlob } from './validate.ts'
+import { META_PATH, turnBase, writeFileEnsuringDir } from './meta.ts'
 import type { Result } from './schema.ts'
 
 function result(over: Partial<Result> = {}): Result {
@@ -111,6 +113,17 @@ describe('checkScope — build stage', () => {
     ).toEqual([])
   })
 
+  // The design and the build now share one branch, so the design document is
+  // sitting in the build turn's tree. It stays read-only to that turn: it is
+  // outside the build allow list, and it only escapes being flagged because
+  // `validate` measures the diff from the commit the turn started at rather
+  // than from main. Both halves of that have to hold.
+  it('still refuses to let a build turn write the design it shares a branch with', () => {
+    expect(checkScope('build', ['docs/design/DF-1/design.md'])).toEqual([
+      { path: 'docs/design/DF-1/design.md', reason: 'not-allowed' },
+    ])
+  })
+
   it('rejects the factory machinery even though the stage has a broad allow list', () => {
     const violations = checkScope('build', [
       '.github/workflows/build-turn.yml',
@@ -137,5 +150,42 @@ describe('checkScope — build stage', () => {
     expect(checkScope('build', ['README.md'])).toEqual([
       { path: 'README.md', reason: 'not-allowed' },
     ])
+  })
+})
+
+/**
+ * What a turn's diff is measured from.
+ *
+ * This is the whole reason a build turn can share a branch with the design
+ * that preceded it: measured from main, the build turn's diff would contain
+ * the design document and `checkScope` would reject a file the agent never
+ * touched.
+ */
+describe('turnBase', () => {
+  const saved = existsSync(META_PATH) ? readFileSync(META_PATH, 'utf8') : null
+
+  afterEach(() => {
+    if (saved === null) rmSync(META_PATH, { force: true })
+    else writeFileEnsuringDir(META_PATH, saved)
+  })
+
+  function meta(base_sha: string): void {
+    writeFileEnsuringDir(META_PATH, JSON.stringify({ key: 'DF-1', base_sha }))
+  }
+
+  it('returns the base recorded at checkout', () => {
+    meta('0123456789abcdef0123456789abcdef01234567')
+    expect(turnBase()).toBe('0123456789abcdef0123456789abcdef01234567')
+  })
+
+  // Both fall back to the stricter check rather than to no check at all.
+  it('falls back to main when there is no meta to read', () => {
+    rmSync(META_PATH, { force: true })
+    expect(turnBase()).toBe('origin/main')
+  })
+
+  it('falls back to main when nothing was recorded', () => {
+    meta('   ')
+    expect(turnBase()).toBe('origin/main')
   })
 })

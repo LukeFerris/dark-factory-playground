@@ -43,8 +43,9 @@ Two stages, one card:
 1. **Design.** The card reaches *Ready for design*. An agent with no shell reads
    the card and the code, and writes `docs/design/<KEY>/design.md`. The card
    lands in *Design review* with the design attached to a draft PR.
-2. **Build.** A human approves the design and moves the card to *Ready for
-   build*. An agent implements it, one turn at a time, on a `build/*` branch.
+2. **Build.** A human approves the design on the card and moves it to *Ready
+   for build*. An agent implements it, one turn at a time, on the same branch
+   the design came in on — so the design document is simply already there.
    Each turn after the first is granted by a human comment on the PR.
 
 A human merges. Nothing else does.
@@ -70,8 +71,8 @@ Three independent layers, each of which would have to fail:
    path outside its stage's allow-list, and always rejects `.agent/`,
    `.github/`, `factory/`, `bootstrap/` and the tooling configs — the agent
    cannot edit its own manual, its own workflow, or its own validator.
-3. **The branch rulesets.** The App can push to `design/*` and `build/*` and
-   nowhere else. It cannot push to `main`, approve a pull request, or merge.
+3. **The branch rulesets.** The App can push to `card/*` and nowhere else. It
+   cannot push to `main`, approve a pull request, or merge.
 
 And one that is not a technical control at all: **a human grants every build
 turn.** There is no auto-continue. A confused agent costs one turn.

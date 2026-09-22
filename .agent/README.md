@@ -11,7 +11,7 @@ directory. Nothing else in the repository is part of that contract.
 ├── result.schema.json    generated; the shape of a turn's result
 ├── in/                   git-ignored; written by `factory gather`
 │   ├── task.md           the card and the conversation so far
-│   └── meta.json         { key, stage, turn, branch, pr, preview_url }
+│   └── meta.json         { key, stage, turn, branch, base_sha, pr, preview_url }
 └── out/                  git-ignored; written by the agent
     ├── result.json       the turn's result
     └── transcript.json   the raw `claude -p` transcript, kept as an artifact
