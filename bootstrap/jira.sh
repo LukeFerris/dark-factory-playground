@@ -332,22 +332,93 @@ fi
 
 section "Custom fields"
 
+# Every screen the project actually uses, via its issue type screen scheme.
+# Resolved once: the ids are generated per project, so they cannot be constants.
+project_screen_ids() {
+  local scheme_id screen_scheme_ids
+  scheme_id="$(jira_get "/rest/api/3/issuetypescreenscheme/project?projectId=$PROJECT_ID" \
+    | jq -r '.values[0].issueTypeScreenScheme.id // empty')"
+  [[ -n "$scheme_id" ]] || return 0
+  screen_scheme_ids="$(jira_get "/rest/api/3/issuetypescreenscheme/mapping?issueTypeScreenSchemeId=$scheme_id&maxResults=100" \
+    | jq -r '[.values[].screenSchemeId] | unique | join("&id=")')"
+  [[ -n "$screen_scheme_ids" ]] || return 0
+  jira_get "/rest/api/3/screenscheme?id=$screen_scheme_ids&maxResults=100" \
+    | jq -r '[.values[].screens | to_entries[] | .value] | unique | .[]'
+}
+
+# A field that is on no screen is invisible twice over: nobody can type into it
+# in the UI, and GET /rest/api/3/field does not return it at all — which is the
+# endpoint `factory gather` uses to resolve these two by name, and where a miss
+# is silent. Creating the field is only half the job.
+#
+# POSTing a field that is already on the screen answers 400. That is the
+# idempotent case rather than a failure, so this cannot go through jira_write.
+add_field_to_screens() {
+  local field_id="$1" screen tab payload body status
+  payload="$(jq -n --arg f "$field_id" '{fieldId: $f}')"
+
+  # bash 3.2 under `set -u` treats "${empty[@]}" as unbound, so guard the loop.
+  (( ${#SCREEN_IDS[@]} == 0 )) && return 0
+
+  for screen in "${SCREEN_IDS[@]}"; do
+    if (( DRY_RUN )); then
+      printf '  %s POST /rest/api/3/screens/%s/tabs/<tab>/fields %s\n' \
+        "$(_colour 90 'would call:')" "$screen" "$field_id" >&2
+      continue
+    fi
+    tab="$(jira_get "/rest/api/3/screens/$screen/tabs" | jq -r '.[0].id // empty')"
+    [[ -n "$tab" ]] || continue
+    body="$(printf '%s' "$payload" | curl -sS -w '\n%{http_code}' \
+      -X POST -u "$JIRA_USER:$JIRA_TOKEN" \
+      -H 'Accept: application/json' -H 'Content-Type: application/json' \
+      --max-time 30 --data-binary @- \
+      "$JIRA_BASE/rest/api/3/screens/$screen/tabs/$tab/fields")"
+    status="${body##*$'\n'}"
+    [[ "$status" == 200 || "$status" == 400 ]] \
+      || warn "could not add $field_id to screen $screen (HTTP $status)"
+  done
+}
+
 ensure_field() {
   local name="$1" description="$2" type="$3" searcher="$4" id
 
-  id="$(jira_get /rest/api/3/field | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -1)"
+  # Look the field up through /field/search, not /field: an existing field that
+  # is not yet on a screen is absent from /field, and trusting that would create
+  # a second field with the same name on every re-run.
+  id="$(jira_get "/rest/api/3/field/search?query=$(printf '%s' "$name" | jq -sRr @uri)&maxResults=50" \
+    | jq -r --arg n "$name" '.values[]? | select(.name == $n) | .id' | head -1)"
+
   if [[ -n "$id" ]]; then
     ok "$name ($id)"
-    return 0
+  else
+    local payload
+    payload="$(jq -n --arg n "$name" --arg d "$description" --arg t "$type" --arg s "$searcher" '{
+      name: $n, description: $d, type: $t, searcherKey: $s
+    }')"
+    id="$(jira_write POST /rest/api/3/field "$payload" | jq -r '.id // empty')"
+    (( DRY_RUN )) || ok "created $name ($id)"
   fi
 
-  local payload
-  payload="$(jq -n --arg n "$name" --arg d "$description" --arg t "$type" --arg s "$searcher" '{
-    name: $n, description: $d, type: $t, searcherKey: $s
-  }')"
-  id="$(jira_write POST /rest/api/3/field "$payload" | jq -r '.id // empty')"
-  (( DRY_RUN )) || ok "created $name ($id)"
+  [[ -n "$id" ]] && add_field_to_screens "$id"
+  return 0
 }
+
+# Built by hand rather than with readarray: macOS ships bash 3.2, where that
+# builtin does not exist.
+SCREEN_IDS=()
+while IFS= read -r screen_id; do
+  [[ -n "$screen_id" ]] && SCREEN_IDS+=("$screen_id")
+done < <(project_screen_ids)
+
+if (( ${#SCREEN_IDS[@]} == 0 )); then
+  if [[ -z "$PROJECT_ID" ]]; then
+    # A rehearsal on a site where the project does not exist yet. Nothing is
+    # wrong; there is simply no screen scheme to read until the project is real.
+    info "screens cannot be resolved until $JIRA_PROJECT_KEY exists — re-run without --dry-run"
+  else
+    warn "could not resolve the screens for $JIRA_PROJECT_KEY — add both custom fields to the project's screen by hand, or the agent will never see them"
+  fi
+fi
 
 # `factory gather` finds these BY NAME, not by id: custom field ids differ per
 # site, so hard-coding one would break the moment the factory ran anywhere else.

@@ -36,22 +36,72 @@ ruleset is a normal state, an unreachable ruleset API is not. This matters more
 than a tidy error message: the `main protection` ruleset is the entire
 containment story, and failing silently on it means the App is uncontained.
 
+### The documented bootstrap order could not succeed on an empty repository
+
+**Plan said:** run `bootstrap/github.sh`, then `git push -u origin main`.
+
+**Actual:** the push is rejected. `github.sh` creates the `main protection`
+ruleset, which requires a pull request and a green `ci` and has no bypass
+actors — deliberately, including the human running it. On an empty repository
+nothing can satisfy that: `ci` cannot run until the workflows are on the default
+branch, and they cannot get there except by this push. GitHub answers
+`Required status check "ci" is expected`.
+
+**Done:** `SETUP.md` now pushes before `github.sh`, and documents the
+disable/push/re-enable recovery for anyone who has already created the ruleset,
+with a verification step — an unenforced `main protection` is the single failure
+mode the design exists to prevent, and it is invisible once you have moved on.
+
+`SETUP.md` also now states the prerequisite that made this visible: rulesets
+need GitHub Pro on a private repository. On a free plan every ruleset call
+returns 403 and the factory has no containment at all.
+
 ### Notes from the first live bootstrap
 
-Neither is a defect; both cost time to diagnose and are worth writing down.
+Not defects, but each looked like one for a while.
 
 *Jira ships a global status called "Building".* `jira.sh` creates nine of its
 ten statuses and reuses that one. The skip is the idempotency check working, not
 a missing status.
 
-*`GET /rest/api/3/field` lags behind field creation.* Immediately after
-`jira.sh` creates `Acceptance criteria` and `Design owner`, both are returned by
-`/rest/api/3/field/search` and both resolve by id, but the unpaginated
-`/rest/api/3/field` does not list them for some minutes. `smoke.sh` reports them
-missing during that window, and `factory/src/gather.ts` reads the same endpoint —
-where a miss is silent, because the acceptance criteria simply render as
-`_(none given)_`. If an early card comes back with no acceptance criteria, this
-is the first thing to check.
+*The `kanban-classic` template creates `Backlog` and `Done` itself.* So the run
+that appears to create seven statuses has in fact produced all ten: seven new,
+one pre-existing global, two from the template. Check
+`/rest/api/3/project/DF/statuses` rather than counting the log lines.
+
+### The custom fields were created and then left on no screen
+
+**Plan said:** `jira.sh` creates `Acceptance criteria` and `Design owner`, and
+`factory gather` resolves them by name.
+
+**Actual:** both fields existed and neither was usable. `jira.sh` created them
+and stopped there, never associating them with the project's screens. A field on
+no screen is invisible twice over: it does not appear on the create or edit form,
+so no human can put acceptance criteria on a card at all, and — the part that
+cost the time — `GET /rest/api/3/field` does not return it. That is the endpoint
+`factory/src/gather.ts:26` uses, and a miss there is silent: the criteria render
+as `_(none given)_` and the agent simply works without them.
+
+`smoke.sh` reported both as missing and was right to. The first reading was that
+Jira's field index lagged behind creation, because `/rest/api/3/field/search`
+listed both and each resolved by id. It was not lag. Polling `/rest/api/3/field`
+every thirty seconds returned nothing for seven attempts and then both fields on
+the eighth — the attempt immediately after they were added to a screen by hand.
+
+**Done:** `ensure_field` now resolves the project's screens through its issue
+type screen scheme (`project_screen_ids`) and adds each field to the first tab
+of every screen the project uses. A field already on the screen answers 400,
+which is the idempotent case and is tolerated rather than fatal.
+
+The same function also now looks fields up through `/rest/api/3/field/search`
+rather than `/rest/api/3/field`. This was a second bug hiding behind the first:
+a field that exists but is on no screen is absent from `/field`, so a re-run
+after a partial bootstrap would not have found it and would have created a
+duplicate of the same name on every attempt.
+
+Two portability notes, both from macOS shipping bash 3.2: `readarray` does not
+exist, and `"${arr[@]}"` on an empty array is an unbound-variable error under
+`set -u`. The array is built with a read loop and the loop is guarded.
 
 ## 2026-09-21
 

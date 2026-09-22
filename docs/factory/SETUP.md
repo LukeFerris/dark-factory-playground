@@ -17,6 +17,7 @@ issued once or UI that has no API. They are marked **Checkpoint A** to
 | `claude` | `npm i -g @anthropic-ai/claude-code` |
 | Docker (optional) | Only to build preview images locally |
 | A GitHub account you control | The App is installed on your own repository |
+| That repository public, **or** GitHub Pro | Rulesets are the containment, and they need one or the other. On a free plan a private repository returns `403 Upgrade to GitHub Pro or make this repository public` for every ruleset call |
 | A Jira Cloud site (Free is enough) | `https://<you>.atlassian.net` |
 | An Anthropic API key | The agent's only credential |
 
@@ -108,6 +109,8 @@ With `.env` filled in:
 ```bash
 bootstrap/preflight.sh          # should now pass with no warnings that matter
 
+git push -u origin main         # must come first — see below
+
 bootstrap/github.sh --dry-run   # read what it intends to do
 bootstrap/github.sh
 
@@ -117,14 +120,32 @@ bootstrap/jira.sh
 bootstrap/smoke.sh
 ```
 
-Then push, so GitHub registers the workflows:
+**Push before `github.sh`, not after.** `github.sh` creates the `main
+protection` ruleset, which requires a pull request and a green `ci` with no
+bypass actors — including you. On an empty repository that can never be
+satisfied: `ci` cannot run until the workflows are on the default branch, and
+they cannot get there without this push. Run it the other way round and GitHub
+rejects the push with *Required status check "ci" is expected*. If you have
+already created the ruleset, set its enforcement to `disabled`, push, and set it
+back to `active`:
 
 ```bash
+RS=$(gh api "repos/$GH_OWNER/$GH_REPO/rulesets" --jq '.[]|select(.name=="main protection")|.id')
+gh api -X PUT "repos/$GH_OWNER/$GH_REPO/rulesets/$RS" -f enforcement=disabled --silent
 git push -u origin main
+gh api -X PUT "repos/$GH_OWNER/$GH_REPO/rulesets/$RS" -f enforcement=active --silent
 ```
 
-`smoke.sh` will report the workflows as unregistered until this push lands on
-the default branch.
+Check it went back on before you go further — an unenforced `main protection` is
+the one failure mode this whole design exists to prevent:
+
+```bash
+gh api "repos/$GH_OWNER/$GH_REPO/rulesets/$RS" --jq '{enforcement, bypass: (.bypass_actors|length)}'
+# want: {"enforcement":"active","bypass":0}
+```
+
+`smoke.sh` reports the workflows as unregistered until the push has landed on
+the default branch. Every other check should pass on the first run.
 
 ---
 
