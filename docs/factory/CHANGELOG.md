@@ -9,6 +9,27 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### The card comment never linked the pull request
+
+**Plan said:** every Jira comment links the PR, the preview and the Actions run.
+
+**Actual:** it linked the run. `buildComment` takes a `prUrl`, `report` takes a
+`--pr-url`, and neither workflow has ever passed one — `publish` prints the URL
+and sets no step output, so the flag was unreachable from the only place that
+calls it. Two cards went through before anyone noticed, because a comment that
+links *something* looks like a comment that links everything.
+
+**Done:** `report` no longer waits to be told. `meta.json` holds the PR number
+from the moment `publish` creates or finds it — and from turn one on a build —
+so `report` builds the URL from that and `GITHUB_REPOSITORY`. `--pr-url` still
+overrides, for a hand-run report.
+
+The step-output route was the obvious fix and is the wrong one: `report` runs
+on `always()`, which is exactly when `publish` may have been skipped, and a
+step output that does not exist yields an empty string. Reading meta instead
+means a **rejected** turn also links the PR — which is the case where a human
+most needs to go and look at it.
+
 ### The card comment says how to check the work, in a browser
 
 **Plan said:** `result.json` carries `summary`, `assumptions`, `questions`,
@@ -50,6 +71,14 @@ disk.
 backticks reach the card as literal punctuation. The manuals now say to quote
 on-screen text with `"` and write plain prose. If a future change wants real
 emphasis on the card, it needs marks in `adf.ts`, not Markdown in the string.
+
+**First live card (DF-2), and the one thing it got wrong:** the design produced
+five steps, and the fourth was not a step — "the page has no text field, so
+there is no name to type in" — a true and useful observation, parked where a
+reader counting numbered steps will try to follow it. Both manuals now say that
+every entry is an action or an observation, and that "why this cannot be
+checked in a browser" belongs in `context`, with an example of the same fact
+written correctly in each place.
 
 ### The poller polls in a loop, because cron cannot go below five minutes
 

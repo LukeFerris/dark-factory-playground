@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { runUrl } from './env.ts'
+import { prUrl, runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import * as jira from './jira.ts'
 import { readMeta } from './meta.ts'
@@ -113,13 +113,13 @@ export async function report(options: ReportOptions): Promise<void> {
   const result = ResultSchema.parse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
   const cfg = jira.configFromEnv()
 
-  const comment = buildComment(
-    options.stage,
-    result,
-    options.prUrl ?? null,
-    meta.preview_url,
-    runUrl(),
-  )
+  // `--pr-url` wins if given, but nothing passes it: the number is in meta.json
+  // the moment `publish` creates or finds the PR, and for a build turn it is
+  // there from turn one. Falling back to meta means a rejected turn — where
+  // `publish` never ran — still links the PR a human needs to go and look at.
+  const pr = options.prUrl ?? prUrl(meta.pr)
+
+  const comment = buildComment(options.stage, result, pr, meta.preview_url, runUrl())
 
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))

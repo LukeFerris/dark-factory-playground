@@ -131,6 +131,18 @@ Write each step as plain prose and quote what is on screen with `"` — no
 Markdown. Jira comments are not Markdown, so asterisks and backticks reach the
 card as literal asterisks and backticks.
 
+**Every entry is an action to take or a thing to observe. Nothing else.** If
+part of the card cannot be checked in a browser — the behaviour has no visible
+control, or it is only reachable from a test — say so in `context` and leave it
+out of the list. An entry explaining why you cannot check something is not a
+step, and a reader counting numbered steps will try to follow it.
+
+| | Example |
+|---|---|
+| ✅ in `acceptance_criteria` | `Reload the page. The line still reads "Hi there, world".` |
+| ✅ in `context` | `The app has no input field yet, so the blank-name fallback is covered by tests rather than in the browser.` |
+| ❌ anywhere | `There is no text field, so there is no empty case to try here.` |
+
 Cover the empty and error cases too, not just the happy path. If the card's
 acceptance criteria in `task.md` already read as browser steps, carry them
 across and sharpen them — do not invent a different set.

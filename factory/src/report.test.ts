@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { prUrl } from './env.ts'
 import { buildComment, targetStatus } from './report.ts'
 import { STATUS_TRANSITIONS, type Result } from './schema.ts'
 import { slugify, branchName } from './branch.ts'
@@ -118,6 +119,32 @@ describe('buildComment', () => {
     expect(doc.type).toBe('doc')
     expect(doc.version).toBe(1)
     expect(Array.isArray(doc.content)).toBe(true)
+  })
+})
+
+describe('prUrl', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it('builds the URL from the repository it is running in', () => {
+    process.env['GITHUB_REPOSITORY'] = 'LukeFerris/dark-factory-playground'
+    delete process.env['GITHUB_SERVER_URL']
+    expect(prUrl(8)).toBe('https://github.com/LukeFerris/dark-factory-playground/pull/8')
+  })
+
+  it('honours a self-hosted server URL', () => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/widgets'
+    process.env['GITHUB_SERVER_URL'] = 'https://ghe.acme.internal'
+    expect(prUrl(3)).toBe('https://ghe.acme.internal/acme/widgets/pull/3')
+  })
+
+  it('returns null when there is no PR yet, or no repository to build one from', () => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/widgets'
+    expect(prUrl(null)).toBeNull()
+    delete process.env['GITHUB_REPOSITORY']
+    expect(prUrl(8)).toBeNull()
   })
 })
 
