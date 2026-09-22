@@ -1,0 +1,34 @@
+.github/workflows/poller.yml
+  s_6735740180f350::t_62ad9de565caf8 123-140
+  s_6735740180f350::t_93203fcca629dd 76-77,81-86
+  s_6735740180f350::t_e6dc0b8999c361 3-6,10-24,28,30-38
+  s_6735740180f350::t_bc63b6566449ac 87-88
+  s_6735740180f350::t_c208c53a944349 89
+docs/factory/SETUP.md
+  s_6735740180f350::t_18ab7db0c0247e 183-201
+docs/adr/0001-factory-architecture.md
+  s_6735740180f350::t_c8a818e0e43d3e 83-84,87-100
+  s_6735740180f350::t_4f1eea048cb890 188-189
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_e0870d22fa5546 12-38
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_22d3c6a5831c33 81
+bootstrap/github.sh
+  s_6735740180f350::t_ff5a68ee6e693c 94-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a844c439fd323a19069478afe9d5f8baf37d92cf",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
