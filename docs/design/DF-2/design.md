@@ -163,6 +163,37 @@ true rather than what becomes true.
   one greeting and no localisation; introducing that structure for a one-word
   change is the kind of over-engineering this repository is meant to avoid.
 
+## Acceptance criteria
+
+Four criteria, all checkable with the app open in a browser. The blank-name
+fallback is deliberately not among them: the app has no input field, so there is
+no way to empty a name from the page. It is covered under *Test strategy*
+instead.
+
+#### The greeting reads "Hi there, world" when the page loads
+
+1. Open the app.
+2. Look at the line of text beneath the heading "Dark Factory Playground".
+3. It reads "Hi there, world".
+
+#### The word "Hello" appears nowhere on the page
+
+1. Press Cmd-F (Ctrl-F on Windows and Linux) and search the page for "Hello".
+2. No match is found.
+
+#### The page still has one heading with a single line of greeting beneath it
+
+1. Look at the top of the page. It reads "Dark Factory Playground".
+2. Look below it. There is exactly one line of text, and no other text,
+   field or button on the page.
+
+#### The greeting is the same after a reload
+
+1. Reload the page.
+2. Look at the line beneath the heading.
+3. It still reads "Hi there, world", and the heading is still
+   "Dark Factory Playground".
+
 ## Test strategy
 
 All three are component-level tests with React Testing Library, in the files that
