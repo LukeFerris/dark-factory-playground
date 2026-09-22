@@ -1,0 +1,34 @@
+.agent/design.md
+  s_6735740180f350::t_ea2514b4917cd5 134-145
+.agent/build.md
+  s_6735740180f350::t_621f9f0c549c13 144-155
+factory/src/env.ts
+  s_6735740180f350::t_fee273677bfce2 57-72
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_a4ad80907413e0 12-32
+  s_6735740180f350::t_eb8c6f00702bf0 75-82
+factory/src/report.ts
+  s_6735740180f350::t_afa54b869a7323 2
+  s_6735740180f350::t_9d21c046e0fe3e 116-122
+factory/src/report.test.ts
+  s_6735740180f350::t_3490d7844e96ac 125-150
+  s_6735740180f350::t_e477ce46ae7285 1-2
+factory/src/manuals.test.ts
+  s_6735740180f350::t_b436e13acce73f 77-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "87bff76894cbe3eb25c22be615d724150cb70cc8",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
