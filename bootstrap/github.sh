@@ -63,19 +63,37 @@ section "Secrets"
 
 # gh encrypts with the repository public key before sending; the plaintext never
 # leaves this machine. Values come from .env and are never echoed.
+#
+# `gh secret set` reads the value from stdin when --body is omitted, and there is
+# no `--body -` convention: passing that stores a literal hyphen. It fails
+# silently, because nothing here can read a secret back to check it — the first
+# sign is a workflow step rejecting the value much later.
 set_secret() {
   local name="$1" value="$2"
   if (( DRY_RUN )); then
     info "would set secret $name (${#value} bytes)"
     return 0
   fi
-  printf '%s' "$value" | gh secret set "$name" --repo "$REPO_SLUG" --body -
+  printf '%s' "$value" | gh secret set "$name" --repo "$REPO_SLUG"
+  ok "$name"
+}
+
+# The private key goes byte for byte, straight from the file. Reading it into a
+# variable first would strip the trailing newline, and a PEM is the one value
+# here where the exact bytes are worth not thinking about.
+set_secret_file() {
+  local name="$1" path="$2"
+  if (( DRY_RUN )); then
+    info "would set secret $name from $path ($(wc -c <"$path" | tr -d ' ') bytes)"
+    return 0
+  fi
+  gh secret set "$name" --repo "$REPO_SLUG" <"$path"
   ok "$name"
 }
 
 set_secret ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
 set_secret JIRA_BOT_TOKEN "$JIRA_TOKEN"
-set_secret FACTORY_APP_KEY "$(cat "$FACTORY_APP_KEY_PATH")"
+set_secret_file FACTORY_APP_KEY "$FACTORY_APP_KEY_PATH"
 
 section "Variables"
 

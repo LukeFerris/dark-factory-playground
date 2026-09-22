@@ -94,6 +94,33 @@ still has **Actions: read and write**.
 
 ---
 
+## Every run fails at "Mint App token"
+
+```
+Invalid keyData … ERR_OSSL_ASN1_NOT_ENOUGH_DATA
+```
+
+`FACTORY_APP_KEY` is not a PEM. OpenSSL is saying the key it was given ran out
+of bytes, which usually means the secret holds something much shorter than a
+key — an empty value, a path, or a shell artefact. `smoke.sh` cannot catch this:
+secrets are write-only, so it can only confirm the name exists.
+
+Set it again, from the file, and never through a shell variable:
+
+```bash
+gh secret set FACTORY_APP_KEY --repo "$GH_OWNER/$GH_REPO" < secrets/factory-app.pem
+```
+
+Check the file first — `openssl rsa -in secrets/factory-app.pem -noout -check`
+should say `RSA key ok`. If it does not, the key was truncated on download and
+there is no repairing it: generate a new one on the App's page, which also
+revokes the old one.
+
+A `401` from the same step is a different fault — the key is valid but does not
+belong to `FACTORY_APP_ID`, or the App is not installed on this repository.
+
+---
+
 ## A card is claimed but nothing is running
 
 The poller moves a card to *Designing* / *Building* **before** dispatching, so

@@ -147,6 +147,11 @@ gh api "repos/$GH_OWNER/$GH_REPO/rulesets/$RS" --jq '{enforcement, bypass: (.byp
 `smoke.sh` reports the workflows as unregistered until the push has landed on
 the default branch. Every other check should pass on the first run.
 
+One thing it cannot check: secrets are write-only, so a ✓ beside
+`FACTORY_APP_KEY` means a secret of that name exists, not that it holds a key.
+The first poller run is what proves it — a failure at *Mint App token* is in
+`RUNBOOK.md`.
+
 ---
 
 ## Checkpoint D — board columns
