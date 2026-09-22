@@ -207,14 +207,24 @@ factory's is always *Dark Factory*.
 
 ```bash
 bootstrap/smoke.sh --card
-gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
-gh run watch --repo "$GH_OWNER/$GH_REPO"
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO" -f window_seconds=0
+bootstrap/trace.sh
 ```
 
 That files a real card ("greet the user by name"), moves it to *Ready for
-design*, and starts a poller run immediately rather than waiting for the next
-scheduled one. Within a few minutes you should have a `design/DF-1-…` branch and
-a draft PR with a design document on it.
+design*, and starts a single poll immediately rather than waiting for the next
+scheduled one — `window_seconds=0` means one pass, so the run ends instead of
+idling for the rest of its window. Within a few minutes you should have a
+`design/DF-1-…` branch and a draft PR with a design document on it.
+
+`bootstrap/trace.sh` is the thing to watch it with. It shows every card's status
+next to the last few Actions runs, refreshing every five seconds, and marks the
+cards that are waiting on **you**. It is read-only and runs from anywhere, so
+leave it in a second terminal. `--once` prints a single snapshot.
+
+Watch for the card reaching *Designing* **before** the design run appears. That
+is not a race — the poller claims a card and then dispatches, so a failed
+dispatch leaves it visibly stuck rather than handing it to two agents.
 
 A running poller picks a card up within `FACTORY_POLL_INTERVAL_SECONDS`
 (default 30). The `schedule:` only decides how soon a run starts after the last
