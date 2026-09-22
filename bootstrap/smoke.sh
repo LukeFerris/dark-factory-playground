@@ -177,13 +177,42 @@ for field in 'Acceptance criteria' 'Design owner'; do
   fi
 done
 
-board="$(jira_get "/rest/agile/1.0/board?name=$(printf '%s' 'Dark Factory' | jq -sRr @uri)" \
-  | jq -r '[.values[]?] | length')"
-if [[ "${board:-0}" != "0" ]]; then
-  ok "board \"Dark Factory\" exists"
+board_id="$(jira_get "/rest/agile/1.0/board?name=$(printf '%s' 'Dark Factory' | jq -sRr @uri)" \
+  | jq -r '[.values[]?] | .[0].id // empty')"
+if [[ -n "$board_id" ]]; then
+  ok "board \"Dark Factory\" exists (id $board_id)"
+
+  # Existing is not the same as reachable. A board with no project location is
+  # a cross-project board: it works, but the project sidebar does not link to
+  # it, so you end up on whichever board the project template made instead.
+  board_project="$(jira_get "/rest/agile/1.0/board/$board_id" | jq -r '.location.projectKey // empty')"
+  if [[ "$board_project" == "$JIRA_PROJECT_KEY" ]]; then
+    ok "board is attached to $JIRA_PROJECT_KEY"
+  else
+    warn "board \"Dark Factory\" has no location on $JIRA_PROJECT_KEY, so it is hidden from the project sidebar. Re-run bootstrap/jira.sh."
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  mapped="$(jira_get "/rest/agile/1.0/board/$board_id/configuration" \
+    | jq -r '[.columnConfig.columns[].statuses[]?] | length')"
+  if [[ "${mapped:-0}" == "10" ]]; then
+    ok "all ten statuses are mapped onto columns"
+  else
+    warn "only ${mapped:-0} of 10 statuses are mapped onto board columns; cards in the rest are invisible. See docs/factory/SETUP.md, Checkpoint D."
+    FAILURES=$((FAILURES + 1))
+  fi
 else
   warn "board \"Dark Factory\" is missing"
   FAILURES=$((FAILURES + 1))
+fi
+
+# The project template creates its own board, and it is the one the sidebar
+# links to. Not a failure — but it is the reason for landing on a board with
+# none of these columns, so it is worth naming.
+stray="$(jira_get "/rest/agile/1.0/board?projectKeyOrId=$JIRA_PROJECT_KEY" \
+  | jq -r '.values[]? | select(.name != "Dark Factory") | "\(.id) \(.name)"')"
+if [[ -n "$stray" ]]; then
+  info "another board exists on $JIRA_PROJECT_KEY and is not the factory's: $(printf '%s' "$stray" | tr '\n' ';')"
 fi
 
 # ------------------------------------------------------------- optional card
