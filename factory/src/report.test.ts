@@ -210,8 +210,10 @@ describe('branch naming', () => {
     expect(slugify('word '.repeat(30)).endsWith('-')).toBe(false)
   })
 
-  it('prefixes with the stage', () => {
-    expect(branchName('design', 'DF-1', 'Type a name')).toBe('design/DF-1-type-a-name')
-    expect(branchName('build', 'DF-1', 'Type a name')).toBe('build/DF-1-type-a-name')
+  // The stage used to be in here, which gave a card two branches and two pull
+  // requests. One branch per card is what puts the design document in the
+  // build turn's tree without anything having to merge it to main first.
+  it('names the branch after the card, not the stage', () => {
+    expect(branchName('DF-1', 'Type a name')).toBe('card/DF-1-type-a-name')
   })
 })

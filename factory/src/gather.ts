@@ -1,5 +1,6 @@
 import { optional } from './env.ts'
 import * as jira from './jira.ts'
+import { git } from './git.ts'
 import { prComments } from './github.ts'
 import { writeFileEnsuringDir, writeMeta, TASK_PATH, type Meta } from './meta.ts'
 import type { Stage } from './schema.ts'
@@ -86,6 +87,12 @@ export async function gather(options: GatherOptions): Promise<Meta> {
     stage: options.stage,
     turn,
     branch: '',
+    // The checked-out HEAD, which is the turn's base for the flows that come
+    // in on the card's branch already — build-turn.yml checks the PR branch
+    // out itself and never calls prepare-branch. The flows that do call it
+    // overwrite this with the post-checkout HEAD, which is the correct one for
+    // them. Tolerant of a missing git because a turn is replayable locally.
+    base_sha: git(['rev-parse', 'HEAD'], true).trim(),
     pr: options.pr ?? null,
     preview_url: null,
   }

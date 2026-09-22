@@ -53,7 +53,7 @@ jobs:
           JIRA_BASE: ${{ vars.JIRA_BASE }}
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- prepare-branch "${{ inputs.key }}" --stage design
+        run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
 
       # Pinned deliberately. The flag surface is version-coupled — see the
       # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
@@ -82,7 +82,7 @@ jobs:
       - name: Validate
         id: validate
         continue-on-error: true
-        run: npm run --silent factory -- validate --stage design --base origin/main
+        run: npm run --silent factory -- validate --stage design
 
       - name: Mint App token
         id: app-token

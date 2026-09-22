@@ -9,6 +9,60 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-22
 
+### The design never reached the build agent
+
+**Plan said:** a card gets a `design/KEY-<slug>` branch and then a
+`build/KEY-<slug>` branch, and `.agent/build.md` tells the build agent to read
+`docs/design/<KEY>/design.md` before it writes anything.
+
+**Actual:** that file was never there. `prepare-branch` cuts a build branch from
+`origin/main`; `main` contained exactly one thing under `docs/design/` — the
+README. Nothing in `poller.yml`, `build-start.yml` or `build-turn.yml` merged a
+design PR, and no step did it by hand. Moving DF-1 to *Ready for build* would
+have started a $10 agent, told it to read the approved design, and handed it an
+empty path.
+
+The obvious repairs were all worse than they looked. Merging the design PR
+automatically needs the App on `main protection`'s bypass list, and a ruleset
+bypass is per-ruleset, not per-path — so buying "the factory may merge a design
+document" also buys "the factory may merge anything". That is not a deploy-shaped
+risk: `main` is the factory's own source, `prepare-branch` merges it into every
+reused branch, and the turn then runs the branch's `.agent/*.md` and
+`factory/src/*.ts`. Write access to `main` is write access to every future
+turn's prompt and validator. It is also the one control the agent cannot reach
+by writing files, which is worth more here than usual, because `validate` runs
+from the same working tree the agent just wrote to.
+
+**Done:** one branch per card. `card/KEY-<slug>`, opened by the design turn and
+continued by every build turn, carrying a single pull request for the card's
+whole life. The design document is in the build agent's tree because the stage
+before it put it there. Nothing merges to `main` mid-card, nothing bypasses
+anything, and the gate stays where it already was — a human moving the card to
+*Ready for build*.
+
+The stage still decides what a turn may write, so a build turn sharing a branch
+with the design still cannot edit it: `docs/design/*/design.md` is outside the
+build allow-list. Tested.
+
+**The one real cost:** `validate` could no longer diff against `origin/main`. On
+a shared branch that diff contains the previous stage's work, so every build
+turn would have been rejected for a design document it never touched.
+`prepare-branch` now records the commit the turn starts from as `base_sha`, and
+`validate` measures from there. That is the more correct rule anyway — a turn
+should be scoped by what *it* changed — and it fixes a latent version of the same
+bug, where build turn 2 was re-validating turn 1's files.
+
+Also moved: `publish` applied `factory:active` only when it *created* the PR. On
+a shared branch the design turn creates it, so the label — which is what
+`build-setup.yml` and `build-turn.yml` both trigger on — would never have been
+applied and the preview would never have come up. Labels are now applied every
+turn.
+
+**Rulesets:** `factory design branches` and `factory build branches` replaced by
+one `factory card branches` on `refs/heads/card/*`, same rules, App as the sole
+bypass. `main protection` untouched and re-verified: `bypass_actors` empty, one
+approving review, `ci` required.
+
 ### Every turn after the first ran the manual as it was when the branch was cut
 
 **Plan said:** nothing about this, which is the point.

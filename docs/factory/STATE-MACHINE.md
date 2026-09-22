@@ -109,7 +109,7 @@ on this pipeline is the pull request review, not the Jira workflow.
 
 ## Who can do what
 
-| | Move a card | Push to `design/*` `build/*` | Push to `main` | Approve | Merge |
+| | Move a card | Push to `card/*` | Push to `main` | Approve | Merge |
 | --- | --- | --- | --- | --- | --- |
 | The factory App | ✅ | ✅ | ❌ | ❌ | ❌ |
 | You | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |

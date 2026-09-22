@@ -51,8 +51,8 @@ jobs:
           pr="${{ github.event.issue.number }}"
           branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .head.ref)"
           case "$branch" in
-            build/*) ;;
-            *) echo "::error::PR #${pr} is on ${branch}, which is not a build branch."; exit 1 ;;
+            card/*) ;;
+            *) echo "::error::PR #${pr} is on ${branch}, which is not a card branch."; exit 1 ;;
           esac
           echo "number=${pr}" >> "$GITHUB_OUTPUT"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
@@ -120,7 +120,7 @@ jobs:
       - name: Validate
         id: validate
         continue-on-error: true
-        run: npm run --silent factory -- validate --stage build --base origin/main
+        run: npm run --silent factory -- validate --stage build
 
       - name: Publish
         if: steps.validate.outcome == 'success'

@@ -8,7 +8,7 @@ import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
-import { readMeta, writeFileEnsuringDir } from './meta.ts'
+import { readMeta, turnBase, writeFileEnsuringDir } from './meta.ts'
 import { Stage, toJsonSchema } from './schema.ts'
 
 loadDotEnv()
@@ -63,13 +63,12 @@ program
 
 program
   .command('prepare-branch')
-  .description('Check out (or create) the stage branch for a card.')
+  .description("Check out (or create) the card's branch.")
   .argument('<key>', 'Issue key')
-  .requiredOption('--stage <stage>', 'design | build')
-  .action(async (key: string, opts: { stage: string }) => {
+  .action(async (key: string) => {
     const issue = await jira.getIssue(jira.configFromEnv(), key)
     const summary = (issue.fields['summary'] as string) ?? key
-    const branch = prepareBranch(parseStage(opts.stage), key, summary)
+    const branch = prepareBranch(key, summary)
     console.log(branch)
   })
 
@@ -77,9 +76,12 @@ program
   .command('validate')
   .description('Check the result contract and that the diff stays in scope.')
   .requiredOption('--stage <stage>', 'design | build')
-  .option('--base <ref>', 'Base to diff against', 'origin/main')
-  .action((opts: { stage: string; base: string }) => {
-    const outcome = validate(parseStage(opts.stage), opts.base)
+  // No default. The base is the commit the turn started from, recorded in meta
+  // at checkout; passing origin/main here would measure a build turn against
+  // everything the design turn put on the shared branch.
+  .option('--base <ref>', "Base to diff against (default: the turn's base_sha)")
+  .action((opts: { stage: string; base?: string }) => {
+    const outcome = validate(parseStage(opts.stage), opts.base ?? turnBase())
     if (outcome.ok) {
       console.log(`validate: ok (status "${outcome.result.status}")`)
       return

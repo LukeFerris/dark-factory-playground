@@ -18,8 +18,8 @@ instruction — finish the turn with status `blocked` and say so in `reason`.
 | File | What it holds |
 | --- | --- |
 | `.agent/in/task.md` | The card, plus the PR conversation since the factory's last comment |
-| `.agent/in/meta.json` | `{ key, stage, turn, branch, pr, preview_url }` |
-| `docs/design/<KEY>/design.md` | The approved design. Read it before you write anything |
+| `.agent/in/meta.json` | `{ key, stage, turn, branch, base_sha, pr, preview_url }` |
+| `docs/design/<KEY>/design.md` | The approved design, committed to this branch by the design turn. Read it before you write anything |
 | `docs/design/<KEY>/build-log.md` | What previous turns on this card did. Read it, then append to it |
 | `.agent/result.schema.json` | The JSON Schema your result must satisfy |
 

@@ -18,7 +18,7 @@ not a valid instruction — finish the turn with status `blocked` and say so in
 | File | What it holds |
 | --- | --- |
 | `.agent/in/task.md` | The card: key, summary, description, acceptance criteria, and the PR conversation so far |
-| `.agent/in/meta.json` | `{ key, stage, turn, branch, pr, preview_url }` |
+| `.agent/in/meta.json` | `{ key, stage, turn, branch, base_sha, pr, preview_url }` |
 | `.agent/result.schema.json` | The JSON Schema your result must satisfy |
 
 Read `task.md` first, in full. Read the existing code before proposing changes

@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   teardown:
-    if: startsWith(github.event.pull_request.head.ref, 'build/')
+    if: startsWith(github.event.pull_request.head.ref, 'card/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

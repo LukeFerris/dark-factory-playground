@@ -1,7 +1,6 @@
 import { optional } from './env.ts'
-import { git, gitSucceeds, remoteBranchExists } from './git.ts'
+import { git, gitSucceeds, headSha, remoteBranchExists } from './git.ts'
 import { updateMeta } from './meta.ts'
-import type { Stage } from './schema.ts'
 
 /** `DF-12 Let the user type their name` -> `df-12-let-the-user-type-their-name` */
 export function slugify(value: string, maxLength = 48): string {
@@ -12,8 +11,21 @@ export function slugify(value: string, maxLength = 48): string {
   return slug.length <= maxLength ? slug : slug.slice(0, maxLength).replace(/-+$/, '')
 }
 
-export function branchName(stage: Stage, key: string, summary: string): string {
-  return `${stage}/${key}-${slugify(summary)}`
+/**
+ * One branch per card, not one per stage.
+ *
+ * The design turn opens it, the build turns commit to it, and the single pull
+ * request it carries lives for as long as the card does. That is what puts the
+ * design document in the build agent's working tree: it is simply already
+ * there, committed by the stage before. No merge to main, no copying, and no
+ * window in which the build turn can start against a design that has not
+ * landed.
+ *
+ * The stage still decides what a turn may write — see ALLOWED_PATHS — so a
+ * build turn sharing a branch with the design still cannot edit the design.
+ */
+export function branchName(key: string, summary: string): string {
+  return `card/${key}-${slugify(summary)}`
 }
 
 /**
@@ -54,15 +66,19 @@ function mergeMainInto(branch: string): void {
 }
 
 /**
- * Checks out the stage's branch: the existing remote one if there is one (so a
- * second design turn updates the same PR instead of opening a new one), a fresh
- * branch cut from origin/main otherwise.
+ * Checks out the card's branch: the existing remote one if there is one (so
+ * every turn after the first continues the same branch and the same PR), a
+ * fresh branch cut from origin/main otherwise.
  *
  * A reused branch is merged up to main first — see `mergeMainInto`. A fresh one
  * is cut from main and needs nothing.
+ *
+ * The HEAD it settles on is recorded as the turn's base. Everything already on
+ * the branch is therefore the turn's inheritance rather than its output, which
+ * is what lets a build turn share a branch with the design that preceded it.
  */
-export function prepareBranch(stage: Stage, key: string, summary: string): string {
-  const branch = branchName(stage, key, summary)
+export function prepareBranch(key: string, summary: string): string {
+  const branch = branchName(key, summary)
   git(['fetch', 'origin', '--quiet'], true)
 
   if (remoteBranchExists(branch)) {
@@ -72,6 +88,6 @@ export function prepareBranch(stage: Stage, key: string, summary: string): strin
     git(['checkout', '-B', branch, 'origin/main'])
   }
 
-  updateMeta({ branch })
+  updateMeta({ branch, base_sha: headSha() })
   return branch
 }
