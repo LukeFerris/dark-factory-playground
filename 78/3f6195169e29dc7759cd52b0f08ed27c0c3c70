@@ -1,0 +1,56 @@
+factory/src/manuals.test.ts
+  s_6735740180f350::t_9737fc6d9abe86 69-72,75,80-87,91-98,104-110
+  s_6735740180f350::t_ce5e560f79e85d 19-23
+  s_6735740180f350::t_a9efa37037fdcf 123-152
+  s_6735740180f350::t_df3f36f35beb17 88-90
+.agent/build.md
+  s_6735740180f350::t_a95b804969f0a4 123-152,160-161,165-167,169-172,177,181-184,186-188,190-192
+factory/src/validate.ts
+  s_6735740180f350::t_d358c9d8be2ff6 148-149
+  s_6735740180f350::t_9a35ae3af56d05 68-84
+.agent/result.schema.json
+  s_6735740180f350::t_4f74d0b333b113 35,37-57,59
+factory/src/validate.test.ts
+  s_6735740180f350::t_0e451299397bab 10-12
+  s_6735740180f350::t_789338649d1f70 22,32-46
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_adadc988ce932a 12-52
+docs/factory/SETUP.md
+  s_6735740180f350::t_235347ece7aa9c 245-257
+factory/src/report.test.ts
+  s_6735740180f350::t_99e3b2c0660ae4 4,7-17
+  s_6735740180f350::t_d35087190d7627 86,89,97,101,105-131,135-142
+  s_6735740180f350::t_f0f32ecc947bb1 18
+factory/src/report.ts
+  s_6735740180f350::t_7ee6f932dc6345 12-16
+  s_6735740180f350::t_f64bde847db10f 49-52,54-62,67,72-75
+factory/src/schema.ts
+  s_6735740180f350::t_429edab85d9d60 61-62,64-68,70
+  s_6735740180f350::t_82e1fa80c2e2ce 175-194,196
+  s_6735740180f350::t_34616728089777 31-53
+factory/src/adf.ts
+  s_6735740180f350::t_85ce7c4539a568 58-60
+.agent/design.md
+  s_6735740180f350::t_4497f59400287a 105-140,148,154-156,158-161,166,171-172,174-176,178-180
+factory/src/publish.ts
+  s_6735740180f350::t_b2aa24fb9f5544 39-41,43,46-48
+docs/design/README.md
+  s_6735740180f350::t_19c5d2e530fc47 66-107,114-116
+  s_6735740180f350::t_399f6bcc2fe1a9 117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "783f6195169e29dc7759cd52b0f08ed27c0c3c70",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
