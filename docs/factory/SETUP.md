@@ -180,9 +180,25 @@ gh run watch --repo "$GH_OWNER/$GH_REPO"
 ```
 
 That files a real card ("greet the user by name"), moves it to *Ready for
-design*, and kicks the poller rather than waiting ten minutes. Within a few
-minutes you should have a `design/DF-1-…` branch and a draft PR with a design
-document on it.
+design*, and starts a poller run immediately rather than waiting for the next
+scheduled one. Within a few minutes you should have a `design/DF-1-…` branch and
+a draft PR with a design document on it.
+
+A running poller picks a card up within `FACTORY_POLL_INTERVAL_SECONDS`
+(default 30). The `schedule:` only decides how soon a run starts after the last
+one ended — GitHub's minimum there is five minutes, and it is often slower. Two
+repository variables tune it:
+
+```bash
+gh variable set FACTORY_POLL_INTERVAL_SECONDS --body 30    # seconds between passes
+gh variable set FACTORY_POLL_WINDOW_SECONDS   --body 270   # how long a run polls
+```
+
+Leaving the window just under the cron interval keeps a runner busy more or less
+continuously. That is free on a public repository and fine for a playground, but
+it is real compute for something that is idle most of the time. Set the window
+to `0` to go back to one pass per tick, and dispatch the poller by hand when you
+want a card picked up now.
 
 Review the design. Move the card to *Ready for build*. Wait for the poller. Then
 grant turns by commenting on the PR until you are happy, and merge.

@@ -91,6 +91,13 @@ set_var JIRA_PROJECT_KEY "$JIRA_PROJECT_KEY"
 set_var FACTORY_APP_ID "$FACTORY_APP_ID"
 set_var FACTORY_BOT_LOGIN "$FACTORY_BOT_LOGIN"
 
+# Set explicitly, though poller.yml defaults to the same numbers, so the two
+# knobs show up in `gh variable list` instead of being buried in the workflow.
+# A window just under the cron interval keeps a runner up nearly all the time;
+# FACTORY_POLL_WINDOW_SECONDS=0 gives one pass per scheduled run instead.
+set_var FACTORY_POLL_INTERVAL_SECONDS "${FACTORY_POLL_INTERVAL_SECONDS:-30}"
+set_var FACTORY_POLL_WINDOW_SECONDS "${FACTORY_POLL_WINDOW_SECONDS:-270}"
+
 # ------------------------------------------------------------- environment
 
 section "Environments"

@@ -78,7 +78,7 @@ after 60 days of repository inactivity, and silently.
 ```bash
 gh workflow list --repo "$GH_OWNER/$GH_REPO" --all
 gh workflow enable poller.yml --repo "$GH_OWNER/$GH_REPO"
-gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"   # don't wait 10 minutes
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"   # start a run now
 ```
 
 **The workflows are not registered.** They only exist once they are on the

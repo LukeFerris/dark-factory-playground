@@ -1,17 +1,41 @@
 name: factory poller
 
-# The only thing that starts work. There are no Jira webhooks: every ten minutes
-# this asks Jira which cards are waiting, dispatches the right workflow for each,
-# and immediately moves the card out of the waiting status so the next poll does
-# not pick it up again.
+# The only thing that starts work. There are no Jira webhooks: this asks Jira
+# which cards are waiting, dispatches the right workflow for each, and
+# immediately moves the card out of the waiting status so the next pass does not
+# pick it up again.
 #
 # It dispatches with the App token, not GITHUB_TOKEN: a workflow_dispatch made
 # with GITHUB_TOKEN does not start a new workflow run.
+#
+# Latency does NOT come from the cron. Five minutes is GitHub's floor for
+# `schedule:`, and scheduled runs are often much later than that under load. So
+# one run polls repeatedly on a short interval for the length of a window, and
+# the cron exists only to start a fresh run when the last one ends. The setup —
+# checkout, npm ci, minting the token — costs far more than a pass does, so
+# passes within a run are close to free.
+#
+# Both knobs are repository variables, overridable per dispatch:
+#   FACTORY_POLL_INTERVAL_SECONDS  seconds between passes      (default 30)
+#   FACTORY_POLL_WINDOW_SECONDS    how long a run keeps going  (default 270)
+#
+# A window just under the cron interval means a run finishes before the next is
+# due. Set the window to 0 for a single pass — the old behaviour, and the right
+# setting if you do not want a runner up more or less continuously.
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      interval_seconds:
+        description: Seconds between passes (blank = repository default)
+        required: false
+        default: ''
+      window_seconds:
+        description: How long this run keeps polling (blank = repository default)
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -49,8 +73,19 @@ jobs:
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
           JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY }}
+          POLL_INTERVAL: ${{ inputs.interval_seconds || vars.FACTORY_POLL_INTERVAL_SECONDS || '30' }}
+          POLL_WINDOW: ${{ inputs.window_seconds || vars.FACTORY_POLL_WINDOW_SECONDS || '270' }}
         run: |
           set -euo pipefail
+
+          # Both come from user-settable variables, so neither is trusted. A
+          # non-numeric or zero interval would spin the loop as fast as Jira
+          # will answer; the App token is minted once and lasts an hour, so a
+          # window beyond that would keep polling with a dead token.
+          case "$POLL_INTERVAL" in ''|*[!0-9]*) POLL_INTERVAL=30 ;; esac
+          case "$POLL_WINDOW"   in ''|*[!0-9]*) POLL_WINDOW=270 ;; esac
+          if (( POLL_INTERVAL < 5 )); then POLL_INTERVAL=5; fi
+          if (( POLL_WINDOW > 3000 )); then POLL_WINDOW=3000; fi
 
           dispatch() {
             waiting_status="$1"
@@ -85,5 +120,21 @@ jobs:
             done
           }
 
-          dispatch "Ready for design" "Designing" design.yml
-          dispatch "Ready for build"  "Building"  build-start.yml
+          deadline=$(( $(date +%s) + POLL_WINDOW ))
+          pass=0
+
+          while :; do
+            pass=$(( pass + 1 ))
+            echo "::group::pass $pass"
+            dispatch "Ready for design" "Designing" design.yml
+            dispatch "Ready for build"  "Building"  build-start.yml
+            echo "::endgroup::"
+
+            # Stop when the next pass would finish after the window, so a run
+            # ends before the cron is due to start the next one.
+            if (( $(date +%s) + POLL_INTERVAL >= deadline )); then
+              echo "window closed after $pass pass(es)"
+              break
+            fi
+            sleep "$POLL_INTERVAL"
+          done
