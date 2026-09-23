@@ -58,6 +58,8 @@ async function call(
 export interface JiraIssue {
   key: string
   fields: Record<string, unknown>
+  /** Populated only when `search` or a GET asked for named issue properties. */
+  properties?: Record<string, unknown>
 }
 
 /**
@@ -66,11 +68,16 @@ export interface JiraIssue {
  * Uses POST /rest/api/3/search/jql — the older GET /search was removed from
  * Jira Cloud. The new endpoint pages with an opaque `nextPageToken` rather than
  * startAt/total.
+ *
+ * `properties` rides along on the same request. That matters for triage, which
+ * needs each card's status and its high-water mark together: asking for both
+ * here is one call for the whole board instead of one per card.
  */
 export async function search(
   cfg: JiraConfig,
   jql: string,
   fields: string[] = ['key'],
+  properties: string[] = [],
 ): Promise<JiraIssue[]> {
   const issues: JiraIssue[] = []
   let nextPageToken: string | undefined
@@ -80,6 +87,7 @@ export async function search(
       jql,
       fields,
       maxResults: 100,
+      ...(properties.length === 0 ? {} : { properties }),
       ...(nextPageToken === undefined ? {} : { nextPageToken }),
     })) as { issues?: JiraIssue[]; nextPageToken?: string; isLast?: boolean }
 
@@ -95,6 +103,15 @@ export async function getIssue(cfg: JiraConfig, key: string): Promise<JiraIssue>
 }
 
 export interface JiraComment {
+  /**
+   * The comment's own id.
+   *
+   * Triage remembers the last comment it looked at by this id, which is the
+   * only thing that stops a card whose comment was judged "no action" being
+   * re-judged on every pass for the rest of its life — a timestamp would work
+   * too, but an id cannot be ambiguous about two comments in the same second.
+   */
+  id: string
   author: string
   /**
    * The author's Jira account id.
@@ -112,6 +129,7 @@ export interface JiraComment {
 function toComment(c: Record<string, unknown>): JiraComment {
   const author = c['author'] as Record<string, unknown> | undefined
   return {
+    id: (c['id'] as string) ?? '',
     author: (author?.['displayName'] as string) ?? 'unknown',
     authorId: (author?.['accountId'] as string) ?? '',
     created: (c['created'] as string) ?? '',
@@ -172,15 +190,20 @@ export async function myAccountId(cfg: JiraConfig): Promise<string> {
 }
 
 /**
- * Has a human replied since the factory last spoke on this card?
+ * Has someone other than the factory spoken last on this card?
  *
- * The factory always comments *before* it transitions — see `report()` — so a
- * card parked in a blocked status carries the agent's question as its last
- * word. Anything newer than that came from someone else, and is the answer.
+ * Every turn ends with `report()` posting a comment, so a card the factory has
+ * put down carries the factory's own words as its last. Anything newer came
+ * from a person, and is the only thing on the card worth reacting to.
+ *
+ * This is the cheap first filter in front of triage: it costs one request and
+ * rules out every card nobody has touched, so the expensive part — reading the
+ * thread and asking a model what the comment wants — only ever runs on cards
+ * where there is something new to read. A card with no comments at all is not
+ * answered: nobody has said anything.
  *
  * Takes the newest comment rather than the thread, so there is no end of an
- * array to pick the wrong one of, and no page size to get wrong. A card with no
- * comments at all is not answered: there was no question.
+ * array to pick the wrong one of, and no page size to get wrong.
  */
 export function isAnswered(newest: JiraComment | null, factoryAccountId: string): boolean {
   if (newest === null) return false
@@ -188,30 +211,25 @@ export function isAnswered(newest: JiraComment | null, factoryAccountId: string)
 }
 
 /**
- * Keys of cards sitting in `status` whose questions have been answered.
+ * Writes a named issue property — arbitrary JSON hung off a card.
  *
- * One comment fetch per card, which is why this is scoped to a single status
- * rather than run across the board: the blocked column is short, and the poller
- * runs this every thirty seconds. An empty column costs one search and nothing
- * else — not even the /myself call.
+ * Invisible on the card and in its history, which is exactly what is wanted
+ * for the factory's own bookkeeping: a "triage has seen this" marker is not
+ * something a human reading the ticket should have to scroll past. Needs only
+ * the *Edit Issues* permission the bot already has.
  */
-export async function findAnswered(
+export async function setIssueProperty(
   cfg: JiraConfig,
-  projectKey: string,
-  status: string,
-): Promise<string[]> {
-  const waiting = await search(
+  key: string,
+  property: string,
+  value: unknown,
+): Promise<void> {
+  await call(
     cfg,
-    `project = ${projectKey} AND status = "${status}" ORDER BY created ASC`,
+    'PUT',
+    `/rest/api/3/issue/${encodeURIComponent(key)}/properties/${encodeURIComponent(property)}`,
+    value,
   )
-  if (waiting.length === 0) return []
-
-  const me = await myAccountId(cfg)
-  const answered: string[] = []
-  for (const issue of waiting) {
-    if (isAnswered(await latestComment(cfg, issue.key), me)) answered.push(issue.key)
-  }
-  return answered
 }
 
 export async function addComment(cfg: JiraConfig, key: string, body: AdfDoc): Promise<void> {

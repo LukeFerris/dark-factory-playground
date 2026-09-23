@@ -5,12 +5,15 @@ name: factory poller
 # immediately moves the card out of the waiting status so the next pass does not
 # pick it up again.
 #
-# Three sources, not two. The two "Ready for …" columns are entered by a human
-# moving a card. The third is "Blocked on architect", where the design agent
-# parked a question — those cards come back on their own once someone answers,
-# with no second drag across the board. That is why the factory needs its own
-# Jira account: "someone answered" means the newest comment is not ours, which
-# is only answerable if we are a distinct author.
+# Three sources, and the third is a different kind of thing. The two "Ready
+# for …" columns are entered by a human moving a card, and the move is the
+# instruction. The third is comment triage: every card the factory has put down
+# and walked away from is checked for a comment newer than its own, and each
+# new one is read to decide whether it is work, and for which agent. That is
+# why the factory needs its own Jira account — "someone has spoken since we
+# did" is only answerable if we are a distinct author — and it is why this job
+# holds ANTHROPIC_API_KEY. See SECURITY.md for why that is not the same as
+# giving an agent the key.
 #
 # It dispatches with the App token, not GITHUB_TOKEN: a workflow_dispatch made
 # with GITHUB_TOKEN does not start a new workflow run.
@@ -80,6 +83,11 @@ jobs:
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
           JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY }}
+          # Read by `factory triage` and nothing else in this job. It is a
+          # classifier call: no tools, a fixed prompt, and one of three words
+          # back — not an agent, and it never sees the repository.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FACTORY_TRIAGE_MODEL: ${{ vars.FACTORY_TRIAGE_MODEL }}
           POLL_INTERVAL: ${{ inputs.interval_seconds || vars.FACTORY_POLL_INTERVAL_SECONDS || '30' }}
           POLL_WINDOW: ${{ inputs.window_seconds || vars.FACTORY_POLL_WINDOW_SECONDS || '270' }}
         run: |
@@ -94,27 +102,19 @@ jobs:
           if (( POLL_INTERVAL < 5 )); then POLL_INTERVAL=5; fi
           if (( POLL_WINDOW > 3000 )); then POLL_WINDOW=3000; fi
 
-          # mode "all"      — every card in the status is waiting for us
-          # mode "answered" — only those a human has replied to since we last
-          #                   spoke. A blocked card is not waiting on the
-          #                   factory until its question has an answer, so
-          #                   dispatching the whole column would put the agent
-          #                   straight back in front of its own question.
+          # Every card in the status is waiting for us, so the whole column is
+          # dispatched. Triage, below, is the other shape: there the status
+          # says nothing and the comment decides.
           dispatch() {
             waiting_status="$1"
             claimed_status="$2"
             workflow="$3"
-            mode="${4:-all}"
 
-            if [ "$mode" = "answered" ]; then
-              keys="$(npm run --silent factory -- jira-answered "$waiting_status")"
-            else
-              jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
-              keys="$(npm run --silent factory -- jira-search "$jql")"
-            fi
+            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
+            keys="$(npm run --silent factory -- jira-search "$jql")"
 
             if [ -z "$keys" ]; then
-              echo "none waiting in ${waiting_status} (${mode})"
+              echo "none waiting in ${waiting_status}"
               return 0
             fi
 
@@ -144,9 +144,15 @@ jobs:
           while :; do
             pass=$(( pass + 1 ))
             echo "::group::pass $pass"
-            dispatch "Ready for design"    "Designing" design.yml
-            dispatch "Blocked on architect" "Designing" design.yml answered
-            dispatch "Ready for build"     "Building"  build-start.yml
+            dispatch "Ready for design" "Designing" design.yml
+            dispatch "Ready for build"  "Building"  build-start.yml
+
+            # Claims, comments and dispatches on its own — the order of those
+            # four steps decides what a half-failure leaves behind, so it is
+            # kept somewhere it can be tested rather than spread across this
+            # shell. A failure inside one card is a warning, not an exit.
+            npm run --silent factory -- triage || \
+              echo "::warning::the triage pass failed; the next one will pick up the same comments"
             echo "::endgroup::"
 
             # Stop when the next pass would finish after the window, so a run

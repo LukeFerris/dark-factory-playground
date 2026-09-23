@@ -51,8 +51,7 @@ npm run build
 The agent holds one credential (`ANTHROPIC_API_KEY`) and no others; every tool
 it can use is allow-listed; every file it may write is allow-listed, and that
 list never includes its own manual, its own workflow, or its own validator; the
-App can push to `design/*` and `build/*` and nowhere else, and cannot approve or
-merge.
+App can push to `card/*` and nowhere else, and cannot approve or merge.
 
 And a human grants every build turn. There is no auto-continue.
 

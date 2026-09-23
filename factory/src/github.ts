@@ -78,6 +78,48 @@ export function findPrForBranch(branch: string): PullRequest | null {
   return out !== null && out.length > 0 ? (out[0] as PullRequest) : null
 }
 
+/**
+ * The open pull request for a card, found by its branch.
+ *
+ * Matched on the `card/<KEY>-` prefix rather than by asking Jira for the
+ * summary and rebuilding the branch name: the summary can be edited on the
+ * card after the branch was cut, and then the name no longer round-trips. The
+ * trailing hyphen is load-bearing — without it `DF-3` would also match
+ * `card/DF-30-…`.
+ */
+export function findPrForCard(key: string): PullRequest | null {
+  const out = ghJson<Array<PullRequest & { headRefName: string }>>([
+    'pr',
+    'list',
+    '--repo',
+    repoSlug(),
+    '--state',
+    'open',
+    '--json',
+    'number,url,body,isDraft,headRefOid,headRefName',
+  ])
+  const prefix = `card/${key}-`
+  return (out ?? []).find((pr) => pr.headRefName.startsWith(prefix)) ?? null
+}
+
+/**
+ * Starts a workflow by `workflow_dispatch`.
+ *
+ * Whether this actually starts a run depends entirely on the token in the
+ * environment: a dispatch made with GITHUB_TOKEN is accepted and then quietly
+ * does nothing, which is why every caller runs under the App token.
+ */
+export function dispatchWorkflow(workflow: string, inputs: Record<string, string>): void {
+  gh([
+    'workflow',
+    'run',
+    workflow,
+    '--repo',
+    repoSlug(),
+    ...Object.entries(inputs).flatMap(([name, value]) => ['-f', `${name}=${value}`]),
+  ])
+}
+
 export function createDraftPr(branch: string, title: string, body: string): PullRequest {
   gh([
     'pr',
