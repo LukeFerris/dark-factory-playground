@@ -5,6 +5,13 @@ name: factory poller
 # immediately moves the card out of the waiting status so the next pass does not
 # pick it up again.
 #
+# Three sources, not two. The two "Ready for …" columns are entered by a human
+# moving a card. The third is "Blocked on architect", where the design agent
+# parked a question — those cards come back on their own once someone answers,
+# with no second drag across the board. That is why the factory needs its own
+# Jira account: "someone answered" means the newest comment is not ours, which
+# is only answerable if we are a distinct author.
+#
 # It dispatches with the App token, not GITHUB_TOKEN: a workflow_dispatch made
 # with GITHUB_TOKEN does not start a new workflow run.
 #
@@ -87,16 +94,27 @@ jobs:
           if (( POLL_INTERVAL < 5 )); then POLL_INTERVAL=5; fi
           if (( POLL_WINDOW > 3000 )); then POLL_WINDOW=3000; fi
 
+          # mode "all"      — every card in the status is waiting for us
+          # mode "answered" — only those a human has replied to since we last
+          #                   spoke. A blocked card is not waiting on the
+          #                   factory until its question has an answer, so
+          #                   dispatching the whole column would put the agent
+          #                   straight back in front of its own question.
           dispatch() {
             waiting_status="$1"
             claimed_status="$2"
             workflow="$3"
+            mode="${4:-all}"
 
-            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
-            keys="$(npm run --silent factory -- jira-search "$jql")"
+            if [ "$mode" = "answered" ]; then
+              keys="$(npm run --silent factory -- jira-answered "$waiting_status")"
+            else
+              jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
+              keys="$(npm run --silent factory -- jira-search "$jql")"
+            fi
 
             if [ -z "$keys" ]; then
-              echo "none waiting in ${waiting_status}"
+              echo "none waiting in ${waiting_status} (${mode})"
               return 0
             fi
 
@@ -126,8 +144,9 @@ jobs:
           while :; do
             pass=$(( pass + 1 ))
             echo "::group::pass $pass"
-            dispatch "Ready for design" "Designing" design.yml
-            dispatch "Ready for build"  "Building"  build-start.yml
+            dispatch "Ready for design"    "Designing" design.yml
+            dispatch "Blocked on architect" "Designing" design.yml answered
+            dispatch "Ready for build"     "Building"  build-start.yml
             echo "::endgroup::"
 
             # Stop when the next pass would finish after the window, so a run

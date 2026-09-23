@@ -115,12 +115,24 @@ These are not the same as the acceptance criteria above. The criteria are what a
 person checks by hand once; the tests are what stops it regressing. A criterion
 with no test behind it is a criterion that holds exactly until the next card.
 
-### Open questions
+## Open questions do not live here
 
-Anything genuinely undecided, each phrased as a question with the options. If
-the answer blocks implementation, the turn's result status should be `question`
-or `blocked`, not `ready_for_review` — this section is not a place to park
-decisions and carry on.
+There is no "Open questions" heading, on purpose. A question written into a
+design document is a question nobody has been asked: it sits in a file on a
+branch, the card says the design is ready, and the first person to find it is
+the build agent — for whom it is far too late.
+
+Unresolved decisions go on the Jira card instead, in `questions[]`, which puts
+them all in one comment addressed to a human. The card moves to *Blocked on
+architect* and stops. When someone answers, the poller starts a fresh design
+turn, the agent reads the replies alongside its own earlier questions, and the
+design is finished properly. That repeats until a turn comes back with nothing
+to ask.
+
+So a design document is only ever written as though everything in it is
+decided, because by the time it is finished, everything in it is. The cost of
+being wrong about that is a round trip; the cost of parking it is shipped code
+built on a guess.
 
 ## Build logs
 
@@ -136,8 +148,8 @@ order the reviewer flagged on turn 2.
 
 Ran: lint ✓ typecheck ✓ test ✓ (14 passing) build ✓
 
-Outstanding: the debounce question in the design's Open questions is still open;
-currently implemented without one.
+Outstanding: the focus ring is still the browser default on Safari; asked about
+it on the card.
 ```
 
 It exists so that turn N+1 — which is a fresh agent with no memory of turn N —

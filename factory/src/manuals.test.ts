@@ -129,6 +129,8 @@ describe('agent manuals', () => {
  */
 describe('design document template', () => {
   const readme = readFileSync(resolve(REPO_ROOT, 'docs/design/README.md'), 'utf8')
+  // Hard-wrapped prose, so a status name can fall across a line break.
+  const flatReadme = readme.replace(/\s+/g, ' ')
 
   it('requires an Acceptance criteria heading', () => {
     expect(readme).toContain('### Acceptance criteria')
@@ -143,10 +145,59 @@ describe('design document template', () => {
     expect(readme).toContain('These are not the same as the acceptance criteria above')
   })
 
-  it('keeps Acceptance criteria ahead of Test strategy and Open questions', () => {
+  it('keeps Acceptance criteria between Proposed approach and Test strategy', () => {
     const at = (h: string): number => readme.indexOf(`### ${h}`)
     expect(at('Acceptance criteria')).toBeGreaterThan(at('Proposed approach'))
     expect(at('Acceptance criteria')).toBeLessThan(at('Test strategy'))
-    expect(at('Test strategy')).toBeLessThan(at('Open questions'))
+  })
+
+  // A question parked under a heading is a question nobody was asked: the card
+  // reads "ready for review" while the undecided bit sits in a file on a
+  // branch, and the next reader is the build agent. Questions belong on the
+  // card, where a human is looking.
+  it('has no Open questions heading to park a decision under', () => {
+    expect(readme).not.toContain('### Open questions')
+  })
+
+  it('says where questions go instead', () => {
+    expect(readme).toContain('Open questions do not live here')
+    expect(flatReadme).toContain('Blocked on architect')
+  })
+
+  // The build log's example used to report an open question as something to
+  // carry forward. That is the habit the whole change exists to break, and an
+  // example is the most imitated prose in a manual.
+  it('does not model carrying an open question forward in the build log', () => {
+    expect(flatReadme).not.toContain("design's Open questions")
+  })
+})
+
+/**
+ * The loop the design stage now runs: ask on the card, stop, and come back when
+ * a human has replied. The manual is the only thing telling the agent that a
+ * second turn is even possible, so if this prose goes, the agent starts
+ * treating every turn as its last and parks its questions again.
+ */
+describe('design manual — the question loop', () => {
+  const text = readFileSync(resolve(REPO_ROOT, '.agent/design.md'), 'utf8')
+  const flat = text.replace(/\s+/g, ' ')
+
+  it('forbids writing an open question into the design document', () => {
+    expect(flat).toContain('Never write an open question')
+    expect(flat).toContain('There is no "Open questions" heading')
+  })
+
+  it('sends unresolved decisions to questions[] and the card', () => {
+    expect(flat).toContain('Every unresolved decision goes in `questions[]`')
+    expect(flat).toContain('Blocked on architect')
+  })
+
+  it('tells the agent it will be run again on the same branch', () => {
+    expect(flat).toContain('run again on the same card and the same branch')
+    expect(flat).toContain('Edit it in place')
+  })
+
+  it('rules out shipping a design with anything still outstanding', () => {
+    expect(flat).toContain('A `ready_for_review` design is a design with nothing outstanding')
   })
 })

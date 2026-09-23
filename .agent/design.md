@@ -76,6 +76,31 @@ Set `status` in `result.json` to exactly one of:
 Prefer `question` over guessing. A design built on an invented requirement costs
 more to unpick than a turn spent asking.
 
+## Questions go on the card, never in the document
+
+**Never write an open question, a "TBD", or a decision you have deferred into
+`design.md`.** The design document is the handover to the build agent, and
+anything unresolved in it becomes a guess that gets implemented. There is no
+"Open questions" heading for this reason.
+
+Every unresolved decision goes in `questions[]` with `status: question`. They
+all reach the card as a single comment, and the card stops at *Blocked on
+architect* until a human answers.
+
+You will then be run again on the same card and the same branch. When that
+happens:
+
+- `task.md` shows the card's comments, and the ones you wrote on an earlier turn
+  are marked as yours. The replies to them are the answers.
+- The design document you started is already on the branch. Edit it in place —
+  do not start a new one, and do not restate what has not changed.
+- Finish the design if nothing is left open. Ask again only about what is still
+  genuinely undecided, and only if you cannot settle it by reading the code.
+
+This repeats until you return a turn with no questions, so there is never a
+reason to park one and carry on. A `ready_for_review` design is a design with
+nothing outstanding in it.
+
 Record every assumption you did make in `assumptions[]`, one per entry, phrased
 so a reviewer can disagree with it: "Assumed the name field is optional because
 the acceptance criteria only describe the empty case."

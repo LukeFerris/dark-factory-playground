@@ -81,6 +81,11 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 
 ## Checkpoint B — Jira Cloud
 
+Two accounts: yours, and the factory's. They must be different people as far as
+Jira is concerned, and the reason is at the end of this section.
+
+### Your account — for the bootstrap scripts only
+
 1. Create a free Jira Cloud site if you do not have one:
    `https://<you>.atlassian.net` → `JIRA_BASE`.
 2. Your Atlassian account email → `JIRA_USER`.
@@ -89,7 +94,34 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 4. Leave `JIRA_PROJECT_KEY=DF` unless you want a different key.
 
 You need permission to create projects, statuses and workflows on the site —
-site admin on a personal site, which you will have by default.
+site admin on a personal site, which you will have by default. These two values
+stay on this machine: `bootstrap/` uses them, and `bootstrap/github.sh` never
+stores them in GitHub.
+
+### The factory's account — what the pipeline runs as
+
+5. Make a second Atlassian account and invite it to the site as a **licensed
+   user**, not an admin: **Settings → User management → Invite users**, product
+   access *Jira*, role *Member*. A `+suffix` on your own address works if your
+   mail provider supports it (`you+factory@example.com`).
+6. Give it an obviously non-human display name — it is what appears above every
+   card comment for the rest of the project's life.
+7. Sign in as that account once to accept the invitation, then create an API
+   token for it the same way → `JIRA_BOT_EMAIL` and `JIRA_BOT_TOKEN`.
+
+A plain licensed user gets exactly what the factory needs from the project's
+default permission scheme — browse, comment, transition, edit, create — and
+nothing more. *Delete Issues* and *Administer Projects* belong to a project role
+it is not in, so the factory cannot remove a card or reconfigure the project
+even if a turn goes badly wrong. Do not "fix" that by adding it to the
+Administrators role.
+
+> **Why it cannot be your account.** The design stage asks its questions on the
+> card and then stops. The poller brings the card back by checking whether the
+> newest comment is *not* the factory's — which is only a meaningful question if
+> the factory is a distinct author. Run the factory as yourself and every
+> blocked card stays blocked, with no error to explain it.
+> `bootstrap/github.sh` refuses to run if `JIRA_BOT_EMAIL` equals `JIRA_USER`.
 
 ---
 
@@ -215,9 +247,11 @@ That files a real card ("greet the user by name"), moves it to *Ready for
 design*, and starts a single poll immediately rather than waiting for the next
 scheduled one — `window_seconds=0` means one pass, so the run ends instead of
 idling for the rest of its window. Within a few minutes you should have a
-`card/DF-1-…` branch and a draft PR with a design document on it. That branch
-and that PR are the card's for the rest of its life — the build turns commit to
-the same one.
+`card/DF-1-…` branch and a pull request with a design document on it. That
+branch and that PR are the card's for the rest of its life — the build turns
+commit to the same one. The PR is opened as a draft and comes out of draft on
+the turn the agent says the work is ready to look at, so a PR still marked draft
+is one the factory has not finished with.
 
 `bootstrap/trace.sh` is the thing to watch it with. It shows every card's status
 next to the last few Actions runs, refreshing every five seconds, and marks the
@@ -243,6 +277,13 @@ continuously. That is free on a public repository and fine for a playground, but
 it is real compute for something that is idle most of the time. Set the window
 to `0` to go back to one pass per tick, and dispatch the poller by hand when you
 want a card picked up now.
+
+The card may stop at *Blocked on architect* first, with the agent's questions in
+one comment. Answer them by replying on the card — a single comment, in your own
+words. Nothing else is needed: the poller notices that the newest comment is not
+the factory's, brings the card back to *Designing*, and the next turn folds your
+answers into the same design document. That repeats until a turn has nothing
+left to ask, which is when the card reaches *Design review*.
 
 Review the design. The card comment is written to be read on its own: a summary,
 the context, the acceptance criteria, and under "Proving it" the exact browser

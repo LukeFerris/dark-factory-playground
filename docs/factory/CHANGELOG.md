@@ -7,6 +7,58 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-23
+
+### The "human answers" arrow was a picture, not a feature
+
+**Plan said:** a design turn that asks a question parks the card in *Blocked on
+architect*; when a person answers, the card comes back to *Designing* and the
+design continues. `STATE-MACHINE.md` drew that arrow.
+
+**Actual:** nothing implemented it. `poller.yml` queried the two *Ready for …*
+statuses and nothing else, so a blocked card stayed blocked until someone
+dragged it back by hand. Two smaller things pointed the same way: the design
+document template had an **Open questions** heading, which invites the agent to
+write the question down and carry on — the card then says the design is ready
+while the undecided part sits in a file on a branch, and the next reader is the
+build agent, for whom it is far too late.
+
+**The thing actually in the way was identity.** "A human has answered" is, in
+the simplest form that works, *the newest comment on the card is not ours*.
+`bootstrap/github.sh` set `JIRA_BOT_EMAIL="$JIRA_USER"`, so the factory
+commented as the human it works for, and that test could never be true. Jira
+comments also only carried `displayName`, which is not identity — two accounts
+can share one.
+
+**Done:**
+
+- The factory has its own Jira account. `JIRA_BOT_EMAIL`/`JIRA_BOT_TOKEN` are a
+  separate licensed user; `bootstrap/github.sh` refuses to run if they are
+  `JIRA_USER`, and `preflight.sh` compares the two `accountId`s rather than the
+  two email addresses. It is also strictly less privileged than the account the
+  factory ran as before: a plain licensed user cannot delete an issue or
+  administer the project.
+- `JiraComment` carries `authorId`. `isAnswered()` compares it against
+  `myAccountId()`; `report()` comments *before* it transitions, so a blocked
+  card always carries the agent's question as its last word and anything newer
+  is the reply.
+- `factory jira-answered "<status>"` prints the keys whose questions have been
+  answered, and `poller.yml` dispatches `design.yml` for each — a third source
+  alongside the two `jira-search` calls, claimed and dispatched identically. A
+  card whose question is still unanswered is deliberately not dispatched: it is
+  not waiting on the factory, and sending it back would put the agent in front
+  of its own question with nothing new to read.
+- `gather` marks the factory's own comments as *yours, on an earlier turn*, and
+  tells a design turn which round it is — counted from those comments, so
+  nothing stores a counter.
+- **No more Open questions heading.** `docs/design/README.md` says where
+  questions go instead, and `.agent/design.md` forbids parking one in the
+  document at all. Pinned by tests, because it is prose doing load-bearing work.
+
+The loop now closes without anyone moving a card: ask on the card, stop, come
+back when someone replies, repeat until a turn has nothing to ask. *Design
+review* still means what it meant — a human moves the card on from there.
+
 ## 2026-09-22
 
 ### The design never reached the build agent
