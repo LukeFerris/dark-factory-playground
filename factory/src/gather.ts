@@ -53,6 +53,14 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   const issue = await jira.getIssue(cfg, options.key)
   const comments = await jira.getComments(cfg, options.key)
 
+  // Which of these comments are ours. A design turn can be re-entered after a
+  // human answers, and the agent has no memory of the turn that asked — so the
+  // difference between "a question I raised" and "the reply to it" has to be on
+  // the page. Tolerant of failure: an unidentifiable factory still runs the
+  // turn, it just labels every comment neutrally.
+  const factoryId = await jira.myAccountId(cfg).catch(() => '')
+  const isOurs = (c: jira.JiraComment): boolean => factoryId !== '' && c.authorId === factoryId
+
   const summary = (issue.fields['summary'] as string) ?? '(no summary)'
   const description = jira.adfToText(issue.fields['description']).trim()
   const criteria = await acceptanceCriteria(cfg, issue.fields)
@@ -72,13 +80,18 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   if (comments.length > 0) {
     lines.push('', '## Card comments (oldest first)', '')
     for (const c of comments) {
-      lines.push(`### ${c.author} — ${c.created}`, '', c.body.trim(), '')
+      const who = isOurs(c) ? `${c.author} — you, on an earlier turn` : c.author
+      lines.push(`### ${who} — ${c.created}`, '', c.body.trim(), '')
     }
   }
 
   // Build turns need the PR thread; that is where the human grants each turn
-  // and leaves review feedback.
-  const turn = await appendPrThread(lines, options)
+  // and leaves review feedback. A design turn has no thread to read — its
+  // conversation is the card itself, which is already above.
+  const turn =
+    options.stage === 'design'
+      ? appendDesignRound(lines, comments.filter(isOurs).length)
+      : await appendPrThread(lines, options)
 
   writeFileEnsuringDir(TASK_PATH, `${lines.join('\n')}\n`)
 
@@ -101,6 +114,32 @@ export async function gather(options: GatherOptions): Promise<Meta> {
 }
 
 const FACTORY_MARKER = '<!-- factory-turn'
+
+/**
+ * Tells a design turn which round it is, and returns the turn number.
+ *
+ * Counted from the factory's own comments on the card, the same trick the build
+ * stage plays with its PR markers: no counter is stored anywhere, so a card
+ * cannot disagree with itself about how many turns it has had.
+ *
+ * Turn 2 and beyond only happen because a human answered, so the agent is told
+ * plainly what changed since it last looked. Without this it re-reads its own
+ * questions with no signal that they now have replies.
+ */
+function appendDesignRound(lines: string[], priorTurns: number): number {
+  const turn = priorTurns + 1
+  lines.push('', `This is design turn ${turn}.`)
+  if (turn > 1) {
+    lines.push(
+      '',
+      'You asked questions on an earlier turn and they have been answered in the',
+      'card comments above. Read the answers, fold them into the design document',
+      'that is already on this branch, and finish the design if nothing else is',
+      'outstanding. Ask again only about what is still genuinely undecided.',
+    )
+  }
+  return turn
+}
 
 /**
  * Appends the PR conversation since the factory's own last comment, and returns

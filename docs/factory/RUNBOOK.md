@@ -179,6 +179,39 @@ right; it is `<app-slug>[bot]`.
 
 ---
 
+## A design question was answered but the card never came back
+
+A card in *Blocked on architect* returns to *Designing* on its own once someone
+replies on it. The poller's test is the narrowest one that can work: **the newest
+comment on the card is not the factory's**. Ask it directly:
+
+```bash
+npm run --silent factory -- jira-answered "Blocked on architect"
+```
+
+Keys printed are cards the next poll will pick up. Nothing printed, with a card
+plainly answered, is one of three things:
+
+1. **The answer is not the newest comment.** Something commented after the human
+   did — including the factory itself, if a turn ran in between. Reply again;
+   the check only looks at the last one.
+2. **The reply was posted by the factory's account.** Check who Jira thinks
+   wrote it, and who the factory is:
+   ```bash
+   npm run --silent factory -- jira-answered "Blocked on architect"  # exit 2 = auth
+   curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
+     "$JIRA_BASE/rest/api/3/myself" | jq -r '.accountId, .displayName'
+   ```
+   If that `accountId` is the one on the answering comment, the factory is
+   running as you — see *Jira returns 401 or 403* below, and Checkpoint B.
+3. **The reply is a Jira worklog, description edit or status note**, none of
+   which is a comment. Only comments count.
+
+The card is not stuck: moving it to *Ready for design* by hand starts a fresh
+design turn, and the agent still reads the whole comment thread.
+
+---
+
 ## The card did not move, but the PR is fine
 
 Exit code 3: the comment posted, the transition did not. `factory report` treats
@@ -198,17 +231,26 @@ If that fails too, the status name in Jira no longer matches
 Exit code 2. Atlassian API tokens expire, and the message is the same as for a
 wrong email.
 
+The workflows run as the factory's own Jira account, not yours, so test that
+one — `JIRA_BOT_EMAIL`/`JIRA_BOT_TOKEN` from `.env`, not `JIRA_USER`:
+
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -u "$JIRA_USER:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/myself"
+  -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" "$JIRA_BASE/rest/api/3/myself"
 ```
 
 200 locally but 401 in Actions means the repository copy is stale:
 
 ```bash
-gh secret set JIRA_BOT_TOKEN --repo "$GH_OWNER/$GH_REPO"
-gh variable set JIRA_BOT_EMAIL --repo "$GH_OWNER/$GH_REPO" --body "$JIRA_USER"
+gh secret set JIRA_BOT_TOKEN --repo "$GH_OWNER/$GH_REPO"   # paste the bot's token
+gh variable set JIRA_BOT_EMAIL --repo "$GH_OWNER/$GH_REPO" --body "$JIRA_BOT_EMAIL"
 ```
+
+**Never set `JIRA_BOT_EMAIL` to your own address to get past this.** It
+authenticates fine and the factory then comments as you, at which point the
+poller can no longer tell your answers from the design agent's own questions and
+every card in *Blocked on architect* stays there silently. See
+`docs/factory/SETUP.md`, Checkpoint B.
 
 ---
 

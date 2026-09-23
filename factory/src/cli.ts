@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { Command } from 'commander'
-import { REPO_ROOT, loadDotEnv } from './env.ts'
+import { REPO_ROOT, loadDotEnv, required } from './env.ts'
 import * as jira from './jira.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
@@ -38,6 +38,20 @@ program
   .action(async (jql: string) => {
     const issues = await jira.search(jira.configFromEnv(), jql)
     for (const issue of issues) console.log(issue.key)
+  })
+
+// The design side of the loop. A card in "Blocked on architect" is waiting on a
+// person; once that person has replied, the next design turn can run without
+// anyone moving the card by hand. Printing keys — rather than dispatching here
+// — keeps this the same shape as jira-search, so poller.yml claims and
+// dispatches both the same way.
+program
+  .command('jira-answered')
+  .description('Print keys of cards in a status whose last comment is not the factory\'s.')
+  .argument('<status>', 'Status to look in, e.g. "Blocked on architect"')
+  .action(async (status: string) => {
+    const keys = await jira.findAnswered(jira.configFromEnv(), required('JIRA_PROJECT_KEY'), status)
+    for (const key of keys) console.log(key)
   })
 
 program

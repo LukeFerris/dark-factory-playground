@@ -255,7 +255,8 @@ if (( CREATE_CARD )); then
   npm run --silent factory -- jira-transition "$key" 'Ready for design'
   ok "$key moved to Ready for design"
 
-  info "The poller runs every ten minutes. To start it now:"
+  info "The poller is scheduled every five minutes, and GitHub is often slower."
+  info "To start one now:"
   info "  gh workflow run poller.yml --repo $REPO_SLUG"
   info "Then watch: gh run watch --repo $REPO_SLUG"
 fi

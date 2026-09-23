@@ -47,6 +47,20 @@ write` must not be in scope while the agent runs.
 | `GITHUB_TOKEN` | Actions, read-only repository-wide | No |
 | Azure | OIDC, minted per run, no stored secret | No — different workflow entirely |
 
+`JIRA_BOT_TOKEN` belongs to the factory's own Jira account, not to you. That
+account is a plain licensed user: it can browse, comment, transition, edit and
+create issues, and it cannot delete an issue or administer the project — those
+are granted to a project role it is not in. Your own Jira credentials create the
+project, its statuses and its custom field, and they never leave your machine;
+`bootstrap/github.sh` refuses to run if the two are the same account.
+
+The separation started as a correctness requirement rather than a security one —
+the poller recognises an answered design question by *the newest comment is not
+ours*, which needs a distinct author — but the containment is the more durable
+half. A subverted turn that talks its way into calling the Jira API still cannot
+delete the card it is working on, and every comment it leaves is attributed to
+the factory rather than to a person.
+
 ### 2. The tool allow-list
 
 | Stage | Tools |

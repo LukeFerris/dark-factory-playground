@@ -59,7 +59,7 @@ print_table() {
 # marked CHECKPOINT in .env.example is deliberately absent here: those arrive
 # with the human checkpoints, and preflight only warns about them.
 REQUIRED_VARS=(GH_OWNER GH_REPO JIRA_PROJECT_KEY)
-CHECKPOINT_VARS=(FACTORY_APP_ID FACTORY_APP_KEY_PATH FACTORY_BOT_LOGIN JIRA_BASE JIRA_USER JIRA_TOKEN ANTHROPIC_API_KEY)
+CHECKPOINT_VARS=(FACTORY_APP_ID FACTORY_APP_KEY_PATH FACTORY_BOT_LOGIN JIRA_BASE JIRA_USER JIRA_TOKEN JIRA_BOT_EMAIL JIRA_BOT_TOKEN ANTHROPIC_API_KEY)
 
 if [[ -f .env ]]; then
   # Read .env without executing it: only KEY=VALUE lines, no command substitution.
@@ -230,20 +230,54 @@ fi
 
 # The first external call in the whole system, and the last check here: if the
 # token is absent we skip rather than fail, because it arrives at Checkpoint B.
+# Body as well as status, because the bot check below needs the accountId out
+# of it. Prints neither the credential nor the body.
+HUMAN_ACCOUNT_ID=""
+BOT_ACCOUNT_ID=""
+
+jira_myself() {
+  local label="$1" user="$2" token="$3" body code
+  body="$(curl -sS -w $'\n%{http_code}' \
+    -u "$user:$token" \
+    -H 'Accept: application/json' \
+    --max-time 20 \
+    "${JIRA_BASE%/}/rest/api/3/myself" 2>/dev/null || printf '\n000')"
+  code="${body##*$'\n'}"
+  case "$code" in
+    200)
+      pass "$label" "200 — token authenticates against ${JIRA_BASE%/}"
+      printf '%s' "${body%$'\n'*}" | jq -r '.accountId // ""'
+      ;;
+    401|403) fail "$label" "$code — credentials rejected" ;;
+    000) fail "$label" "no response from ${JIRA_BASE%/}" ;;
+    *) fail "$label" "unexpected HTTP $code" ;;
+  esac
+}
+
 if [[ -z "${JIRA_TOKEN:-}" || -z "${JIRA_USER:-}" || -z "${JIRA_BASE:-}" ]]; then
   warn "jira /myself" "skipped — JIRA_BASE, JIRA_USER or JIRA_TOKEN not set"
 else
-  code="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -u "$JIRA_USER:$JIRA_TOKEN" \
-    -H 'Accept: application/json' \
-    --max-time 20 \
-    "${JIRA_BASE%/}/rest/api/3/myself" 2>/dev/null || echo 000)"
-  case "$code" in
-    200) pass "jira /myself" "200 — token authenticates against ${JIRA_BASE%/}" ;;
-    401|403) fail "jira /myself" "$code — JIRA_USER/JIRA_TOKEN rejected" ;;
-    000) fail "jira /myself" "no response from ${JIRA_BASE%/}" ;;
-    *) fail "jira /myself" "unexpected HTTP $code" ;;
-  esac
+  HUMAN_ACCOUNT_ID="$(jira_myself "jira /myself" "$JIRA_USER" "$JIRA_TOKEN")"
+fi
+
+# The credential the factory actually runs as. It must be a different Jira
+# account from yours: the poller decides a design question has been answered by
+# checking that the newest comment on the card is not the factory's own, and one
+# shared account makes that permanently false — cards sit in "Blocked on
+# architect" forever with nothing in any log to say why.
+if [[ -z "${JIRA_BOT_TOKEN:-}" || -z "${JIRA_BOT_EMAIL:-}" || -z "${JIRA_BASE:-}" ]]; then
+  warn "jira bot /myself" "skipped — JIRA_BOT_EMAIL or JIRA_BOT_TOKEN not set"
+elif [[ "${JIRA_BOT_EMAIL:-}" == "${JIRA_USER:-}" ]]; then
+  fail "jira bot identity" "JIRA_BOT_EMAIL is your own account — see SETUP.md, Checkpoint B"
+else
+  BOT_ACCOUNT_ID="$(jira_myself "jira bot /myself" "$JIRA_BOT_EMAIL" "$JIRA_BOT_TOKEN")"
+  if [[ -z "$BOT_ACCOUNT_ID" || -z "$HUMAN_ACCOUNT_ID" ]]; then
+    : # one of the two calls already failed or was skipped; nothing to compare
+  elif [[ "$BOT_ACCOUNT_ID" == "$HUMAN_ACCOUNT_ID" ]]; then
+    fail "jira bot identity" "the bot resolves to the same Jira account as you"
+  else
+    pass "jira bot identity" "a distinct Jira account from JIRA_USER"
+  fi
 fi
 
 # ---------------------------------------------------------------------- report

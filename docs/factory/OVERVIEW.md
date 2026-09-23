@@ -41,8 +41,12 @@ machinery that makes the loop run.
 Two stages, one card:
 
 1. **Design.** The card reaches *Ready for design*. An agent with no shell reads
-   the card and the code, and writes `docs/design/<KEY>/design.md`. The card
-   lands in *Design review* with the design attached to a draft PR.
+   the card and the code, and writes `docs/design/<KEY>/design.md` on a new
+   `card/<KEY>` branch, opening a pull request for it. Anything it cannot decide
+   goes on the card as a question and the card stops at *Blocked on architect*;
+   once someone answers, the poller starts another design turn on the same
+   branch, and that repeats until a turn has nothing left to ask. Only then does
+   the card reach *Design review*.
 2. **Build.** A human approves the design on the card and moves it to *Ready
    for build*. An agent implements it, one turn at a time, on the same branch
    the design came in on — so the design document is simply already there.

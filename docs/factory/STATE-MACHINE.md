@@ -17,8 +17,8 @@ means "approved".**
                             ▼
                       ┌───────────┐
                       │ Designing │◀──────────────┐
-                      └─────┬─────┘               │ human answers
-                            │                     │
+                      └─────┬─────┘               │ poller, once a human
+                            │                     │ has answered on the card
           factory ┌─────────┴─────────┐           │
                   ▼                   ▼           │
           ┌───────────────┐  ┌──────────────────┐ │
@@ -55,7 +55,7 @@ means "approved".**
 | --- | --- | --- | --- |
 | **Backlog** | To do | Written down, not ready to work | Human |
 | **Ready for design** | To do | The next poll will pick this up | Human |
-| **Designing** | In progress | A design turn is running | Poller |
+| **Designing** | In progress | A design turn is running | Poller (from *Ready for design*, or from *Blocked on architect* once answered) |
 | **Design review** | In progress | A design is waiting for a human to read it | Factory |
 | **Blocked on architect** | In progress | The design agent asked a question | Factory |
 | **Ready for build** | To do | Design approved; the next poll will pick it up | Human |
@@ -66,6 +66,41 @@ means "approved".**
 
 The two *Ready for …* statuses are the only entry points. Everything the factory
 does starts from a human putting a card in one of them.
+
+## The design loop
+
+*Blocked on architect* is the one status the factory leaves on its own. The card
+sits there until someone answers the agent's question, and then comes back to
+*Designing* with nobody dragging it — one design turn per answer, repeating until
+a turn has nothing left to ask. Only then does the card reach *Design review*,
+and a human still has to move it on from there.
+
+Two things make that work:
+
+- **Questions are never written into the design document.** They go on the card,
+  all of them in one comment, addressed to a reader who is not going to open the
+  branch. `docs/design/README.md` has no "Open questions" heading for this
+  reason.
+- **The factory has its own Jira account.** "Someone answered" means *the newest
+  comment on the card is not ours*, which is only a question with an answer if
+  the factory is a distinct author. `report()` comments before it transitions, so
+  a blocked card always carries the agent's question as its last word — anything
+  newer is the reply.
+
+The poller runs `factory jira-answered "Blocked on architect"` alongside its two
+`jira-search` calls and dispatches `design.yml` for each key that comes back. A
+card whose question is still unanswered is not waiting on the factory, so it is
+not dispatched: sending it back would put the agent in front of its own question
+with nothing new to read.
+
+On the next turn `gather` marks the factory's own comments as *yours, on an
+earlier turn* in `task.md`, and tells the agent which round it is — counted from
+those same comments, so nothing has to store a counter.
+
+The build side has the same shape but a different trigger: *Blocked on engineer*
+is left by a human commenting on the **pull request**, which grants one more
+turn. Design has no PR thread worth reading at that point, so its conversation
+is the card.
 
 ## How a turn's result maps onto a move
 
@@ -109,9 +144,21 @@ on this pipeline is the pull request review, not the Jira workflow.
 
 ## Who can do what
 
-| | Move a card | Push to `card/*` | Push to `main` | Approve | Merge |
-| --- | --- | --- | --- | --- | --- |
-| The factory App | ✅ | ✅ | ❌ | ❌ | ❌ |
-| You | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
+The factory has two identities, one per system, and neither of them is you.
+
+| | Comment on a card | Move a card | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| The Jira bot user | ✅ | ✅ | ❌ | — | — | — | — |
+| The factory App | — | — | — | ✅ | ❌ | ❌ | ❌ |
+| You | ✅ | ✅ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
 
 Neither party can do the whole job alone, which is the point.
+
+The Jira bot is a plain licensed user, which on the project's default permission
+scheme is exactly what the factory needs — browse, comment, transition, edit,
+create — and nothing more: *Delete Issues* and *Administer Projects* are granted
+to a project role the bot is not in. Your own Jira credentials stay on your
+machine for `bootstrap/`, which creates the project and its statuses; they are
+never stored in GitHub. `bootstrap/github.sh` refuses to run if `JIRA_BOT_EMAIL`
+is your account, because a factory that comments as you cannot tell your answers
+from its own questions, and the design loop above silently stops working.

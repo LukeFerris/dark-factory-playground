@@ -36,7 +36,20 @@ assert_repo
 if (( DRY_RUN )); then section "DRY RUN — nothing will be changed"; fi
 
 require_env ANTHROPIC_API_KEY JIRA_BASE JIRA_USER JIRA_TOKEN JIRA_PROJECT_KEY \
+            JIRA_BOT_EMAIL JIRA_BOT_TOKEN \
             FACTORY_APP_ID FACTORY_APP_KEY_PATH FACTORY_BOT_LOGIN
+
+# The factory must be a different Jira account from the human it works for.
+# Everything downstream that asks "has someone answered the agent's question?"
+# compares the newest comment's author against the factory's own — and if the
+# two are the same account, that question has no answer and a blocked card is
+# never picked back up. This used to be JIRA_BOT_EMAIL="$JIRA_USER", so the
+# check is here to stop it quietly becoming that again.
+if [[ "$JIRA_BOT_EMAIL" == "$JIRA_USER" ]]; then
+  die "JIRA_BOT_EMAIL is the same account as JIRA_USER ($JIRA_USER).
+       The factory needs its own Jira account, or it cannot tell its own
+       comments from yours. See docs/factory/SETUP.md, Checkpoint B."
+fi
 
 [[ -f "$FACTORY_APP_KEY_PATH" ]] \
   || die "No App private key at $FACTORY_APP_KEY_PATH. Download it at Checkpoint A."
@@ -92,7 +105,9 @@ set_secret_file() {
 }
 
 set_secret ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
-set_secret JIRA_BOT_TOKEN "$JIRA_TOKEN"
+# The bot's token, not yours. JIRA_USER/JIRA_TOKEN stay on this machine for the
+# bootstrap scripts, which need permissions the factory deliberately lacks.
+set_secret JIRA_BOT_TOKEN "$JIRA_BOT_TOKEN"
 set_secret_file FACTORY_APP_KEY "$FACTORY_APP_KEY_PATH"
 
 section "Variables"
@@ -104,7 +119,7 @@ set_var() {
 }
 
 set_var JIRA_BASE "$JIRA_BASE"
-set_var JIRA_BOT_EMAIL "$JIRA_USER"
+set_var JIRA_BOT_EMAIL "$JIRA_BOT_EMAIL"
 set_var JIRA_PROJECT_KEY "$JIRA_PROJECT_KEY"
 set_var FACTORY_APP_ID "$FACTORY_APP_ID"
 set_var FACTORY_BOT_LOGIN "$FACTORY_BOT_LOGIN"
