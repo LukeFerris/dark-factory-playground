@@ -116,11 +116,12 @@ it is not in, so the factory cannot remove a card or reconfigure the project
 even if a turn goes badly wrong. Do not "fix" that by adding it to the
 Administrators role.
 
-> **Why it cannot be your account.** The design stage asks its questions on the
-> card and then stops. The poller brings the card back by checking whether the
-> newest comment is *not* the factory's — which is only a meaningful question if
-> the factory is a distinct author. Run the factory as yourself and every
-> blocked card stays blocked, with no error to explain it.
+> **Why it cannot be your account.** The factory reacts to comments on cards —
+> that is how a blocked card comes back, and how a change of mind on a card in
+> review starts a turn. The test it uses is whether the newest comment is *not*
+> the factory's, which is only a meaningful question if the factory is a
+> distinct author. Run the factory as yourself and every card reads as
+> permanently answered by itself, with no error to explain it.
 > `bootstrap/github.sh` refuses to run if `JIRA_BOT_EMAIL` equals `JIRA_USER`.
 
 ---
@@ -131,6 +132,12 @@ Administrators role.
 
 This is the only credential the agent ever sees, and it never sees it directly:
 it is set on the Agent step of a workflow and nowhere else.
+
+The poller holds it too, for a different job: comment triage makes one
+classifier call per new comment on a card. That is not an agent — no tools, no
+repository, one of three words back — and `SECURITY.md` says why the
+distinction matters. The model is `claude-haiku-4-5-20251001` unless you set the
+optional `FACTORY_TRIAGE_MODEL` repository variable.
 
 ---
 
@@ -281,9 +288,9 @@ want a card picked up now.
 The card may stop at *Blocked on architect* first, with the agent's questions in
 one comment. Answer them by replying on the card — a single comment, in your own
 words. Nothing else is needed: the poller notices that the newest comment is not
-the factory's, brings the card back to *Designing*, and the next turn folds your
-answers into the same design document. That repeats until a turn has nothing
-left to ask, which is when the card reaches *Design review*.
+the factory's, reads it, brings the card back to *Designing*, and the next turn
+folds your answers into the same design document. That repeats until a turn has
+nothing left to ask, which is when the card reaches *Design review*.
 
 Review the design. The card comment is written to be read on its own: a summary,
 the context, the acceptance criteria, and under "Proving it" the exact browser
@@ -301,6 +308,11 @@ than a contract, and the preview link sits right above it.
 
 Move the card to *Ready for build*. Wait for the poller. Then grant turns by
 commenting on the PR until you are happy, and merge.
+
+You can also just say what you want on the card, from any status the factory
+left it in. Triage reads the comment, decides whether it is design work, build
+work or neither, moves the card and says on it why. Most comments are neither,
+and triage stays silent about those — the reasoning is in the poller's log.
 
 `STATE-MACHINE.md` describes each status and who moves it. `RUNBOOK.md` covers
 what to do when one of these steps does not do what it says here.

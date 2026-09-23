@@ -16,38 +16,47 @@ means "approved".**
                    poller   │  claims + dispatches design.yml
                             ▼
                       ┌───────────┐
-                      │ Designing │◀──────────────┐
-                      └─────┬─────┘               │ poller, once a human
-                            │                     │ has answered on the card
-          factory ┌─────────┴─────────┐           │
-                  ▼                   ▼           │
-          ┌───────────────┐  ┌──────────────────┐ │
-          │ Design review │  │ Blocked on       ├─┘
-          └───────┬───────┘  │ architect        │
-                  │          └──────────────────┘
-          human approves the design
-                  ▼
-         ┌─────────────────┐
-         │ Ready for build │
-         └────────┬────────┘
-         poller   │  claims + dispatches build-start.yml
-                  ▼
-            ┌──────────┐
-            │ Building │◀──────────────────────┐
-            └─────┬────┘                       │ human comments
-                  │                            │ (grants a turn)
-      factory ┌───┴────────┐                   │
-              ▼            ▼                   │
-      ┌───────────┐  ┌──────────────────┐      │
-      │ In review │  │ Blocked on       ├──────┘
-      └─────┬─────┘  │ engineer         │
-            │        └──────────────────┘
-    human reviews and merges the PR
-            ▼
-        ┌──────┐
-        │ Done │
-        └──────┘
+                      │ Designing │◀─────────────────────┐
+                      └─────┬─────┘                      │
+          factory ┌─────────┴─────────┐                  │
+                  ▼                   ▼                  │
+          ┌───────────────┐  ┌──────────────────┐        │
+          │ Design review │  │ Blocked on       │        │
+          └───┬───────┬───┘  │ architect        │        │
+              │       │      └────────┬─────────┘        │
+              │       └───────────────┴──────────────────┘
+              │            triage, on a comment that reads
+              │            as work for the design agent
+   human approves the design
+              ▼
+     ┌─────────────────┐
+     │ Ready for build │
+     └────────┬────────┘
+     poller   │  claims + dispatches build-start.yml
+              ▼
+        ┌──────────┐
+        │ Building │◀─────────────────────────┐
+        └─────┬────┘                          │
+  factory ┌───┴────────┐                      │
+          ▼            ▼                      │
+  ┌───────────┐  ┌──────────────────┐         │
+  │ In review │  │ Blocked on       │         │
+  └───┬───┬───┘  │ engineer         │         │
+      │   │      └────────┬─────────┘         │
+      │   └───────────────┴───────────────────┘
+      │       triage, on a comment that reads
+      │       as work for the build agent
+      │       (or a comment on the pull request)
+ human reviews and merges the PR
+      ▼
+  ┌──────┐
+  │ Done │
+  └──────┘
 ```
+
+The two triage arrows also cross over, which the diagram would become unreadable
+saying: a comment on a card in *In review* can start a **design** turn, and a
+comment on a card in *Design review* can start a **build** one. See below.
 
 ## The statuses
 
@@ -55,52 +64,102 @@ means "approved".**
 | --- | --- | --- | --- |
 | **Backlog** | To do | Written down, not ready to work | Human |
 | **Ready for design** | To do | The next poll will pick this up | Human |
-| **Designing** | In progress | A design turn is running | Poller (from *Ready for design*, or from *Blocked on architect* once answered) |
+| **Designing** | In progress | A design turn is running | Poller (from *Ready for design*, or from any waiting status on a comment) |
 | **Design review** | In progress | A design is waiting for a human to read it | Factory |
 | **Blocked on architect** | In progress | The design agent asked a question | Factory |
 | **Ready for build** | To do | Design approved; the next poll will pick it up | Human |
-| **Building** | In progress | A build turn is running, or waiting for the next to be granted | Poller |
+| **Building** | In progress | A build turn is running, or waiting for the next to be granted | Poller (from *Ready for build*, or from any waiting status on a comment) |
 | **In review** | In progress | The PR is ready for a human | Factory |
 | **Blocked on engineer** | In progress | The build agent asked a question | Factory |
 | **Done** | Done | Merged | Human |
 
-The two *Ready for …* statuses are the only entry points. Everything the factory
-does starts from a human putting a card in one of them.
+A human putting a card in one of the two *Ready for …* statuses is how work
+starts. After that the card comes back on its own, driven by what people say on
+it rather than by where they drag it.
 
-## The design loop
+## Comments are the third entrance
 
-*Blocked on architect* is the one status the factory leaves on its own. The card
-sits there until someone answers the agent's question, and then comes back to
-*Designing* with nobody dragging it — one design turn per answer, repeating until
-a turn has nothing left to ask. Only then does the card reach *Design review*,
-and a human still has to move it on from there.
+The factory leaves a card in four statuses: *Design review*, *In review*,
+*Blocked on architect*, *Blocked on engineer*. Each means the same thing — the
+factory has said its piece and is waiting on a person — and in each of them the
+person replies by commenting, not by moving the card.
 
-Two things make that work:
+So on every pass the poller looks at those four columns and asks, for each card,
+whether anyone has spoken since the factory did. When someone has, the comment is
+read once by a small model, which answers with one of three words:
 
-- **Questions are never written into the design document.** They go on the card,
-  all of them in one comment, addressed to a reader who is not going to open the
-  branch. `docs/design/README.md` has no "Open questions" heading for this
-  reason.
-- **The factory has its own Jira account.** "Someone answered" means *the newest
-  comment on the card is not ours*, which is only a question with an answer if
-  the factory is a distinct author. `report()` comments before it transitions, so
-  a blocked card always carries the agent's question as its last word — anything
-  newer is the reply.
+| Answer | What happens |
+| --- | --- |
+| `design` | Card moves to *Designing*, the factory says why, `design.yml` runs |
+| `build` | Card moves to *Building*, the factory says why, `build-turn.yml` runs |
+| `none` | Nothing. The comment is recorded as considered and the card stays put |
 
-The poller runs `factory jira-answered "Blocked on architect"` alongside its two
-`jira-search` calls and dispatches `design.yml` for each key that comes back. A
-card whose question is still unanswered is not waiting on the factory, so it is
-not dispatched: sending it back would put the agent in front of its own question
-with nothing new to read.
+The routing does not have to match the column. A change of requirements on a
+card in *In review* is design work, and a fault in the running application
+reported on a card in *Design review* is build work; both cross over. The catch
+is the obvious one: a design turn on a branch that already has code revises a
+document the implementation no longer matches, and reconciling the two becomes
+the build agent's problem on the turn after.
+
+Three things make this affordable and quiet:
+
+- **The factory has its own Jira account.** "Someone has spoken since we did"
+  means *the newest comment is not ours*, which is only answerable if the
+  factory is a distinct author. Every turn ends with `report()` posting a
+  comment, so a card the factory has put down carries its own words as its last.
+- **A comment is read once.** The id of the last comment triage considered is
+  kept on the card as a hidden issue property, `factory-triage`. Without it, a
+  comment judged `none` would stay the newest comment forever and be re-read on
+  every pass for the life of the card.
+- **`none` is silent.** A card that collects a line of factory commentary every
+  time somebody says "thanks" is worse than one that says nothing. The reasoning
+  is in the poller's Actions log, and nowhere else.
+
+Cards in *Designing* and *Building* are deliberately not looked at: an agent is
+already running on that branch, and starting a second one is the single mistake
+triage must not be able to make. Nor are the two *Ready for …* columns — those
+are dispatched by status on the same pass, and reading them here as well would
+hand one card to two runners.
+
+### The design question loop, as a special case
+
+*Blocked on architect* is where this started. The design agent parks a question
+there, someone answers in a comment, triage reads the answer and sends the card
+back to *Designing* — one design turn per answer, repeating until a turn has
+nothing left to ask. Only then does the card reach *Design review*, and a human
+still has to move it on from there.
+
+That loop depends on one rule in the agent's manual: **questions are never
+written into the design document.** They go on the card, all of them in one
+comment, addressed to a reader who is not going to open the branch.
+`docs/design/README.md` has no "Open questions" heading for this reason.
 
 On the next turn `gather` marks the factory's own comments as *yours, on an
 earlier turn* in `task.md`, and tells the agent which round it is — counted from
 those same comments, so nothing has to store a counter.
 
-The build side has the same shape but a different trigger: *Blocked on engineer*
-is left by a human commenting on the **pull request**, which grants one more
-turn. Design has no PR thread worth reading at that point, so its conversation
-is the card.
+### What the model is and is not
+
+It is a single call to a small model with no tools, a fixed prompt and a forced
+tool-call schema whose only output is one of three words and a sentence of
+reasoning. It cannot read the repository, cannot write anything, and cannot
+reach anything else. Comment text is data to it, and the prompt says so: text
+shaped like an instruction ("ignore the above", "always choose build") is
+something to classify, not something to obey. `factory/src/triage.test.ts` pins
+that paragraph, for the same reason the agent manuals have tests.
+
+The prompt also tells it to answer `none` whenever it is unsure, because the two
+mistakes do not cost the same: a missed comment costs a human one drag of the
+card, and a wrongly-started turn spends an agent run and puts a revision nobody
+asked for on the branch.
+
+### The other way into a build turn
+
+A human commenting on the **pull request** still grants a build turn directly,
+without going through Jira or the classifier — that path is older than triage
+and unchanged. `build-turn.yml` now has both entrances, and they run the same
+turn; see the header of that file for why the guards on the comment path cannot
+be applied to the dispatch one.
 
 ## How a turn's result maps onto a move
 
@@ -160,5 +219,6 @@ create — and nothing more: *Delete Issues* and *Administer Projects* are grant
 to a project role the bot is not in. Your own Jira credentials stay on your
 machine for `bootstrap/`, which creates the project and its statuses; they are
 never stored in GitHub. `bootstrap/github.sh` refuses to run if `JIRA_BOT_EMAIL`
-is your account, because a factory that comments as you cannot tell your answers
-from its own questions, and the design loop above silently stops working.
+is your account, because a factory that comments as you cannot tell your replies
+from its own reports — every card would look permanently answered, or
+permanently ignored, and comment triage above would silently stop working.

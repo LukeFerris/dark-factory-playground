@@ -4,6 +4,8 @@ import { REPO_ROOT, loadDotEnv, required } from './env.ts'
 import * as jira from './jira.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
+import { triagePass } from './triage.ts'
+import { findPrForCard } from './github.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
@@ -40,18 +42,38 @@ program
     for (const issue of issues) console.log(issue.key)
   })
 
-// The design side of the loop. A card in "Blocked on architect" is waiting on a
-// person; once that person has replied, the next design turn can run without
-// anyone moving the card by hand. Printing keys — rather than dispatching here
-// — keeps this the same shape as jira-search, so poller.yml claims and
-// dispatches both the same way.
+// The third poller source, and the only one that reads rather than counts.
+// Unlike jira-search this does the whole job itself — decide, move, explain,
+// dispatch — because the four steps have an order that matters and splitting
+// them across shell would put that order in a place nothing can test.
 program
-  .command('jira-answered')
-  .description('Print keys of cards in a status whose last comment is not the factory\'s.')
-  .argument('<status>', 'Status to look in, e.g. "Blocked on architect"')
-  .action(async (status: string) => {
-    const keys = await jira.findAnswered(jira.configFromEnv(), required('JIRA_PROJECT_KEY'), status)
-    for (const key of keys) console.log(key)
+  .command('triage')
+  .description('Read new comments on waiting cards and start the agent each one calls for.')
+  .option('--dry-run', 'Decide and print, but change nothing and start nothing', false)
+  .action(async (opts: { dryRun: boolean }) => {
+    const outcomes = await triagePass({
+      cfg: jira.configFromEnv(),
+      projectKey: required('JIRA_PROJECT_KEY'),
+      dryRun: opts.dryRun,
+    })
+    if (outcomes.length === 0) {
+      console.log('triage: no new comments on any waiting card')
+      return
+    }
+    for (const o of outcomes) {
+      const done = o.action === 'none' ? 'noted' : o.acted ? 'dispatched' : 'FAILED'
+      console.log(`triage: ${o.key} (${o.status}) -> ${o.action} [${done}] — ${o.reason}`)
+    }
+  })
+
+program
+  .command('card-pr')
+  .description("Print the open pull request number for a card's branch.")
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .action((key: string) => {
+    const pr = findPrForCard(key)
+    if (pr === null) throw new Error(`No open pull request on a card/${key}-* branch.`)
+    console.log(pr.number)
   })
 
 program

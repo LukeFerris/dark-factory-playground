@@ -55,11 +55,38 @@ project, its statuses and its custom field, and they never leave your machine;
 `bootstrap/github.sh` refuses to run if the two are the same account.
 
 The separation started as a correctness requirement rather than a security one —
-the poller recognises an answered design question by *the newest comment is not
-ours*, which needs a distinct author — but the containment is the more durable
-half. A subverted turn that talks its way into calling the Jira API still cannot
-delete the card it is working on, and every comment it leaves is attributed to
-the factory rather than to a person.
+comment triage recognises something worth reacting to by *the newest comment is
+not ours*, which needs a distinct author — but the containment is the more
+durable half. A subverted turn that talks its way into calling the Jira API
+still cannot delete the card it is working on, and every comment it leaves is
+attributed to the factory rather than to a person.
+
+#### The exception: the poller holds the Anthropic key too
+
+Comment triage makes one model call per new comment, so `poller.yml` has
+`ANTHROPIC_API_KEY` in the same job as `JIRA_BOT_TOKEN` and the App token. That
+is the only place in the pipeline where the Anthropic key and a write credential
+share an environment, and it is worth being explicit about why it is not the
+thing rule 1 exists to prevent.
+
+Rule 1 is about an **agent** — a model with tools, a working copy of the
+repository, and a loop it drives itself. Triage is none of those. It is a single
+request to `api.anthropic.com` with a fixed system prompt, no tools, no
+repository in scope, and a forced tool-call schema whose entire output is one of
+three enum values and a sentence. Nothing the model returns is executed,
+interpolated into a command, or written to disk; a value outside the enum fails
+the parse and the card is left alone. The blast radius of the model saying
+something unexpected is that one card goes to the wrong queue and gets a
+revision a human then reverts.
+
+What the key being in that job does mean is that a compromise of the poller job
+itself — not of the model — exposes it. That is the same exposure the Agent step
+already has, so it does not widen the surface; it adds a second place to rotate.
+
+The prompt-injection question is separate and is answered in
+`docs/factory/STATE-MACHINE.md`: comment text is attacker-controlled in exactly
+the way task text is, the prompt says so, and the worst a successful injection
+buys is the wrong one of three words.
 
 ### 2. The tool allow-list
 
@@ -176,7 +203,15 @@ threat model:
   outwards. If that matters, drop `curl` from the build allow-list and verify
   previews from CI instead.
 - **A compromised Anthropic API key.** It is the one credential the agent's
-  environment holds. Rotate it like any other.
+  environment holds, and since comment triage it is also in the poller's job
+  alongside the Jira and App tokens. Rotate it like any other.
+- **Triage routing a comment to the wrong agent.** The model is small, the
+  prompt biases it towards doing nothing, and its output is one of three enum
+  values — but it will sometimes be wrong, and a person typing carefully chosen
+  text into a ticket can make it more likely. What that buys is one unwanted
+  agent run producing a diff on a draft PR that a human still has to approve.
+  The control is the same as everywhere else here: nothing triage starts can
+  reach `main`.
 - **`build-setup.yml` builds the PR's code with `packages: write` and an Azure
   credential in scope.** That is inherent to previewing a branch — you cannot
   preview code without running it. Two things bound it. The workflow file itself

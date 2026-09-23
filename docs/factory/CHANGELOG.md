@@ -9,6 +9,57 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-23
 
+### A comment is an instruction, and only a model can read which one
+
+**Previously, same day:** the entry below closed the design question loop with
+`factory jira-answered "Blocked on architect"` — *the newest comment on this
+card is not ours, therefore send it back to Designing*. That works, but only
+because *Blocked on architect* means one thing. It does not generalise: the
+factory also leaves cards in *Design review*, *In review* and *Blocked on
+engineer*, and a comment on any of those might be a new requirement, a bug
+report, a question, an approval, or "thanks".
+
+**Done:** `jira-answered` is removed. `factory triage` replaces it, and reads
+comments across all four statuses where the factory has spoken last and is
+waiting on a person.
+
+- **One model call per new comment.** No tools, no repository, a fixed system
+  prompt, and a forced tool-call schema whose entire output is one of `design`,
+  `build`, `none` plus a sentence. `claude-haiku-4-5-20251001` by default,
+  overridable with the `FACTORY_TRIAGE_MODEL` repository variable. `poller.yml`
+  therefore now holds `ANTHROPIC_API_KEY`; `SECURITY.md` argues why that is not
+  the thing rule 1 exists to prevent.
+- **Routing does not have to match the column.** A requirement change on a card
+  in *In review* is design work; a fault reported on a card in *Design review*
+  is build work. Both cross over.
+- **The two *Ready for …* columns are deliberately not triaged.** A human
+  moving a card is already an unambiguous instruction and needs no classifier —
+  and reading them here as well would hand one card to two runners on the same
+  pass.
+- **A comment is read exactly once.** Its id is stored on the card as a hidden
+  issue property, `factory-triage`. Without it a comment judged `none` would
+  stay the newest comment for the life of the card and be re-read every pass.
+  `POST /rest/api/3/search/jql` takes a top-level `properties` array and returns
+  them inline, so the whole board's marks arrive with the one search that was
+  already being made.
+- **`none` is silent.** No comment on the card; the reasoning is in the poller's
+  Actions log and nowhere else. A card that collects a line of commentary every
+  time somebody says "thanks" is worse than one that says nothing.
+- **`build-turn.yml` gained a second entrance.** It fired only on
+  `issue_comment` and derived everything from the event; it now also takes a
+  `workflow_dispatch` with a key, resolving the PR by the `card/<KEY>-` branch
+  prefix. The trailing hyphen is load-bearing — without it `DF-3` also matches
+  `card/DF-30-…`. `factory card-pr <key>` asks the same question by hand.
+- **The order inside `act()` is the design.** Move, explain, mark, dispatch —
+  chosen so each failure leaves the least-bad state. The transition goes first
+  because it is the step that can legitimately fail, and failing there leaves no
+  mark, so the next pass retries cleanly. It is tested rather than left to the
+  poller's shell.
+
+Comment text is attacker-controlled in exactly the way task text is. The prompt
+says so, `triage.test.ts` pins the paragraph that says it, and the worst a
+successful injection buys is the wrong one of three words.
+
 ### The "human answers" arrow was a picture, not a feature
 
 **Plan said:** a design turn that asks a question parks the card in *Blocked on

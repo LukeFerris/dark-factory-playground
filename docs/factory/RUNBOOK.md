@@ -129,11 +129,30 @@ belong to `FACTORY_APP_ID`, or the App is not installed on this repository.
 
 The poller moves a card to *Designing* / *Building* **before** dispatching, so
 that a failed dispatch leaves the card visibly claimed rather than handing it to
-two agents on the next poll. If a card sits in *Designing* with no run:
+two agents on the next poll. Both entrances do this — the status sweep and
+comment triage — so a card can arrive here from either. If a card sits in
+*Designing* with no run:
 
 ```bash
 gh workflow run design.yml -f key=DF-1 --repo "$GH_OWNER/$GH_REPO"
 ```
+
+A card claimed into *Building* by triage needs the same dispatch against
+`build-turn.yml`, which takes the key rather than the PR:
+
+```bash
+gh workflow run build-turn.yml -f key=DF-1 --repo "$GH_OWNER/$GH_REPO"
+```
+
+Triage says so explicitly when this happens, in the poller's log:
+
+```
+::error::DF-1 was moved to Building but build-turn.yml could not be dispatched
+```
+
+That branch of `act()` is the only one that leaves the card claimed with nothing
+running, and it is deliberate: the alternative is moving the card back, which
+races the next poll. Re-dispatching by hand is the recovery.
 
 ---
 
@@ -158,7 +177,13 @@ and the committed `.agent/result.schema.json` disagree. Never add anything under
 
 ## A build turn will not start from a comment
 
-`build-turn.yml` requires all four of:
+`build-turn.yml` has two entrances and they fail differently. A comment on the
+**pull request** goes through the four guards below. A comment on the **card**
+goes through triage instead, which dispatches the workflow with a key and no
+guards at all — if that is the path you expected, read *A comment on a card did
+nothing* further down instead of this section.
+
+The pull-request path requires all four of:
 
 1. the comment is on a pull request
 2. the PR carries **`factory:active`**
@@ -177,38 +202,122 @@ If `FACTORY_BOT_LOGIN` is wrong or unset, guard 3 fails open and the factory's
 own report comment grants the next turn — a loop. That variable is worth getting
 right; it is `<app-slug>[bot]`.
 
----
+The dispatch path has one failure of its own. It resolves the PR by looking for
+an open one whose head branch starts with `card/<KEY>-`, and says so if there is
+none:
 
-## A design question was answered but the card never came back
-
-A card in *Blocked on architect* returns to *Designing* on its own once someone
-replies on it. The poller's test is the narrowest one that can work: **the newest
-comment on the card is not the factory's**. Ask it directly:
-
-```bash
-npm run --silent factory -- jira-answered "Blocked on architect"
+```
+::error::DF-1 was routed to a build turn but has no open pull request.
 ```
 
-Keys printed are cards the next poll will pick up. Nothing printed, with a card
-plainly answered, is one of three things:
+That means triage sent a card to the build agent before the design was approved
+and `build-start.yml` had opened the branch. Nothing is broken — move the card
+to *Ready for build* by hand and let the normal entrance run. Ask the same
+question locally with:
 
-1. **The answer is not the newest comment.** Something commented after the human
-   did — including the factory itself, if a turn ran in between. Reply again;
-   the check only looks at the last one.
-2. **The reply was posted by the factory's account.** Check who Jira thinks
-   wrote it, and who the factory is:
+```bash
+npm run --silent factory -- card-pr DF-1
+```
+
+---
+
+## A comment on a card did nothing
+
+Comments on cards in *Design review*, *In review*, *Blocked on architect* and
+*Blocked on engineer* are read by triage on each poll, which decides whether to
+start an agent. Nothing happening is the **designed** outcome for most comments,
+so before treating it as a fault, see what triage actually decided:
+
+```bash
+npm run --silent factory -- triage --dry-run
+```
+
+That prints a line per card it would act on and changes nothing — no transition,
+no comment, no mark, no dispatch. It is safe to run against the live board while
+the poller is running. To see what a past pass decided, read the poller's log:
+the reasoning is only ever there, never on the card.
+
+```bash
+gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log | grep '^triage:'
+```
+
+`--dry-run` printing nothing, with a comment plainly on the card, is one of
+five things:
+
+1. **The card is in a status triage does not watch.** *Designing* and *Building*
+   are skipped because a turn is already running on that branch; *Backlog*,
+   *Done* and the two *Ready for …* columns are skipped because they are not
+   the factory's to act on. Comment on a card in *Backlog* and nothing will
+   ever read it.
+2. **The comment is not the newest one.** Triage looks only at the last comment
+   on the card, and if the factory commented after you did, the card reads as
+   waiting on nobody. Comment again.
+3. **The comment was already considered.** Its id is stored on the card in a
+   hidden issue property, so each comment is read exactly once even when the
+   answer was `none`. Read the mark:
    ```bash
-   npm run --silent factory -- jira-answered "Blocked on architect"  # exit 2 = auth
+   curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
+     "$JIRA_BASE/rest/api/3/issue/DF-1/properties/factory-triage" | jq .value
+   ```
+   `{"commentId":"10042","action":"none",…}` means it was read and judged not to
+   need an agent. A `404` means no comment on this card has ever been triaged.
+   To force a re-read, comment again — do not delete the property, since the
+   next comment supersedes it anyway.
+4. **The comment was posted by the factory's account.** Triage's first filter is
+   *the newest comment is not ours*, so a factory that runs as you sees every
+   card as permanently answered by itself. Check both ends:
+   ```bash
    curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
      "$JIRA_BASE/rest/api/3/myself" | jq -r '.accountId, .displayName'
    ```
-   If that `accountId` is the one on the answering comment, the factory is
-   running as you — see *Jira returns 401 or 403* below, and Checkpoint B.
-3. **The reply is a Jira worklog, description edit or status note**, none of
-   which is a comment. Only comments count.
+   If that `accountId` is the author of your comment, see *Jira returns 401 or
+   403* below and Checkpoint B.
+5. **It is a worklog, a description edit or a status note**, none of which is a
+   comment. Only comments count.
 
-The card is not stuck: moving it to *Ready for design* by hand starts a fresh
-design turn, and the agent still reads the whole comment thread.
+If none of those apply, the model decided `none` — which it is told to do
+whenever it is unsure, because a missed comment costs one drag of the card and a
+wrongly-started turn spends an agent run. The card is never stuck: moving it to
+*Ready for design* or *Ready for build* by hand starts a fresh turn, and the
+agent reads the whole comment thread regardless of how it was woken.
+
+### Triage itself is failing
+
+Three warnings can appear in the poller's log, and they mean different things:
+
+| Log line | State it leaves | What to do |
+| --- | --- | --- |
+| `::warning::could not triage DF-1: …` | Nothing happened; no mark written | Nothing — the next pass reconsiders the same comment. Persisting means the model call is failing; check `ANTHROPIC_API_KEY` |
+| `::warning::could not move DF-1 to Designing: …` | Nothing happened; no mark written | Usually a renamed Jira status. `bootstrap/smoke.sh` asserts all ten |
+| `::error::DF-1 was moved to Building but build-turn.yml could not be dispatched` | Card claimed, nothing running | Dispatch by hand — see *A card is claimed but nothing is running* |
+
+A fourth, `::warning::moved DF-1 but could not say why`, is cosmetic: the turn
+still starts, the card just does not carry the factory's explanation.
+
+The first of those is the one to watch, because it is the only step that talks
+to a third party. `poller.yml` needs `ANTHROPIC_API_KEY` — the same secret the
+agent steps use — and optionally `FACTORY_TRIAGE_MODEL`, which is a repository
+**variable** and defaults to `claude-haiku-4-5-20251001` when unset.
+`smoke.sh` does not check the variable, since not setting it is the normal
+case:
+
+```bash
+gh variable set FACTORY_TRIAGE_MODEL --repo "$GH_OWNER/$GH_REPO" --body claude-haiku-4-5-20251001
+```
+
+If the whole pass fails, the poller says so and carries on:
+
+```
+::warning::the triage pass failed; the next one will pick up the same comments
+```
+
+The order inside `act()` — move, explain, mark, dispatch — is chosen so that
+every half-failure leaves the least-bad state, and the mark comes late for that
+reason: a card that could not be moved is not recorded as considered, so the
+next pass tries again. The one exception is the dispatch failure above, which
+marks the comment and leaves the card claimed. That is why it is the only one
+logged as an `::error::` rather than a warning.
 
 ---
 

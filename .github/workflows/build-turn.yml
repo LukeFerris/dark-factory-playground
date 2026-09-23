@@ -1,15 +1,25 @@
 name: factory build turn
 
-# One build turn, granted by a human comment on the PR. Auto-continue is off by
-# design: the agent never grants itself the next turn, so a runaway loop costs
-# one turn, not a night.
+# One build turn. Auto-continue is off by design: the agent never grants itself
+# the next turn, so a runaway loop costs one turn, not a night.
 #
-# Four guards have to hold before any agent runs:
-#   1. the comment is on a pull request, not a plain issue
-#   2. the PR carries the factory:active label
-#   3. the commenter is not the factory's own bot — otherwise reporting a turn
-#      would trigger the next one
-#   4. the commenter can actually write to the repository
+# Two ways in, and they are the same turn:
+#
+#   issue_comment      a human comments on the pull request. Four guards have
+#                      to hold before any agent runs:
+#                        1. the comment is on a pull request, not a plain issue
+#                        2. the PR carries the factory:active label
+#                        3. the commenter is not the factory's own bot —
+#                           otherwise reporting a turn would trigger the next
+#                        4. the commenter can actually write to the repository
+#
+#   workflow_dispatch  the poller's triage read a comment on the *card* and
+#                      decided it was work for the build agent. The guards
+#                      above are not needed here and could not be applied
+#                      anyway: there is no comment event. What stands in for
+#                      them is that only the poller holds the App token, and
+#                      triage only ever looks at cards the factory itself put
+#                      down.
 #
 # The bot login comes from the FACTORY_BOT_LOGIN repository variable rather than
 # being hard-coded, because the App slug is only known at Checkpoint A.
@@ -17,21 +27,31 @@ name: factory build turn
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      key:
+        description: Jira issue key, e.g. DF-4
+        required: true
+
+# One group per card, so the two entrances cannot run two turns on one branch.
+# The dispatch path knows the key but not the PR number, and the comment path
+# the reverse, so the group is keyed on whichever is present.
+concurrency:
+  group: factory-build-turn-${{ inputs.key || github.event.issue.number }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
-concurrency:
-  group: factory-build-turn-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   turn:
     if: >-
-      github.event.issue.pull_request != null &&
-      contains(github.event.issue.labels.*.name, 'factory:active') &&
-      github.event.comment.user.login != vars.FACTORY_BOT_LOGIN &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      github.event_name == 'workflow_dispatch' || (
+        github.event.issue.pull_request != null &&
+        contains(github.event.issue.labels.*.name, 'factory:active') &&
+        github.event.comment.user.login != vars.FACTORY_BOT_LOGIN &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -42,20 +62,52 @@ jobs:
           app-id: ${{ vars.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_KEY }}
 
+      # The two entrances arrive knowing different halves of the same thing: a
+      # comment knows the PR, a dispatch knows the card. Both leave here with
+      # the number, the branch and the key, so nothing downstream has to care
+      # which way the turn started.
       - name: Resolve the PR
         id: pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          KEY: ${{ inputs.key }}
         run: |
           set -euo pipefail
-          pr="${{ github.event.issue.number }}"
-          branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .head.ref)"
+
+          if [ -n "${KEY:-}" ]; then
+            # The card's branch, matched on the `card/<KEY>-` prefix. The
+            # trailing hyphen is load-bearing: without it DF-3 also matches
+            # card/DF-30-…
+            read -r pr branch <<<"$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" \
+              --jq "[.[] | select(.head.ref | startswith(\"card/${KEY}-\"))][0] | \
+                    if . == null then \"\" else \"\(.number) \(.head.ref)\" end")"
+            if [ -z "${pr:-}" ]; then
+              echo "::error::${KEY} was routed to a build turn but has no open pull request."
+              exit 1
+            fi
+            key="$KEY"
+          else
+            pr="${{ github.event.issue.number }}"
+            branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .head.ref)"
+            key="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .title \
+              | sed -n 's/^\[\([A-Z][A-Z0-9]*-[0-9]\+\)\].*/\1/p')"
+            if [ -z "$key" ]; then
+              echo "::error::Could not read a Jira key from the title of PR #${pr}."
+              exit 1
+            fi
+          fi
+
           case "$branch" in
             card/*) ;;
             *) echo "::error::PR #${pr} is on ${branch}, which is not a card branch."; exit 1 ;;
           esac
-          echo "number=${pr}" >> "$GITHUB_OUTPUT"
-          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "number=${pr}"
+            echo "branch=${branch}"
+            echo "key=${key}"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -82,14 +134,8 @@ jobs:
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
         run: |
           set -euo pipefail
-          key="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ steps.pr.outputs.number }}" --jq .title \
-            | sed -n 's/^\[\([A-Z][A-Z0-9]*-[0-9]\+\)\].*/\1/p')"
-          if [ -z "$key" ]; then
-            echo "::error::Could not read a Jira key from the PR title."
-            exit 1
-          fi
-          echo "key=${key}" >> "$GITHUB_OUTPUT"
-          npm run --silent factory -- gather "$key" --stage build --pr "${{ steps.pr.outputs.number }}"
+          npm run --silent factory -- gather "${{ steps.pr.outputs.key }}" \
+            --stage build --pr "${{ steps.pr.outputs.number }}"
           echo "preview=$(jq -r '.preview_url // empty' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
           echo "turn=$(jq -r '.turn' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
 
@@ -149,7 +195,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ steps.gather.outputs.key }}-turn${{ steps.gather.outputs.turn }}-${{ github.run_id }}
+          name: build-${{ steps.pr.outputs.key }}-turn${{ steps.gather.outputs.turn }}-${{ github.run_id }}
           # Inputs as well as outputs. A turn is a pure function of .agent/in,
           # so shipping both is what makes a failed turn replayable locally.
           path: |

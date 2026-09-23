@@ -54,6 +54,20 @@ Two stages, one card:
 
 A human merges. Nothing else does.
 
+### Comments are the third entrance
+
+Dragging a card is not the only way to start work. Wherever the factory has
+stopped and is waiting on a person — *Design review*, *In review*, and the two
+*Blocked on …* statuses — a comment on the card is read on the next poll by a
+small model, which answers with one of three words: start a design turn, start a
+build turn, or do nothing. It then moves the card, says on the card why it
+moved, and dispatches the runner.
+
+Most comments are `none`, and `none` is silent. The point is that a change of
+mind is a sentence on the ticket rather than a status the commenter has to work
+out for themselves. `docs/factory/STATE-MACHINE.md` has the details, including
+why a comment on a card in *In review* can legitimately start a *design* turn.
+
 ## The pieces
 
 | Where | What it is |

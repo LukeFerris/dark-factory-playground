@@ -103,6 +103,7 @@ describe('isAnswered', () => {
   const US = '712020:factory'
   const THEM = '557058:human'
   const comment = (authorId: string, body: string): jira.JiraComment => ({
+    id: '10001',
     author: authorId === US ? 'Brakkr [bot]' : 'Luke',
     authorId,
     created: '2026-09-23T10:00:00.000+0000',
@@ -134,12 +135,13 @@ describe('isAnswered', () => {
 })
 
 describe('getComments', () => {
-  it('carries the author account id, not just the display name', async () => {
+  it('carries the comment id and the author account id, not just the display name', async () => {
     server.use(
       http.get(`${BASE}/rest/api/3/issue/DF-3/comment`, () =>
         HttpResponse.json({
           comments: [
             {
+              id: '10042',
               author: { displayName: 'Brakkr [bot]', accountId: '712020:factory' },
               created: '2026-09-23T10:00:00.000+0000',
               body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }] },
@@ -150,6 +152,7 @@ describe('getComments', () => {
     )
 
     const [only] = await jira.getComments(cfg, 'DF-3')
+    expect(only?.id).toBe('10042')
     expect(only?.authorId).toBe('712020:factory')
     expect(only?.body).toContain('hi')
   })
@@ -190,60 +193,64 @@ describe('latestComment', () => {
   })
 })
 
-describe('findAnswered', () => {
-  const FACTORY = '712020:factory'
-
-  function stub(cards: Record<string, string[]>): void {
+/**
+ * Triage needs each card's status and its high-water mark together. Asking for
+ * both in the search is one request for the whole board; asking separately is
+ * one per card, on a loop that runs every thirty seconds.
+ */
+describe('search with properties', () => {
+  it('asks for the named properties and hands back what came with each issue', async () => {
+    let body: Record<string, unknown> = {}
     server.use(
-      http.get(`${BASE}/rest/api/3/myself`, () => HttpResponse.json({ accountId: FACTORY })),
-      http.post(`${BASE}/rest/api/3/search/jql`, () =>
-        HttpResponse.json({
-          issues: Object.keys(cards).map((key) => ({ key, fields: {} })),
-          isLast: true,
-        }),
-      ),
-      // Behaves like Jira: honours orderBy and maxResults. Without that the
-      // stub would answer every query with the oldest comment first and hide
-      // exactly the bug this endpoint choice exists to avoid.
-      http.get(`${BASE}/rest/api/3/issue/:key/comment`, ({ params, request }) => {
-        const query = new URL(request.url).searchParams
-        const authors = [...(cards[params['key'] as string] ?? [])]
-        if (query.get('orderBy') === '-created') authors.reverse()
-        const limit = Number(query.get('maxResults') ?? authors.length)
+      http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>
         return HttpResponse.json({
-          comments: authors.slice(0, limit).map((authorId) => ({
-            author: { displayName: 'someone', accountId: authorId },
-            created: '2026-09-23T10:00:00.000+0000',
-            body: { type: 'doc', content: [] },
-          })),
+          issues: [
+            {
+              key: 'DF-3',
+              fields: { status: { name: 'Design review' } },
+              properties: { 'factory-triage': { commentId: '10001' } },
+            },
+          ],
+          isLast: true,
         })
       }),
     )
-  }
 
-  it('returns only the cards whose last comment is not the factory\'s', async () => {
-    stub({
-      'DF-3': [FACTORY, '557058:human'],
-      'DF-4': [FACTORY],
-      'DF-5': ['557058:human', FACTORY, '557058:human'],
-    })
-
-    expect(await jira.findAnswered(cfg, 'DF', 'Blocked on architect')).toEqual(['DF-3', 'DF-5'])
+    const [issue] = await jira.search(cfg, 'project = DF', ['status'], ['factory-triage'])
+    expect(body['properties']).toEqual(['factory-triage'])
+    expect(issue?.properties?.['factory-triage']).toEqual({ commentId: '10001' })
   })
 
-  // The poller runs this every thirty seconds. An empty column must cost one
-  // search and nothing else — no /myself, no per-card comment fetch.
-  it('makes no further requests when the column is empty', async () => {
-    let searches = 0
+  it('omits the key entirely when no properties were asked for', async () => {
+    let body: Record<string, unknown> = {}
     server.use(
-      http.post(`${BASE}/rest/api/3/search/jql`, () => {
-        searches += 1
+      http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>
         return HttpResponse.json({ issues: [], isLast: true })
       }),
     )
 
-    expect(await jira.findAnswered(cfg, 'DF', 'Blocked on architect')).toEqual([])
-    expect(searches).toBe(1)
+    await jira.search(cfg, 'project = DF')
+    expect(body).not.toHaveProperty('properties')
+  })
+})
+
+describe('setIssueProperty', () => {
+  // The value is PUT as the body itself, not wrapped in {"value": …}. Getting
+  // that wrong stores a property whose contents are one level too deep, which
+  // reads back without error and never matches anything.
+  it('puts the value as the whole body, at the named property', async () => {
+    let seen: { url: string; body: unknown } | null = null
+    server.use(
+      http.put(`${BASE}/rest/api/3/issue/DF-3/properties/factory-triage`, async ({ request }) => {
+        seen = { url: request.url, body: await request.json() }
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+
+    await jira.setIssueProperty(cfg, 'DF-3', 'factory-triage', { commentId: '10007' })
+    expect(seen!.body).toEqual({ commentId: '10007' })
   })
 })
 
