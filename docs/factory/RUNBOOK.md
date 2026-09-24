@@ -403,8 +403,9 @@ expected, see `SELF-HOSTING.md`.
 
 ### `azure` backend
 
-**UNVERIFIED — this path has not been run against a live subscription.** Expect
-the first failures to be setup rather than code.
+**The estate is real; no preview has ever been raised through it.** The
+Terraform has been applied and re-plans clean, so if something fails here,
+suspect the `az` calls in `azure.ts` before the infrastructure.
 
 The estate is Terraform, so the first question for anything that smells like
 configuration is whether the estate still matches it. A plan changes nothing

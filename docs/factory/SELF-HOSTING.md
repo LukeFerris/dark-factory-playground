@@ -49,13 +49,12 @@ because it is a workspace of the root `package.json`.
 
 ## Backend: `azure` — Container Apps
 
-> **UNVERIFIED.** This path has never run against a live Azure subscription.
-> The `az` command shapes follow the documented CLI surface and are unit-tested
-> through a stubbed runner; the Terraform in `infra/azure/` validates and plans
-> but has not been applied. Nothing here has been watched working. Treat it the
-> way `bootstrap/jira.sh` was treated before Checkpoint B: written carefully,
-> believed, unproven. That is why the default is still `ghcr`, and why
-> `apply.sh` defaults to `plan`.
+> **PARTLY VERIFIED.** The estate is real: `infra/azure/` has been applied
+> against a live subscription and a second plan comes back clean. What has
+> *not* happened is a preview — no pull request has yet raised one, so the
+> `az acr build` and `az containerapp create` shapes in `azure.ts` are still
+> only unit-tested through a stubbed runner. Expect the first failure to be
+> there rather than in the infrastructure.
 
 One Container App per pull request, named `<prefix>-preview-pr-<n>`, serving the
 same image the stub builds. `factory/src/azure.ts` holds every `az` call.

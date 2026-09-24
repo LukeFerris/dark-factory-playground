@@ -50,6 +50,18 @@ resource "azurerm_container_app_environment" "preview" {
   resource_group_name        = azurerm_resource_group.preview.name
   location                   = azurerm_resource_group.preview.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.preview.id
+
+  # Azure attaches this profile whether or not you ask for it. Declared here
+  # only so the config matches what the API returns — leave it out and every
+  # subsequent plan proposes deleting it, which makes real drift impossible to
+  # spot among the noise. Consumption is the scale-to-zero profile, which is
+  # what makes one environment per open PR affordable.
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+    minimum_count         = 0
+    maximum_count         = 0
+  }
 }
 
 # The identity each preview app pulls its image with.

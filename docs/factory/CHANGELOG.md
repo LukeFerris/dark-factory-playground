@@ -57,10 +57,28 @@ all ten repository variables, each read off the resource Terraform just made.
   a typo in it. It reads `.env` with `awk` rather than sourcing it, for the
   reason sourcing a data file is always wrong.
 
-Still unverified end to end: nothing has been applied, and no preview has ever
-been raised on either backend. `terraform validate` passes and the unit tests
-cover the command shapes, which is the same standard `bootstrap/jira.sh` met
-before Checkpoint B — written carefully, believed, unproven.
+**Applied.** 22 resources in `rg-factory-preview`, and a second plan comes back
+clean. Three things only running it could have found:
+
+- **`az account show` never calls Azure.** It reads the local token cache, so
+  `apply.sh`'s sign-in check described a session whose refresh token had
+  expired three months earlier as healthy — and the comment above it claimed
+  the opposite. `az account get-access-token` is the call that round-trips.
+- **`gh repo view` succeeds against any public repository**, so the script's
+  "can you reach the repo" check passed on a machine signed in as an account
+  with no write access, and would have failed mid-apply when the provider tried
+  to write a variable. It asks about admin now, which is what setting a
+  repository variable actually needs.
+- **Azure attaches a `Consumption` workload profile to a Container Apps
+  environment whether or not you declare one.** The config declared none, so
+  every subsequent plan proposed deleting it. Declared explicitly: a plan that
+  is never empty is a plan nobody reads, and real drift then hides in the
+  noise.
+
+Still unproven: **no preview has ever been raised**, on either backend. The
+estate exists and the credentials resolve; whether `az acr build` and
+`az containerapp create` do what `azure.ts` believes is the next thing to find
+out.
 
 ## 2026-09-23
 

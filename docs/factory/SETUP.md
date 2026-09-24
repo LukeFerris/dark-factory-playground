@@ -329,10 +329,10 @@ request, on its own HTTPS URL, switch the backend to Azure Container Apps.
 first; a broken preview is much easier to diagnose when everything else is known
 good.
 
-> **This path is unverified.** It is written, unit-tested and `terraform
-> validate`-clean, but nothing has been applied and no preview has ever been
-> raised. Expect the first failure to be a role assignment. `RUNBOOK.md`,
-> "The preview is missing", lists the ones to expect.
+> **Partly verified.** The Terraform has been applied against a live
+> subscription and re-plans clean, so the infrastructure half is proven. No
+> preview has yet been raised, so the `az` calls that create one are not.
+> `RUNBOOK.md`, "The preview is missing", lists the failures to expect.
 
 You need an Azure subscription. Everything else is Terraform, in `infra/azure/`:
 the resource group, registry, Container Apps environment, the pull identity, the
