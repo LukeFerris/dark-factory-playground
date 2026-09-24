@@ -1,0 +1,79 @@
+.github/workflows/build-teardown.yml
+  s_6735740180f350::t_e5cf3c19d241c6 65
+infra/azure/README.md
+  s_6735740180f350::t_1edc7e2060bcc3 1-95
+.gitignore
+  s_6735740180f350::t_22e5cf0b6394ce 23-24
+  s_6735740180f350::t_16888ae5fe431b 20-22,25-29
+infra/azure/identity.tf
+  s_6735740180f350::t_52bec3b662a510 1-67
+docs/factory/SELF-HOSTING.md
+  s_6735740180f350::t_a671dd8fa99555 54-58
+  s_6735740180f350::t_082652dd1a0cf8 73-75
+  s_6735740180f350::t_2554d2cf65fd01 94-96,99-101,104-123,125-127,129-130,133,136-138
+.env.example
+  s_6735740180f350::t_6f896474b0994d 46-55,63-66
+docs/factory/SECURITY.md
+  s_6735740180f350::t_7d250d61178c26 41-48
+docs/factory/SETUP.md
+  s_6735740180f350::t_e0204a86b77488 332-356
+  s_6735740180f350::t_cc7dca384f7c86 359-364
+infra/azure/apply.sh
+  s_6735740180f350::t_8977fdfc1aec2a 76-78
+  s_6735740180f350::t_725a5cda7776a1 1-75,79-82
+infra/azure/versions.tf
+  s_6735740180f350::t_c5b25dacd85895 1-32
+infra/azure/variables.tf
+  s_6735740180f350::t_8883d22f8027a1 1-67
+factory/src/azure.test.ts
+  s_6735740180f350::t_c70ddd6ebfac8d 226,231,234-245
+  s_6735740180f350::t_805a2df52590ba 209
+  s_6735740180f350::t_991df50f6a3a36 16-19,25
+  s_6735740180f350::t_3834c5defb26dc 115-118,123-142
+  s_6735740180f350::t_46e612a711ecc7 143-144
+  s_6735740180f350::t_1998f07142aa36 246
+infra/azure/main.tf
+  s_6735740180f350::t_9bfa62c276aa67 1-13,17-72
+  s_6735740180f350::t_1074ee58225137 14-16
+factory/src/azure.ts
+  s_6735740180f350::t_b463ce88571d9d 2
+  s_6735740180f350::t_5fde28d24dd9ae 184
+  s_6735740180f350::t_6b0bcf18906929 140-141,147-153
+  s_6735740180f350::t_1672d672f27ed0 50-61,70
+  s_6735740180f350::t_5df6f43bf6b08a 154
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_c7499885b706d9 409-420,423-427
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_30f136170a3c07 10-64
+README.md
+  s_6735740180f350::t_acba6cf194c0d5 26
+.github/workflows/build-setup.yml
+  s_6735740180f350::t_e5cf3c19d241c6 117
+infra/azure/outputs.tf
+  s_6735740180f350::t_5b6419e72320cc 1-36
+infra/azure/.terraform.lock.hcl
+  s_6735740180f350::t_2cf6257bbb7de6 1-64
+infra/azure/github.tf
+  s_6735740180f350::t_db4711d497a26f 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d550283282a0e40783f1e49887b352c226afa42",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
