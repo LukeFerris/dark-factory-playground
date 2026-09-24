@@ -1,0 +1,32 @@
+infra/azure/main.tf
+  s_6735740180f350::t_a3fef70c99fbcb 53-64
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_d9e2c1d5c94b4b 60-81
+docs/factory/SELF-HOSTING.md
+  s_6735740180f350::t_547ac2571c62a1 52-57
+docs/factory/SETUP.md
+  s_6735740180f350::t_265646cbadf57f 332-335
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_ec5f1011542ff9 406-408
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "063427f9bd255245f74f0ff365aea34e11306fc7",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
