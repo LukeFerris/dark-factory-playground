@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { REPO_ROOT, required } from './env.ts'
+import { REPO_ROOT, optional, required } from './env.ts'
 
 /**
  * Azure Container Apps previews — one app per pull request.
@@ -47,6 +47,18 @@ export interface AzureConfig {
   environment: string
   /** Container image repository name, without the registry prefix or tag. */
   repository: string
+  /**
+   * Which identity the preview app pulls its image with: the literal `system`,
+   * or the resource id of a user-assigned managed identity.
+   *
+   * `system` asks Azure to create the app's own identity and grant it `AcrPull`
+   * at create time — which only works if the deploying principal may create
+   * role assignments, i.e. holds User Access Administrator on the group. A
+   * user-assigned identity is granted `AcrPull` once, up front, by whoever
+   * builds the infrastructure; the CI principal then never needs the power to
+   * hand out roles at all. `infra/azure/` provisions one and sets this.
+   */
+  identity: string
 }
 
 export function azureConfig(): AzureConfig {
@@ -55,6 +67,7 @@ export function azureConfig(): AzureConfig {
     registry: required('AZURE_ACR_NAME'),
     environment: required('AZURE_CONTAINERAPPS_ENVIRONMENT'),
     repository: required('AZURE_PREVIEW_REPOSITORY'),
+    identity: optional('AZURE_PREVIEW_IDENTITY', 'system'),
   }
 }
 
@@ -124,12 +137,20 @@ function appExists(config: AzureConfig, name: string): boolean {
  *
  * Ingress is external with a target port of 8080, matching the Dockerfile.
  * Azure terminates TLS at the edge and issues the certificate, so nginx never
- * sees a certificate and there is no DNS to configure. The pull uses the app's
- * system-assigned managed identity — no registry credential is stored anywhere.
+ * sees a certificate and there is no DNS to configure. The pull uses a managed
+ * identity either way — no registry credential is stored anywhere.
  */
 export function deployPreview(config: AzureConfig, prNumber: number, prefix?: string): string {
   const name = previewAppName(prNumber, prefix)
   const image = previewImage(config, prNumber)
+
+  // A user-assigned identity has to be attached to the app before it can be
+  // named as the one that pulls; `system` is Azure creating that identity
+  // itself, so there is nothing to attach.
+  const identity =
+    config.identity === 'system'
+      ? ['--registry-identity', 'system']
+      : ['--user-assigned', config.identity, '--registry-identity', config.identity]
 
   if (appExists(config, name)) {
     az([
@@ -160,8 +181,7 @@ export function deployPreview(config: AzureConfig, prNumber: number, prefix?: st
       'external',
       '--registry-server',
       `${config.registry}.azurecr.io`,
-      '--registry-identity',
-      'system',
+      ...identity,
       // Scale to zero between visits. A preview that nobody is looking at
       // should cost nothing; the trade is a few seconds of cold start.
       '--min-replicas',

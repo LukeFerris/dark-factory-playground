@@ -23,6 +23,7 @@ Then follow **[docs/factory/SETUP.md](docs/factory/SETUP.md)**.
 | `.agent/` | The agent boundary: the two manuals, and the result contract |
 | `.github/workflows/` | The poller, design, and build start/setup/turn/teardown |
 | `bootstrap/` | Scripts that configure GitHub and Jira from nothing |
+| `infra/azure/` | Terraform for the optional Azure preview estate |
 | `docs/` | How it works, how to run it, and why it is built this way |
 | `PLAN.md` | The build plan this repository was built from. Historical — where it and the code disagree, the code is right and [the changelog](docs/factory/CHANGELOG.md) says why |
 

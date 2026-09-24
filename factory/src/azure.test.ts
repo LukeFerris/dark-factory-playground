@@ -13,11 +13,16 @@ import {
   type AzureConfig,
 } from './azure.ts'
 
+const IDENTITY =
+  '/subscriptions/0000/resourceGroups/rg-factory/providers/' +
+  'Microsoft.ManagedIdentity/userAssignedIdentities/uami-factory-preview'
+
 const config: AzureConfig = {
   resourceGroup: 'rg-factory',
   registry: 'acmefactory',
   environment: 'cae-factory',
   repository: 'dark-factory-playground',
+  identity: IDENTITY,
 }
 
 /** Records every `az` invocation and answers each one from `reply`. */
@@ -107,9 +112,34 @@ describe('deploying the preview', () => {
     expect(create?.[create.indexOf('--ingress') + 1]).toBe('external')
     expect(create?.[create.indexOf('--target-port') + 1]).toBe('8080')
     // Managed identity, so no registry credential is ever stored in Azure.
-    expect(create?.[create.indexOf('--registry-identity') + 1]).toBe('system')
+    // The identity has to be attached to the app as well as named as the
+    // puller, or `az` accepts the create and the first pull fails.
+    expect(create?.[create.indexOf('--user-assigned') + 1]).toBe(IDENTITY)
+    expect(create?.[create.indexOf('--registry-identity') + 1]).toBe(IDENTITY)
     // Scale to zero: an unvisited preview should cost nothing.
     expect(create?.[create.indexOf('--min-replicas') + 1]).toBe('0')
+  })
+
+  /**
+   * The fallback for anyone who has not run infra/azure/. It needs the
+   * deploying principal to be able to create role assignments, which is
+   * exactly what the user-assigned path exists to avoid — but it must keep
+   * working, because it is what the SELF-HOSTING instructions described first.
+   */
+  it('asks Azure for a system-assigned identity when none is configured', () => {
+    const calls = stub((args) =>
+      isFqdnRead(args)
+        ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io\n' }
+        : args[1] === 'show'
+          ? { status: 1, stderr: 'ResourceNotFound' }
+          : {},
+    )
+
+    deployPreview({ ...config, identity: 'system' }, 7)
+
+    const create = calls.find((c) => c[1] === 'create')
+    expect(create?.[create.indexOf('--registry-identity') + 1]).toBe('system')
+    expect(create).not.toContain('--user-assigned')
   })
 
   /**
@@ -176,6 +206,7 @@ describe('the Azure configuration', () => {
     'AZURE_ACR_NAME',
     'AZURE_CONTAINERAPPS_ENVIRONMENT',
     'AZURE_PREVIEW_REPOSITORY',
+    'AZURE_PREVIEW_IDENTITY',
   ] as const
   const previous = names.map((n) => process.env[n])
 
@@ -192,11 +223,25 @@ describe('the Azure configuration', () => {
     expect(() => azureConfig()).toThrow(/AZURE_RESOURCE_GROUP/)
   })
 
-  it('reads all four from the environment', () => {
+  it('reads them all from the environment', () => {
     process.env['AZURE_RESOURCE_GROUP'] = 'rg-factory'
     process.env['AZURE_ACR_NAME'] = 'acmefactory'
     process.env['AZURE_CONTAINERAPPS_ENVIRONMENT'] = 'cae-factory'
     process.env['AZURE_PREVIEW_REPOSITORY'] = 'dark-factory-playground'
+    process.env['AZURE_PREVIEW_IDENTITY'] = IDENTITY
     expect(azureConfig()).toEqual(config)
+  })
+
+  /**
+   * Unset is the documented way to ask for a system-assigned identity, so it
+   * must not be the same kind of error as a missing resource group.
+   */
+  it('falls back to a system-assigned identity rather than failing', () => {
+    process.env['AZURE_RESOURCE_GROUP'] = 'rg-factory'
+    process.env['AZURE_ACR_NAME'] = 'acmefactory'
+    process.env['AZURE_CONTAINERAPPS_ENVIRONMENT'] = 'cae-factory'
+    process.env['AZURE_PREVIEW_REPOSITORY'] = 'dark-factory-playground'
+    delete process.env['AZURE_PREVIEW_IDENTITY']
+    expect(azureConfig().identity).toBe('system')
   })
 })

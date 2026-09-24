@@ -329,25 +329,36 @@ request, on its own HTTPS URL, switch the backend to Azure Container Apps.
 first; a broken preview is much easier to diagnose when everything else is known
 good.
 
-> **This path is unverified.** It is written and unit-tested but has never run
-> against a live subscription. Expect the first failure to be a role assignment.
-> `RUNBOOK.md`, "The preview is missing", lists the ones to expect.
+> **Partly verified.** The Terraform has been applied against a live
+> subscription and re-plans clean, so the infrastructure half is proven. No
+> preview has yet been raised, so the `az` calls that create one are not.
+> `RUNBOOK.md`, "The preview is missing", lists the failures to expect.
 
-You need an Azure subscription. The full walkthrough — resource group, registry,
-Container Apps environment, federated credential and the nine repository
-variables — is in `SELF-HOSTING.md` under "Backend: `azure` — Container Apps".
-In outline:
+You need an Azure subscription. Everything else is Terraform, in `infra/azure/`:
+the resource group, registry, Container Apps environment, the pull identity, the
+app registration and its two federated credentials, and all ten repository
+variables — each set from the resource it was just read off, so none of them can
+drift from what they name.
 
-1. Create the resource group, an ACR, and a Container Apps environment.
-2. Register a federated credential for this repository, so no Azure secret is
-   stored in GitHub. It needs a subject for `pull_request`, not only for `main`.
-3. Grant the service principal `Contributor` on the resource group and
-   `AcrPush` on the registry.
-4. `gh variable set FACTORY_PREVIEW_BACKEND --body azure`, plus the eight
-   `AZURE_*` variables.
-5. Push to any open build PR. `build-setup.yml` runs on `synchronize`, so the
-   next turn raises the preview without anything else being triggered.
+```bash
+az login
+infra/azure/apply.sh            # plan: shows what it would do, changes nothing
+infra/azure/apply.sh --apply
+```
+
+Read the plan before you approve it. Then push to any open build PR:
+`build-setup.yml` runs on `synchronize`, so the next turn raises the preview
+without anything else being triggered.
+
+`infra/azure/README.md` explains what it builds and why, in particular why
+previews pull with a user-assigned identity rather than asking Azure to create
+one per app — that choice is what keeps CI from needing the power to grant
+roles.
 
 Switching back is one variable: set `FACTORY_PREVIEW_BACKEND` to `ghcr`, or
-unset it. Tear down any Container Apps left behind first — an app that outlives
-its PR keeps billing.
+unset it. Terraform owns that variable, so the change shows as drift on the next
+plan — which is the point. `infra/azure/apply.sh --destroy` is the way to mean
+it permanently, and it removes the variables too, returning the factory to the
+stub rather than breaking it. Either way, close the open build PRs and let
+`build-teardown.yml` remove their previews first — an app that outlives its PR
+keeps billing.
