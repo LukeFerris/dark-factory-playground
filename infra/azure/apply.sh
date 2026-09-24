@@ -40,11 +40,14 @@ env_value() {
   awk -v k="$1" 'index($0, k"=")==1 { print substr($0, length(k)+2); exit }' "$ROOT/.env"
 }
 
-# `az account show` fails on an expired refresh token as well as on no login at
-# all, and the difference matters: one needs `az login`, the other needs
-# `az login` too. Same instruction, so do not bother distinguishing them.
-ACCOUNT="$(az account show -o json 2>/dev/null)" \
-  || die "Azure CLI is not signed in (or the token expired). Run: az login"
+# `az account show` reads the local cache and does NOT call Azure, so it happily
+# describes a session whose refresh token expired months ago. Ask for a token
+# first: that is the call that actually round-trips and fails on AADSTS700082.
+# -o none because the thing it prints is a bearer token.
+az account get-access-token -o none 2>/dev/null \
+  || die "Azure CLI is not signed in, or the token expired. Run: az login"
+
+ACCOUNT="$(az account show -o json)"
 
 SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID:-$(printf '%s' "$ACCOUNT" | jq -r .id)}"
 SUBSCRIPTION_NAME="$(printf '%s' "$ACCOUNT" | jq -r .name)"
@@ -62,8 +65,13 @@ GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}"
 [ -n "$GITHUB_TOKEN" ] || die "No GitHub token. Run: gh auth login"
 export GITHUB_TOKEN
 
-gh repo view "$OWNER/$REPO" >/dev/null 2>&1 \
-  || die "$OWNER/$REPO is not reachable with the active gh account ($(gh api user --jq .login))."
+# Not `gh repo view`: that succeeds for any public repository, so on a machine
+# signed in as the wrong account it passes here and then fails much later, in
+# the middle of an apply, when the github provider tries to write a variable.
+# Setting repository variables needs admin, so ask about admin.
+ADMIN="$(gh api "repos/$OWNER/$REPO" --jq .permissions.admin 2>/dev/null || true)"
+[ "$ADMIN" = true ] || die \
+  "the active gh account ($(gh api user --jq .login 2>/dev/null || echo unknown)) cannot administer $OWNER/$REPO, so it cannot set repository variables. Switch with: gh auth switch"
 
 echo "subscription : $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)"
 echo "repository   : $OWNER/$REPO"
