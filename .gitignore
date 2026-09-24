@@ -17,3 +17,13 @@ secrets/
 
 .DS_Store
 *.log
+
+# Terraform. The state names the app registration and the identity; it holds no
+# secret (OIDC means there is none) but it is machine-local and not shared.
+# .terraform.lock.hcl is deliberately NOT ignored: it pins provider versions,
+# and an unpinned provider can change what `apply` does with nobody watching.
+infra/**/.terraform/
+infra/**/terraform.tfstate
+infra/**/terraform.tfstate.*
+infra/**/*.tfvars
+!infra/**/*.tfvars.example

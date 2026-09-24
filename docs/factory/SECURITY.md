@@ -38,6 +38,14 @@ reach. This is why raising the preview is a separate workflow rather than a step
 of `build-start.yml`: `packages: write`, `deployments: write` and `id-token:
 write` must not be in scope while the agent runs.
 
+What that credential can do is also bounded, and deliberately: `Contributor` on
+one resource group, and `Managed Identity Operator` on one managed identity.
+Neither can create a role assignment, so CI cannot widen its own access. That
+constraint is the reason previews pull with a user-assigned identity granted
+`AcrPull` up front by Terraform — `--registry-identity system` would have
+required **User Access Administrator** on the group, which is the power to
+grant. See `infra/azure/README.md`.
+
 | Credential | Where it lives | In scope during an agent step |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Repository secret | **Yes** — the only one |

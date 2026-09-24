@@ -7,6 +7,61 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-24
+
+### The preview estate is Terraform, and CI cannot hand out roles
+
+The `azure` backend was written against a setup recipe: a dozen `az` commands
+and nine `gh variable set` lines in `SELF-HOSTING.md`. Nobody had run it. Two
+problems with leaving it that way — a recipe drifts from the code it configures
+with nothing to catch it, and `AZURE_CLIENT_ID` being a number a human retyped
+is exactly the kind of thing that is wrong for a week before anyone notices.
+
+**Done:** `infra/azure/` provisions the whole estate, and the same apply sets
+all ten repository variables, each read off the resource Terraform just made.
+
+- **The pull identity changed, and that is the substantive part.**
+  `--registry-identity system` asks Azure to create each preview app's own
+  identity and grant it `AcrPull` at create time. Granting a role is a role
+  assignment, so the CI principal must hold **User Access Administrator** on
+  the group — the power to grant itself anything else there too. For a pipeline
+  whose entire argument is that no step holds more than it needs, that is the
+  wrong trade. Terraform creates one user-assigned identity, grants it `AcrPull`
+  once, and passes its resource id as `AZURE_PREVIEW_IDENTITY`. CI is left with
+  `Contributor` on one resource group and `Managed Identity Operator` on one
+  identity, neither of which can create a role assignment.
+- **`azureConfig()` gained `identity`, defaulting to `system`.** Unset, the
+  broader-permission path still works exactly as before; `deployPreview` only
+  adds `--user-assigned` when there is something to attach.
+- **Two federated credentials, not one.** Entra matches the subject exactly and
+  Actions presents two shapes here: `pull_request` for both preview workflows,
+  and `ref:refs/heads/main` for the `workflow_dispatch` retry. The original
+  notes described only the second, which would have failed on every real
+  preview. Note the `pull_request` subject names no branch — that is how GitHub
+  mints it.
+- **`Contributor` on the group is enough for `az acr build`.** ACR Tasks wants
+  Contributor on the registry, which is inherited. The separate `AcrPush`
+  assignment the notes called for is redundant.
+- **The registry suffix is `substr(sha1(subscription_id), 0, 8)`, not
+  `random_string`.** ACR names are globally unique and hyphen-free, so one is
+  needed; deriving it deterministically means a rebuilt state produces the same
+  name. A new name would orphan every image in the old registry.
+- **State is local and gitignored; the lock file is committed.** One operator,
+  no bootstrap chicken-and-egg. The state names the app registration and the
+  identity but holds no secret — with OIDC there is none to hold. Pinning the
+  providers matters more: an unpinned provider changes what `apply` does with
+  nobody watching.
+- **`apply.sh` defaults to `plan`, and neither `--apply` nor `--destroy` passes
+  `-auto-approve`.** It creates billable resources and, on destroy, deletes a
+  registry full of images. Neither should happen because a script was run with
+  a typo in it. It reads `.env` with `awk` rather than sourcing it, for the
+  reason sourcing a data file is always wrong.
+
+Still unverified end to end: nothing has been applied, and no preview has ever
+been raised on either backend. `terraform validate` passes and the unit tests
+cover the command shapes, which is the same standard `bootstrap/jira.sh` met
+before Checkpoint B — written carefully, believed, unproven.
+
 ## 2026-09-23
 
 ### A comment is an instruction, and only a model can read which one

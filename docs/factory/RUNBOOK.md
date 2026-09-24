@@ -406,12 +406,25 @@ expected, see `SELF-HOSTING.md`.
 **UNVERIFIED — this path has not been run against a live subscription.** Expect
 the first failures to be setup rather than code.
 
+The estate is Terraform, so the first question for anything that smells like
+configuration is whether the estate still matches it. A plan changes nothing
+and answers that in one command:
+
+```bash
+az login
+infra/azure/apply.sh            # any diff here is drift; empty is a clean bill
+```
+
+A variable someone set by hand shows up as a diff, because Terraform owns all
+ten of them.
+
 | Symptom | Usually |
 | --- | --- |
-| `AADSTS700213` / no matching federated identity | The federated credential's subject does not match. It needs one for `repo:<owner>/<repo>:pull_request`, not just `ref:refs/heads/main` |
-| `Missing required environment variable AZURE_…` | A repository variable is unset; the message names which |
-| `az acr build` denied | The service principal needs `AcrPush` on the registry |
-| Create succeeds, app never starts, `ImagePullFailure` | The app's managed identity has no `AcrPull`. `--registry-identity system` only grants it if the deploying principal can make role assignments — see SELF-HOSTING |
+| `AADSTS700213` / no matching federated identity | The federated credential's subject does not match. Both are needed: `repo:<owner>/<repo>:pull_request` for the PR events and `repo:<owner>/<repo>:ref:refs/heads/main` for the dispatch retry |
+| `Missing required environment variable AZURE_…` | A repository variable is unset; the message names which. `apply.sh` sets all of them — a missing one means the apply did not finish, or somebody deleted it |
+| `az acr build` denied | `Contributor` on the resource group covers ACR Tasks by inheritance. If it is denied, the role assignment is missing rather than too narrow |
+| `--user-assigned` denied on create | The CI principal lacks `Managed Identity Operator` **on the identity**. `Contributor` on the group is not enough to attach one |
+| Create succeeds, app never starts, `ImagePullFailure` | The identity named by `AZURE_PREVIEW_IDENTITY` has no `AcrPull` on the registry. If that variable is unset the code falls back to `--registry-identity system`, which only grants it when the deploying principal can make role assignments — see SELF-HOSTING |
 | `no ingress FQDN` | The app exists but ingress is internal or absent. Delete it and let the next push recreate it |
 | The URL resolves but the first request hangs a few seconds | Cold start. `--min-replicas 0` is deliberate |
 

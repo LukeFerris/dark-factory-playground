@@ -51,9 +51,11 @@ because it is a workspace of the root `package.json`.
 
 > **UNVERIFIED.** This path has never run against a live Azure subscription.
 > The `az` command shapes follow the documented CLI surface and are unit-tested
-> through a stubbed runner, but nothing here has been watched working. Treat it
-> the way `bootstrap/jira.sh` was treated before Checkpoint B: written
-> carefully, believed, unproven. That is why the default is still `ghcr`.
+> through a stubbed runner; the Terraform in `infra/azure/` validates and plans
+> but has not been applied. Nothing here has been watched working. Treat it the
+> way `bootstrap/jira.sh` was treated before Checkpoint B: written carefully,
+> believed, unproven. That is why the default is still `ghcr`, and why
+> `apply.sh` defaults to `plan`.
 
 One Container App per pull request, named `<prefix>-preview-pr-<n>`, serving the
 same image the stub builds. `factory/src/azure.ts` holds every `az` call.
@@ -68,9 +70,9 @@ per open PR affordable.
 **Why ACR and not GHCR as the registry.** Container Apps pulling from a private
 GHCR repository needs a durable GitHub credential stored inside Azure. That is
 exactly the credential-spreading this project exists to avoid. With ACR the pull
-uses the app's system-assigned managed identity and nothing is stored anywhere.
-The build is also `az acr build`, which uploads the context and builds it in
-ACR Tasks, so the runner needs no Docker daemon at all.
+uses a managed identity and nothing is stored anywhere. The build is also
+`az acr build`, which uploads the context and builds it in ACR Tasks, so the
+runner needs no Docker daemon at all.
 
 ### HTTPS
 
@@ -89,49 +91,51 @@ and is not needed for this.
 
 ### Setting it up
 
-Once, by hand. Names are yours; these are the ones the variables expect.
+It is Terraform, in `infra/azure/`. One apply provisions the estate and sets
+the ten repository variables, each read off the Azure resource it just made —
+so `AZURE_CLIENT_ID` cannot drift from the app registration it names.
 
 ```bash
-az group create -n rg-factory-preview -l westeurope
-az acr create -n <acrname> -g rg-factory-preview --sku Basic
-az containerapp env create -n cae-factory -g rg-factory-preview -l westeurope
+az login
+infra/azure/apply.sh            # plan: shows what it would do, changes nothing
+infra/azure/apply.sh --apply
 ```
 
-Then a federated credential, so the repository holds no Azure secret:
+`infra/azure/README.md` is the reference for what it builds and why. The two
+things worth knowing before you run it:
 
-```bash
-az ad app create --display-name factory-preview
-# note the appId, then create a service principal and a federated credential
-# for  repo:<owner>/<repo>:ref:refs/heads/main  and for  repo:<owner>/<repo>:pull_request
-az role assignment create --assignee <appId> --role Contributor \
-  --scope /subscriptions/<sub>/resourceGroups/rg-factory-preview
-az role assignment create --assignee <appId> --role AcrPush \
-  --scope /subscriptions/<sub>/resourceGroups/rg-factory-preview/providers/Microsoft.ContainerRegistry/registries/<acrname>
-```
+**The pull identity.** `--registry-identity system` asks Azure to create each
+app's own identity and grant it `AcrPull` at create time — which means the CI
+principal must be able to create role assignments, i.e. hold **User Access
+Administrator** on the group. For a pipeline whose whole argument is that no
+step holds more than it needs, that is a poor trade. Terraform creates one
+user-assigned identity instead, grants it `AcrPull` once, and passes its
+resource id as `AZURE_PREVIEW_IDENTITY`. CI is then only `Contributor` on one
+resource group and `Managed Identity Operator` on one identity — neither of
+which can grant a role. Leave `AZURE_PREVIEW_IDENTITY` unset and the code falls
+back to `system`, so the broader-permission path still works.
 
-`--registry-identity system` asks Azure to grant the app's own identity `AcrPull`
-at create time. That only works if the deploying principal can make role
-assignments; if it cannot, grant `AcrPull` to each app's identity yourself, or
-give the service principal **User Access Administrator** on the resource group.
-This is the step most likely to be the first thing that fails.
-
-Finally the repository variables:
-
-```bash
-gh variable set FACTORY_PREVIEW_BACKEND --body azure
-gh variable set AZURE_CLIENT_ID --body <appId>
-gh variable set AZURE_TENANT_ID --body <tenantId>
-gh variable set AZURE_SUBSCRIPTION_ID --body <subscriptionId>
-gh variable set AZURE_RESOURCE_GROUP --body rg-factory-preview
-gh variable set AZURE_ACR_NAME --body <acrname>
-gh variable set AZURE_CONTAINERAPPS_ENVIRONMENT --body cae-factory
-gh variable set AZURE_PREVIEW_REPOSITORY --body dark-factory-playground
-gh variable set AZURE_PREVIEW_PREFIX --body df          # optional, defaults to df
-```
+**The OIDC subjects.** Entra matches the subject exactly, and Actions presents
+two shapes: `repo:<owner>/<repo>:pull_request` for the `pull_request` events
+that both preview workflows run on, and `repo:<owner>/<repo>:ref:refs/heads/main`
+for the manual `workflow_dispatch` retry. Terraform creates a federated
+credential for each. A token from any other repository, branch or event type
+matches neither and is refused.
 
 All variables, no secrets: OIDC means there is nothing long-lived to store.
 `AZURE_PREVIEW_PREFIX` is what keeps two factories sharing one Container Apps
 environment from colliding on `pr-1`.
+
+To take it all down — including the repository variables, which returns the
+factory to the `ghcr` stub rather than breaking it:
+
+```bash
+infra/azure/apply.sh --destroy
+```
+
+Close any open build PRs first and let `build-teardown.yml` remove their
+previews. Destroying the environment out from under a running app leaves the
+app behind.
 
 ### What it costs to leave running
 
