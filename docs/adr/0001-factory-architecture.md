@@ -162,6 +162,12 @@ Azure sign-in is OIDC, so the repository holds no Azure secret either.
 
 ### The preview is raised by the pull request, not by a dispatch
 
+> **Superseded by [0003](0003-the-turn-raises-its-own-preview.md).** The
+> credential argument below still holds and still shapes the code; the trigger
+> and the ordering do not. A preview is now raised by the turn that produced
+> the code, in a second job of the same run, and `report` runs after it. The
+> rest of this section is kept as written for the record.
+
 `build-setup.yml` triggers on `labeled` (with `factory:active`, which
 `factory publish` adds at the end of turn 1) and on `synchronize` (every later
 turn's push). It is a separate workflow from `build-start.yml` because it needs

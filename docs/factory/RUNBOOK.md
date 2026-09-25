@@ -371,31 +371,44 @@ First: which backend?
 gh variable get FACTORY_PREVIEW_BACKEND --repo "$GH_OWNER/$GH_REPO"   # ghcr or azure
 ```
 
-**`build-setup.yml` never ran.** It triggers on the PR's own `labeled` and
-`synchronize` events, not on a dispatch from `build-start.yml`. Check the label
-is actually there:
+**The `preview` job failed.** A preview is raised by the turn that produced the
+code, in a second job of the same run — not by a pull request event, and not by
+a separate workflow. So there is only one run to read, and it is the build run:
 
 ```bash
-gh pr view <n> --repo "$GH_OWNER/$GH_REPO" --json labels
-gh run list --workflow build-setup.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+gh run list --workflow build-start.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+gh run list --workflow build-turn.yml  --repo "$GH_OWNER/$GH_REPO" --limit 5
+gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log-failed
 ```
 
-If `factory:active` is present but no run exists, the label was probably applied
-with `GITHUB_TOKEN` rather than the App token — events made with `GITHUB_TOKEN`
-do not start workflow runs. `factory publish` uses the App token precisely for
-this. Re-applying the label by hand also works, and so does the manual path:
+If the `turn` job is green and `preview` is red, the code is on the branch and
+the deploy is what failed. Fix the cause, then redeploy without re-running the
+agent:
 
 ```bash
 gh workflow run build-setup.yml -f pr=<n>
 ```
 
-**The preview is stale rather than missing.** It should follow the branch — the
-`synchronize` trigger re-raises it on every push. A preview stuck on turn 1
-means the `synchronize` runs are failing; read them, they are separate runs.
+That workflow is the manual retry and nothing dispatches it. Add
+`-f kickoff=true` **only** if turn 1's preview job died before posting the
+kickoff comment — otherwise you get a second one.
+
+**The card is in "In review" but there is no preview.** This should no longer
+be reachable: `report` is the last step of the `preview` job, after the deploy
+has answered. If you see it, the `preview` job's `Report` step ran while
+`DEPLOYABLE` was false — which means validation rejected the turn, and the card
+should be in *Blocked on engineer*, not *In review*. Read the Jira comment.
+
+**The preview is stale rather than missing.** Every build turn redeploys before
+reporting, so a preview stuck on turn 1's code means the later turns' `preview`
+jobs are failing. They are jobs within those runs, not runs of their own.
+
+**A commit pushed to the card branch by hand did not redeploy.** Correct, and
+deliberate — pushing no longer triggers anything. Run `build-setup.yml` for it.
 
 ### `ghcr` backend
 
-`build-setup.yml` needs `packages: write` and `deployments: write`, and the App
+The `preview` job needs `packages: write` and `deployments: write`, and the App
 needs Packages and Deployments write. If the image pushed but the Deployment did
 not appear, it is the App's permissions; a permission added after installation
 needs accepting on the installation page. Nothing serves the image — that is

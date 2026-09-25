@@ -51,13 +51,19 @@ locals {
   subject_prefix = "repo:${var.github_owner}@${data.github_user.owner.id}/${var.github_repository}@${data.github_repository.factory.repo_id}"
 
   federated_subjects = {
-    # build-setup.yml (labeled, synchronize) and build-teardown.yml (closed)
-    # all run on pull_request events, which present this single subject
-    # regardless of branch. This is the one that matters in normal operation.
+    # build-teardown.yml, which runs on `pull_request: closed`. Every
+    # pull_request event presents this single subject regardless of branch.
     pull_request = "${local.subject_prefix}:pull_request"
 
-    # build-setup.yml's workflow_dispatch retry path, dispatched from the
-    # default branch. See "A preview did not come up" in the runbook.
+    # Everything that raises a preview. build-start.yml and build-turn.yml
+    # both deploy in a `preview` job of their own, and neither runs on a
+    # pull_request event: build-start is a workflow_dispatch from the default
+    # branch, and build-turn is either that or an issue_comment, which Actions
+    # also runs against the default branch. build-setup.yml's manual retry is
+    # the third. All three therefore present this subject and nothing else.
+    #
+    # This is the one that matters in normal operation. It used to be the
+    # retry-only path, back when previews were raised by pull request events.
     main_branch = "${local.subject_prefix}:ref:refs/heads/main"
   }
 }

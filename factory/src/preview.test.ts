@@ -142,10 +142,11 @@ describe('waitUntilAwake', () => {
 
 /**
  * The regression these guard is that `kickoff` used to open with `readMeta()`.
- * meta.json is written by `factory gather` inside build-start.yml and `kickoff`
- * runs in build-setup.yml — another workflow, another runner, a fresh checkout
- * of a tree where `.agent/` is gitignored. It was never there, so the comment
- * was never posted. Everything now comes off the pull request.
+ * meta.json is written by `factory gather` on the agent's runner, where
+ * `.agent/` is gitignored, and `kickoff` runs on a different runner with a
+ * fresh checkout. It was never there, so the comment was never posted.
+ * Everything now comes off the pull request — which is also what keeps
+ * `build-setup.yml`'s manual retry working, since that has no turn at all.
  */
 describe('kickoff', () => {
   withoutLauncher()

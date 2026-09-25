@@ -331,14 +331,16 @@ export function kickoffComment(key: string, previewUrl: string | null): string {
  * Auto-continue is off by design — every build turn needs a human comment. This
  * is where that is explained, on the PR, where the person actually is.
  *
- * Everything it needs comes off the pull request itself, which is the only
- * thing this process and the turn that opened the branch have in common. It
- * used to read .agent/in/meta.json — but that file is written by `factory
- * gather` inside build-start.yml, and this runs in build-setup.yml: a different
- * workflow, a different runner, a fresh checkout, and `.agent/` is gitignored.
- * It was therefore never present and the comment was never posted. The factory
- * block in the PR body holds the same two facts and outlives the run that wrote
- * it, which also makes the workflow_dispatch retry path work.
+ * Everything it needs comes off the pull request itself. It used to read
+ * .agent/in/meta.json — but that file is written by `factory gather` on the
+ * agent's runner, `.agent/` is gitignored, and this runs on a different runner
+ * with a fresh checkout. It was therefore never present and the comment was
+ * never posted. The factory block in the PR body holds the same two facts and
+ * outlives the run that wrote it.
+ *
+ * The preview job now restores the turn's artifact before calling this, so
+ * meta.json usually *is* there — but `build-setup.yml`'s manual retry has no
+ * turn to restore, and reading the PR is the only thing that works in both.
  */
 export function kickoff(prNumber: number, dryRun = false): void {
   const pr = prBodyAndBranch(prNumber)

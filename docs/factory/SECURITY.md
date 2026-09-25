@@ -31,12 +31,21 @@ The App token is minted per step by `actions/create-github-app-token`, lives for
 an hour, and is never in scope while the agent is running.
 
 The same holds for the preview's Azure credential, and slightly more strongly.
-It is obtained by OIDC in `build-setup.yml` and `build-teardown.yml` — two
-workflows that never run an agent — so there is nothing long-lived to store in
-the repository at all, and the credential does not exist in any job an agent can
-reach. This is why raising the preview is a separate workflow rather than a step
-of `build-start.yml`: `packages: write`, `deployments: write` and `id-token:
-write` must not be in scope while the agent runs.
+It is obtained by OIDC, so there is nothing long-lived to store in the
+repository at all, and it is obtained in a **job that never runs an agent** —
+the `preview` job of `build-start.yml` and `build-turn.yml`, or the whole of
+`build-teardown.yml` and `build-setup.yml`. `packages: write`,
+`deployments: write` and `id-token: write` must not be in scope while the agent
+runs, and they are not.
+
+The unit of that boundary is the job, not the workflow. A GitHub Actions job
+carries its own `permissions:` block and gets its own `GITHUB_TOKEN`, so two
+jobs in one file are as strongly separated as two files — the agent job's token
+is minted with `contents: read` and cannot be widened from inside the job.
+Deployment used to live in a separate workflow for this reason; it moved into a
+second job so that reporting could wait on it (see
+[ADR 0003](../adr/0003-the-turn-raises-its-own-preview.md)), and the boundary
+came along unchanged.
 
 What that credential can do is also bounded, and deliberately: `Contributor` on
 one resource group, and `Managed Identity Operator` on one managed identity.
@@ -232,12 +241,16 @@ threat model:
   agent run producing a diff on a draft PR that a human still has to approve.
   The control is the same as everywhere else here: nothing triage starts can
   reach `main`.
-- **`build-setup.yml` builds the PR's code with `packages: write` and an Azure
+- **The `preview` job builds the PR's code with `packages: write` and an Azure
   credential in scope.** That is inherent to previewing a branch — you cannot
-  preview code without running it. Two things bound it. The workflow file itself
-  is read from the base branch on a `pull_request` event, so the agent cannot
-  change what runs; and `factory validate` rejects any turn touching `.github/`,
-  `factory/`, `bootstrap/` or `.agent/` before it reaches the branch. What is
+  preview code without running it. Two things bound it. The workflow file
+  itself is read from the default branch on `workflow_dispatch` and
+  `issue_comment`, so the agent cannot change what runs even though it can
+  write to the branch being built; and `factory validate` rejects any turn
+  touching `.github/`, `factory/`, `bootstrap/` or `.agent/` before it reaches
+  the branch. Note the job checks out the *card branch*, not the merge commit,
+  and restores the turn's `.agent/` artifact — neither of which can alter the
+  steps, only what they build. What is
   *not* bounded is `npm ci` and the Docker build running install scripts from
   `app/package.json` — the same gap as the dependency point above, with a
   narrower credential in the room. The control is the human reading the diff.

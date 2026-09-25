@@ -9,6 +9,76 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-25
 
+### The card no longer says "come and look" before there is anything to see
+
+DF-5's preview came up, worked, and was nowhere in Jira. Chased it and found
+it was not a glitch but the ordering, which had been wrong since the first
+card and had simply never been looked at directly:
+
+1. `publish` pushes the branch, opens the PR, applies `factory:active`
+2. `report` comments on Jira and moves the card to **In review**
+3. …the label event fires…
+4. `build-setup.yml` starts, builds an image, waits for a container
+
+So `report` read `meta.preview_url` at step 2, before anything had written
+one. Turn 1's Jira comment could not carry a preview link — not sometimes,
+ever. Confirmed on DF-4: PR #16's factory block has the URL, none of DF-4's
+Jira comments do.
+
+The link was the symptom. **In review** is not a status, it is an instruction
+to a human to go and look, and the card was sending it minutes before the
+thing existed. Appending the link to the Jira comment once the deploy finished
+would have made the card eventually correct; it needs to be correct when it is
+read.
+
+`build-start.yml` and `build-turn.yml` each gained a `preview` job:
+
+| Job | Holds | Does |
+| --- | --- | --- |
+| `turn` | `contents: read` | Agent, validate, publish, upload `.agent/` |
+| `preview` | `packages`/`deployments`/`id-token`/`pull-requests` write | Restore the artifact, deploy, wait for a 200, **then** report |
+
+The thing that makes this cheap is that **a job carries its own
+`permissions:` block**. Deployment was a separate workflow purely to keep
+registry and Azure credentials out of the agent's reach; a second job enforces
+that identically and gets `needs:`, job outputs and same-run artifact passing
+thrown in. Nothing about the credential boundary is weaker — see ADR 0003 and
+`SECURITY.md`.
+
+`build-setup.yml` loses both `pull_request` triggers and becomes the manual
+retry: the thing you run when a `preview` job failed and the fix is "deploy
+again", not "run the turn again". New `kickoff` input, off by default, because
+turn 1 now posts the kickoff comment itself.
+
+Four things worth knowing:
+
+- **`if: always()` on the preview job was a bug I wrote and caught.** A job
+  whose `if:` rejects it is *skipped*, and `always()` treats skipped as reason
+  to run. build-turn's four comment guards live on the `turn` job, so a
+  comment from the bot would skip the agent and then cheerfully report on a
+  turn that never happened. It is
+  `!cancelled() && needs.turn.result != 'skipped'` in both files.
+- **The OIDC subject changed shape and nobody had to do anything.** Previews
+  used to deploy on `pull_request` events; they now deploy from
+  `workflow_dispatch` and `issue_comment`, which Actions runs against the
+  default branch and which therefore present `…:ref:refs/heads/main`. That
+  federated credential already existed as the retry path. The two subjects
+  swapped which is the common case; `pull_request` is now only
+  `build-teardown.yml`.
+- **`upload-artifact@v4` roots the artifact at the least common ancestor of
+  its search paths.** With `.agent/in/` and `.agent/out/` that is `.agent`, so
+  entries are `in/…` and `out/…` and `download-artifact` with `path: .agent`
+  puts them back where `readMeta()` looks. No code changed for this to work:
+  `report` reads `meta.json` and `result.json` off disk, and `preview-up`
+  already wrote the URL into whatever `meta.json` it found.
+- **A push to a card branch by hand no longer redeploys.** That was
+  `synchronize`, and it is gone. Run `build-setup.yml`. In practice someone
+  pushing to a card branch was going to check the result themselves anyway.
+
+The cost, stated plainly: a turn's wall-clock now includes the image build,
+because reporting waits on it. That is not avoidable. To say "there is
+something to look at" you have to wait until there is.
+
 ### A preview link that works the moment it is clicked
 
 The first real preview came up and took 30-40 seconds to answer, which is long

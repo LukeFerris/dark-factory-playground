@@ -56,12 +56,20 @@ need a credential:
 
 | Subject | Presented by |
 | --- | --- |
-| `repo:<owner>/<repo>:pull_request` | `build-setup.yml` on `labeled`/`synchronize`, `build-teardown.yml` on `closed` — the normal path |
-| `repo:<owner>/<repo>:ref:refs/heads/main` | `build-setup.yml`'s `workflow_dispatch` retry |
+| `repo:<owner>/<repo>:ref:refs/heads/main` | Every preview that is raised: the `preview` job of `build-start.yml` (`workflow_dispatch`) and of `build-turn.yml` (`workflow_dispatch` or `issue_comment`), plus `build-setup.yml`'s manual retry. The normal path |
+| `repo:<owner>/<repo>:pull_request` | `build-teardown.yml` on `closed` |
 
 A token from any other repository, branch or event type matches neither and is
 refused. Note that the `pull_request` subject does **not** name a branch — that
-is how GitHub mints it, not a looseness introduced here.
+is how GitHub mints it, not a looseness introduced here. `issue_comment` and
+`workflow_dispatch` both run against the default branch, which is why they
+present the `ref:refs/heads/main` form even when the code being deployed is on
+a card branch.
+
+These two swapped roles in ADR 0003: previews used to be raised by pull request
+events, so `pull_request` was the common case and the `main` credential existed
+only for the retry. Both were already present, so the change needed no Azure
+work — but if you are reading this from an older deployment, that is why.
 
 ## The launcher
 

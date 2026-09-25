@@ -347,9 +347,10 @@ infra/azure/apply.sh            # plan: shows what it would do, changes nothing
 infra/azure/apply.sh --apply
 ```
 
-Read the plan before you approve it. Then push to any open build PR:
-`build-setup.yml` runs on `synchronize`, so the next turn raises the preview
-without anything else being triggered.
+Read the plan before you approve it. Then grant a turn on any open build PR —
+the `preview` job at the end of it raises the preview on the new backend. To
+test the backend without running an agent at all, dispatch the manual retry:
+`gh workflow run build-setup.yml -f pr=<n>`.
 
 `infra/azure/README.md` explains what it builds and why, in particular why
 previews pull with a user-assigned identity rather than asking Azure to create

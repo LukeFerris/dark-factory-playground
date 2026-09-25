@@ -2,15 +2,31 @@ name: factory build start
 
 # Turn 1 of a build. Dispatched by the poller when a card reaches "Ready for
 # build". Cuts the build/* branch, runs the first turn against the approved
-# design, and opens the draft PR.
+# design, opens the draft PR, raises the preview, and only then tells Jira.
 #
-# It does NOT raise the preview. `factory publish` labels the new PR
-# factory:active, and that label is what starts build-setup.yml — so the
-# preview is raised by the PR's own event rather than by a dispatch from here.
-# Same for every later push. See the header of build-setup.yml.
+# Two jobs, and the split is the point:
 #
-# Every later turn is granted by a human comment and runs in build-turn.yml.
-# There is no auto-continue.
+#   turn      runs the agent. contents: read and nothing else. No App token
+#             beyond what `publish` needs, no registry, no Azure, no
+#             deployments. This is the job an agent's output can influence.
+#   preview   needs: turn. Holds packages:write, deployments:write,
+#             id-token:write and pull-requests:write — the credentials that
+#             must never be in scope while an agent is running. Jobs carry
+#             their own `permissions:` block, so a second job is as strong a
+#             boundary as a second workflow, and it gets `needs:` and artifact
+#             passing for free.
+#
+# The ordering is the reason this is two jobs rather than one. `report` moves
+# the card to "In review", which is an instruction to a human to go and look.
+# It therefore runs last, after the preview has answered, so the card never
+# invites a review of something that is not serving yet. Before this, `report`
+# ran inside the agent job and the preview was raised afterwards by a label
+# event — so turn 1's Jira comment could not carry a preview link at all, and
+# the card reached "In review" while the image was still building.
+#
+# Every later turn is granted by a human comment and runs in build-turn.yml,
+# which has the same two-job shape for the same reason. There is no
+# auto-continue.
 
 on:
   workflow_dispatch:
@@ -28,9 +44,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-start:
+  turn:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      # Read off meta.json rather than passed from step to step: meta.json is
+      # the turn's identity and is already the thing every subcommand agrees
+      # on. `validated` decides whether the preview job has anything to deploy.
+      validated: ${{ steps.validate.outcome }}
+      branch: ${{ steps.describe.outputs.branch }}
+      pr: ${{ steps.describe.outputs.pr }}
+      artifact: build-${{ inputs.key }}-turn1-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,7 +90,7 @@ jobs:
         run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}"
 
       # ANTHROPIC_API_KEY is the only credential here. PREVIEW_URL is empty on
-      # turn 1 — there is nothing deployed until build-setup runs.
+      # turn 1 — there is nothing deployed until the preview job runs.
       #
       # The Bash allow-list is the four checks plus preview and curl. npm install
       # is deliberately absent: to add a dependency the agent edits
@@ -114,18 +138,21 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           npm run --silent factory -- publish --stage build
 
-      - name: Report
+      # `if: always()` because a rejected turn still has a branch and still has
+      # to be reported on. An empty `pr` is the signal that publish never ran.
+      - name: Describe the turn
+        id: describe
         if: always()
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-          # The Jira comment's preview link is read by a person, possibly days
-          # later when the app has long since scaled to zero, so it goes
-          # through the launcher. meta.preview_url itself stays raw.
-          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        run: npm run --silent factory -- report --stage build
+        run: |
+          set -euo pipefail
+          if [ ! -f .agent/in/meta.json ]; then
+            echo "::warning::no meta.json, so the preview job has nothing to go on"
+            exit 0
+          fi
+          {
+            echo "branch=$(jq -r '.branch // empty' .agent/in/meta.json)"
+            echo "pr=$(jq -r '.pr // empty' .agent/in/meta.json)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload the turn
         if: always()
@@ -134,6 +161,8 @@ jobs:
           name: build-${{ inputs.key }}-turn1-${{ github.run_id }}
           # Inputs as well as outputs. A turn is a pure function of .agent/in,
           # so shipping both is what makes a failed turn replayable locally.
+          # It is also how the preview job gets meta.json and result.json,
+          # which live on this runner and are gitignored.
           path: |
             .agent/in/
             .agent/out/
@@ -145,3 +174,131 @@ jobs:
         run: |
           echo "::error::The build turn was rejected by validation. See the Jira comment and the uploaded artifact."
           exit 1
+
+  # Deploys what the turn produced, waits for it to answer, and only then tells
+  # Jira. `if: always()` because a rejected turn has no preview but still needs
+  # its card moved and its comment posted — skipping this job would leave the
+  # card stuck in "Building" with nothing said, which is worse than the state
+  # this whole change set out to fix.
+  preview:
+    needs: turn
+    # `!cancelled()` rather than `always()`: a failed turn still needs its card
+    # moved, but a cancelled run should stop cleanly rather than report on a
+    # turn nobody let finish. `needs.turn.result != 'skipped'` matches
+    # build-turn.yml, where the turn job can be skipped by its comment guards.
+    if: ${{ !cancelled() && needs.turn.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      deployments: write
+      id-token: write
+      pull-requests: write
+    env:
+      # Whether there is anything to deploy. A rejected turn reaches this job
+      # with no PR, and every deployment step below is gated on it.
+      DEPLOYABLE: ${{ needs.turn.outputs.validated == 'success' && needs.turn.outputs.pr != '' }}
+      PR: ${{ needs.turn.outputs.pr }}
+    steps:
+      # The card branch as `publish` pushed it, because the image is built from
+      # this checkout. Falls back to the default branch when the turn never got
+      # far enough to make one — the report step below still needs the CLI.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.turn.outputs.branch || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # .agent/ is gitignored, so meta.json and result.json reach this job only
+      # here. `preview-up` then writes the URL back into the meta.json this
+      # restores, which is how `report` below ends up with a preview link —
+      # the thing turn 1 could never have before.
+      - name: Restore the turn
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.turn.outputs.artifact }}
+          path: .agent
+
+      # Federated credentials — no Azure secret is stored in this repository.
+      - name: Sign in to Azure
+        if: env.DEPLOYABLE == 'true' && vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # `az containerapp` ships as an extension. Adding it explicitly beats
+      # relying on dynamic install, which prompts by default and so hangs.
+      - name: Add the containerapp extension
+        if: env.DEPLOYABLE == 'true' && vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # GITHUB_TOKEN carries the packages:write, deployments:write and
+      # pull-requests:write scopes granted above; the App token is what
+      # comments as the factory identity.
+      #
+      # This step waits for the preview to answer before it returns, so the
+      # cold start is spent here rather than in a reviewer's tab — and a
+      # container that never serves fails the job instead of being published
+      # as a working link. Budget is three minutes.
+      - name: Raise the preview
+        if: env.DEPLOYABLE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
+          AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
+          AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
+          AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
+          AZURE_PREVIEW_COOLDOWN_SECONDS: ${{ vars.AZURE_PREVIEW_COOLDOWN_SECONDS }}
+          # Wraps the Deployment's "View deployment" link, and nothing else
+          # here: the URL written into the PR's factory block and into
+          # meta.json stays raw, because that is the one the agent curls next
+          # turn.
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        run: npm run --silent factory -- preview-up "${PR}"
+
+      # Once per PR. This is turn 1, so there is no "has it been posted
+      # already" question to ask — build-turn.yml never posts a kickoff.
+      - name: Post the kickoff comment
+        if: env.DEPLOYABLE == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        run: npm run --silent factory -- kickoff "${PR}"
+
+      # Last, and unconditional. By the time this runs the preview has either
+      # answered or failed the job above, so "In review" means there is
+      # something to review. A rejected turn arrives here with DEPLOYABLE
+      # false and still gets its comment and its move to Blocked on engineer.
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          # The Jira comment's preview link is read by a person, possibly days
+          # later when the app has long since scaled to zero, so it goes
+          # through the launcher. meta.preview_url itself stays raw.
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        run: npm run --silent factory -- report --stage build
