@@ -18,19 +18,47 @@ resource "azuread_service_principal" "factory" {
   owners    = [data.azuread_client_config.current.object_id]
 }
 
+# The subject prefix GitHub actually mints, which is not the one the docs lead
+# you to write.
+#
+# The obvious form is `repo:<owner>/<repo>:…`. GitHub now defaults new
+# repositories to *immutable* subjects instead, interpolating the numeric owner
+# and repository ids: `repo:<owner>@<owner_id>/<repo>@<repo_id>:…`. Entra
+# matches the subject as an exact string, so a credential written the obvious
+# way matches nothing and every sign-in fails with AADSTS700213.
+#
+# Matching what is minted is also the better of the two. The names in a subject
+# are re-registrable — rename the repository and whoever claims the old name
+# inherits the trust. The ids are not, so the immutable form says "this exact
+# repository" rather than "whatever currently answers to this name".
+#
+# Whether a repository does this is visible at
+#   gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+# as `use_immutable_subject`. Read the ids from GitHub rather than pasting them
+# so the two cannot drift.
+data "github_repository" "factory" {
+  full_name = local.repository
+}
+
+data "github_user" "owner" {
+  username = var.github_owner
+}
+
 # One credential per token shape Actions will present. The subject is matched
 # exactly — a token from any other repository, branch or event type does not
 # match anything here and is refused.
 locals {
+  subject_prefix = "repo:${var.github_owner}@${data.github_user.owner.id}/${var.github_repository}@${data.github_repository.factory.repo_id}"
+
   federated_subjects = {
     # build-setup.yml (labeled, synchronize) and build-teardown.yml (closed)
     # all run on pull_request events, which present this single subject
     # regardless of branch. This is the one that matters in normal operation.
-    pull_request = "repo:${local.repository}:pull_request"
+    pull_request = "${local.subject_prefix}:pull_request"
 
     # build-setup.yml's workflow_dispatch retry path, dispatched from the
     # default branch. See "A preview did not come up" in the runbook.
-    main_branch = "repo:${local.repository}:ref:refs/heads/main"
+    main_branch = "${local.subject_prefix}:ref:refs/heads/main"
   }
 }
 
