@@ -1,0 +1,84 @@
+factory/src/azure.test.ts
+  s_6735740180f350::t_b23a0da4f2d641 11,13
+  s_6735740180f350::t_610e11e4ce5727 176-270
+factory/src/cli.ts
+  s_6735740180f350::t_a133b1414df0d6 160-161
+.github/workflows/build-start.yml
+  s_6735740180f350::t_df77d3e6a30893 124-127
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_4e321b8cce6f5d 420,430-431,439-450
+  s_6735740180f350::t_f23061efa76e5b 451
+infra/azure/outputs.tf
+  s_6735740180f350::t_4ac46913509b9f 20-24
+factory/src/azure.ts
+  s_6735740180f350::t_856bc766ffb539 133-180,258
+  s_6735740180f350::t_33731f1427a8c4 236-239,247-257
+  s_6735740180f350::t_5c532cab4f4afd 259
+infra/azure/launcher/index.html
+  s_6735740180f350::t_c3e28b7ed127d4 1-253
+factory/src/launcher.ts
+  s_6735740180f350::t_fc8993ed30cc3f 1-39,42-56
+  s_6735740180f350::t_2afd9f586e8ab1 40-41
+factory/src/preview.test.ts
+  s_6735740180f350::t_cb972281675b8d 3-18
+  s_6735740180f350::t_fb9c9475a3c4e4 38-39
+  s_6735740180f350::t_4bf0f48896d25b 52-140
+  s_6735740180f350::t_19baaead694499 151
+infra/azure/launcher.tf
+  s_6735740180f350::t_f945ccf2c2349a 69-70,72,78-80
+  s_6735740180f350::t_2f6ea9a6d48d08 71,73-77
+  s_6735740180f350::t_0037ad475b6685 1-68,81-92
+docs/factory/SELF-HOSTING.md
+  s_6735740180f350::t_652245b38a5de5 96-97,126-130,134-152
+  s_6735740180f350::t_05a8c1c85d633a 153
+factory/src/report.ts
+  s_6735740180f350::t_bc80c2ef90efe2 136-145
+  s_6735740180f350::t_f4b865def1efbe 5
+infra/azure/README.md
+  s_6735740180f350::t_02b09dc827a67c 4,25,66-94,97-109,117-127
+docs/factory/SETUP.md
+  s_6735740180f350::t_652245b38a5de5 340-342
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_162567d5fdb31b 12-65
+factory/src/preview.ts
+  s_6735740180f350::t_1cbb269d185639 174,184-192
+  s_6735740180f350::t_c5c8591ce084eb 99-164
+  s_6735740180f350::t_724243468f0f65 16
+  s_6735740180f350::t_2eddf39840cce9 291-298,300-302,308-315
+  s_6735740180f350::t_09db33d72488b6 204-208
+  s_6735740180f350::t_21bd42a076340d 193
+infra/azure/github.tf
+  s_6735740180f350::t_5c5122691f5598 26-36
+.github/workflows/build-setup.yml
+  s_6735740180f350::t_267fa947ee6cac 143
+  s_6735740180f350::t_1d84339ed5cdb3 124-132
+factory/src/launcher.test.ts
+  s_6735740180f350::t_62214fb8751819 1-74
+docs/factory/SECURITY.md
+  s_6735740180f350::t_2955a2f8650f61 49-60
+.github/workflows/build-turn.yml
+  s_6735740180f350::t_df77d3e6a30893 192-195
+infra/azure/variables.tf
+  s_6735740180f350::t_ea876008a1b7e5 63-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1354e2afa5601c78f6afed0fbc4a4ffd557ced63",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
