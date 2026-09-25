@@ -1,0 +1,86 @@
+factory/src/azure.test.ts
+  s_6735740180f350::t_856fa5af25f12b 7,11,15-16
+  s_6735740180f350::t_b14c8d8f4738db 275-361
+factory/src/cli.ts
+  s_6735740180f350::t_c9ec9c48f304f4 13
+  s_6735740180f350::t_90c6a774df6806 174-196
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_5afba64d27ef29 336-339
+  s_6735740180f350::t_289785622d8b05 538,541
+  s_6735740180f350::t_d124fab78c57cd 478-537,539-540,542-546
+docs/factory/OVERVIEW.md
+  s_6735740180f350::t_5aa265d3373556 87
+  s_6735740180f350::t_a2ae2c9e5c26ae 5-6
+  s_6735740180f350::t_443d1b8e775570 60-64
+  s_6735740180f350::t_b7560848e5384b 47
+  s_6735740180f350::t_0a00cca5e8e112 39-43
+factory/src/production.test.ts
+  s_6735740180f350::t_b0c03d5891c9ad 1-61
+README.md
+  s_6735740180f350::t_0fa733e0a123f2 4-5
+  s_6735740180f350::t_cc0a1e3e19261f 25,27
+factory/src/production.ts
+  s_6735740180f350::t_4a72160b4f290e 66
+  s_6735740180f350::t_6dbda9cdc0a7d1 69-71,78
+  s_6735740180f350::t_a6afc3d09f2866 11-12
+  s_6735740180f350::t_146be3dd50f7fa 1-4,6-10,13-65,67-68,72-77,79-167
+  s_6735740180f350::t_ea5d099f3e6ada 5
+factory/src/github.ts
+  s_6735740180f350::t_fc01230f705bbf 294-313,326-328
+docs/factory/SELF-HOSTING.md
+  s_6735740180f350::t_c36c22f0fe2508 186-200,208-223
+  s_6735740180f350::t_6004f4df29a6fc 201-207
+  s_6735740180f350::t_fed1b7832d2a9a 295-297
+docs/adr/0004-production-on-merge-and-a-done-nobody-can-fake.md
+  s_6735740180f350::t_0ae557a61f392f 1-154
+.github/workflows/production.yml
+  s_6735740180f350::t_bf09771c10f16d 1-137
+docs/factory/STATE-MACHINE.md
+  s_6735740180f350::t_a6cc96e1c81bc6 88,94-126
+  s_6735740180f350::t_92cc082887071c 252-265
+  s_6735740180f350::t_85c089fa8a128d 60-65
+  s_6735740180f350::t_db09fe12489d76 270-274,276-279
+  s_6735740180f350::t_8994a1739a0dd8 3,7-13
+  s_6735740180f350::t_e5f613937f147d 14
+  s_6735740180f350::t_6dfe85ce7adb09 127
+docs/factory/SETUP.md
+  s_6735740180f350::t_fec5dc8e866030 267-273
+  s_6735740180f350::t_2edfcc9ae46cc9 243-266,274-299
+docs/factory/SECURITY.md
+  s_6735740180f350::t_04fc0470ed3e99 275-281
+  s_6735740180f350::t_103e3582ae8ac6 58-75
+  s_6735740180f350::t_da02abf4202256 37
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_e279fcc8ccb0d2 12-78,90-93
+  s_6735740180f350::t_91380d3ae3cff8 79-89
+factory/src/azure.ts
+  s_6735740180f350::t_1e304f43933862 154,161,166-169,173-177
+  s_6735740180f350::t_17ac1abf40869a 145,178,254-257,259-272,292,295-318,320-321,341-403
+  s_6735740180f350::t_0a8d12ba43d5de 136,140-144
+  s_6735740180f350::t_3326a00b806e6d 5-12
+  s_6735740180f350::t_dfd02c62ee224b 100-120,125-135,137-139
+  s_6735740180f350::t_9e16959ce5aeee 146
+  s_6735740180f350::t_d9cd2eaeb3487b 179
+  s_6735740180f350::t_52c6913c25bae3 404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "10b669cabd0c171217e2d0a792f610bd42cac236",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
