@@ -1,0 +1,41 @@
+factory/src/preview.ts
+  s_6735740180f350::t_935cc3e5ffbaca 246
+  s_6735740180f350::t_3375e9b382dbb9 129-132,136-139
+  s_6735740180f350::t_231b2c7ae099ff 16
+  s_6735740180f350::t_1028fb1d4f7b59 11
+  s_6735740180f350::t_ebc1bffaf16831 205-208,210-212,214
+  s_6735740180f350::t_b10aa0783a924b 227-245,247-260,266-267
+.github/workflows/build-setup.yml
+  s_6735740180f350::t_c5c91d6de6d5f4 61-66
+factory/src/gather.ts
+  s_6735740180f350::t_0248043d337065 132
+  s_6735740180f350::t_fd5ae037c39ede 38-59
+  s_6735740180f350::t_467672c24afc9a 4
+factory/src/github.ts
+  s_6735740180f350::t_0fddbcd5b4c2e3 208-238,240-241,243,252-270
+factory/src/github.test.ts
+  s_6735740180f350::t_ab4a5229a72f10 42-67
+factory/src/preview.test.ts
+  s_6735740180f350::t_4b75d77111357a 1-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "511c467506503d4a72be0b4f84f6ff72f32295cc",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
