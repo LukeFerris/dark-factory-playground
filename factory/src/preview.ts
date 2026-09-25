@@ -27,17 +27,17 @@ import {
  *
  * Two backends, chosen by `FACTORY_PREVIEW_BACKEND`:
  *
- * - `azure` (UNVERIFIED) builds the image in Azure Container Registry and runs
- *   it as an Azure Container App with external ingress. That is a real, running
- *   site on an HTTPS URL, which is what a preview is supposed to be.
+ * - `azure` builds the image in Azure Container Registry and runs it as an
+ *   Azure Container App with external ingress. That is a real, running site on
+ *   an HTTPS URL, which is what a preview is supposed to be.
  * - `ghcr` (default) is the stub: it builds the nginx image, pushes it to GHCR
  *   tagged `pr-<N>`, and records a Deployment pointing at the package page.
  *   Nothing serves it. It exists so the factory's plumbing can be exercised end
  *   to end with no cloud account at all.
  *
- * The default stays `ghcr` deliberately: the Azure path has never run against a
- * live subscription, so it is opt-in until someone has watched it work. See
- * docs/factory/SELF-HOSTING.md.
+ * The default stays `ghcr` deliberately: `azure` needs a subscription and a
+ * Terraformed estate, so it is opt-in rather than something a clone inherits.
+ * See docs/factory/SELF-HOSTING.md.
  */
 
 export type PreviewBackend = 'ghcr' | 'azure'

@@ -49,12 +49,14 @@ because it is a workspace of the root `package.json`.
 
 ## Backend: `azure` — Container Apps
 
-> **PARTLY VERIFIED.** The estate is real: `infra/azure/` has been applied
-> against a live subscription and a second plan comes back clean. What has
-> *not* happened is a preview — no pull request has yet raised one, so the
-> `az acr build` and `az containerapp create` shapes in `azure.ts` are still
-> only unit-tested through a stubbed runner. Expect the first failure to be
-> there rather than in the infrastructure.
+> **VERIFIED, once.** `infra/azure/` has been applied against a live
+> subscription and re-plans clean, and PR #16 came up at
+> `https://df-preview-pr-16.redbush-3ff4fb61.uksouth.azurecontainerapps.io`
+> serving the build turn's own bundle. Two caveats: that was a *re-run* of the
+> job, after fixing the federated credential subject, so a clean first attempt
+> from a `synchronize` has not been seen; and `preview-down` has never run, so
+> teardown — the half that decides whether a merged card stops billing — is
+> still only unit-tested through a stubbed runner.
 
 One Container App per pull request, named `<prefix>-preview-pr-<n>`, serving the
 same image the stub builds. `factory/src/azure.ts` holds every `az` call.

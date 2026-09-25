@@ -9,8 +9,10 @@ import { REPO_ROOT, optional, required } from './env.ts'
  * (whatever `azure/login` put in the environment) instead of in this code. No
  * step here needs to know how to mint or hold an Azure token.
  *
- * UNVERIFIED: none of this has run against a live Azure subscription. The
- * command shapes follow the documented `az` surface but are unproven. See
+ * VERIFIED once: PR #16 was built by `az acr build` and served by
+ * `az containerapp create` from a live subscription on 2026-09-25, HTTP 200.
+ * That was a re-run of the job after fixing the federated credential, so the
+ * teardown path and a clean first attempt are still unproven. See
  * docs/factory/SELF-HOSTING.md and the ADR's Consequences section.
  */
 export type Runner = (args: string[]) => { status: number; stdout: string; stderr: string }
