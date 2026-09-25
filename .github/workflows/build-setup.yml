@@ -58,6 +58,12 @@ jobs:
       packages: write
       deployments: write
       id-token: write
+      # `preview-up` writes the preview URL into the PR's factory block, which
+      # is the only copy that outlives this runner: the kickoff comment below
+      # and every later build turn read it back from there. Editing a body
+      # needs this scope. It was missing while the block was unreadable, so
+      # nothing ever tried.
+      pull-requests: write
     env:
       PR: ${{ inputs.pr || github.event.pull_request.number }}
     steps:

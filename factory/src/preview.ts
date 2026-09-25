@@ -4,16 +4,16 @@ import {
   commentOnPr,
   createDeployment,
   deactivateDeployments,
-  findPrForBranch,
   gh,
   ghJson,
   packageVersionsPath,
   parseFactoryBlock,
+  prBodyAndBranch,
   repoSlug,
   updatePrBody,
   upsertFactoryBlock,
 } from './github.ts'
-import { readMeta, updateMeta } from './meta.ts'
+import { updateMeta } from './meta.ts'
 import {
   azureConfig,
   buildImage,
@@ -126,10 +126,17 @@ export function previewUp(prNumber: number, dryRun = false): string {
 
   createDeployment(pr.headRefOid, 'preview', url)
 
-  // Record the preview URL where later turns can find it.
+  // Record the preview URL where later turns can find it. The PR body is the
+  // only place that survives this runner, so losing it here means the agent
+  // and the kickoff comment never learn there is a site to look at — say so
+  // rather than skipping in silence, which is how it went unnoticed before.
   const block = parseFactoryBlock(pr.body)
   if (block !== null) {
     updatePrBody(prNumber, upsertFactoryBlock(pr.body, { ...block, preview_url: url }))
+  } else {
+    console.warn(
+      `::warning::PR #${prNumber} has no readable factory block, so ${url} was not recorded on it.`,
+    )
   }
   try {
     updateMeta({ preview_url: url })
@@ -195,21 +202,16 @@ export function previewDown(prNumber: number, dryRun = false): void {
   }
 }
 
-/**
- * The first comment on a build PR: what the card asks for, where the preview is,
- * and how the human grants each turn.
- *
- * Auto-continue is off by design — every build turn needs a human comment. This
- * is where that is explained, on the PR, where the person actually is.
- */
-export function kickoff(prNumber: number, dryRun = false): void {
-  const meta = readMeta()
-  const pr = findPrForBranch(meta.branch)
-  const previewUrl = meta.preview_url
+/** `card/DF-12-let-the-user-type-their-name` -> `DF-12`, and `null` otherwise. */
+export function cardKeyFromBranch(branch: string): string | null {
+  return /^card\/([A-Z][A-Z0-9]*-\d+)-/.exec(branch)?.[1] ?? null
+}
 
-  const body = [
+/** Split out from `kickoff` so the wording can be tested without a PR. */
+export function kickoffComment(key: string, previewUrl: string | null): string {
+  return [
     `<!-- factory-turn kickoff -->`,
-    `### ${meta.key} — build started`,
+    `### ${key} — build started`,
     '',
     'The design for this card is merged and the build branch is open.',
     ...(previewUrl === null ? [] : ['', `**Preview:** ${previewUrl}`]),
@@ -222,11 +224,45 @@ export function kickoff(prNumber: number, dryRun = false): void {
     '`app/package.json` and the build log. Anything else is rejected before it',
     'reaches the branch.',
   ].join('\n')
+}
+
+/**
+ * The first comment on a build PR: which card it is, where the preview is, and
+ * how the human grants each turn.
+ *
+ * Auto-continue is off by design — every build turn needs a human comment. This
+ * is where that is explained, on the PR, where the person actually is.
+ *
+ * Everything it needs comes off the pull request itself, which is the only
+ * thing this process and the turn that opened the branch have in common. It
+ * used to read .agent/in/meta.json — but that file is written by `factory
+ * gather` inside build-start.yml, and this runs in build-setup.yml: a different
+ * workflow, a different runner, a fresh checkout, and `.agent/` is gitignored.
+ * It was therefore never present and the comment was never posted. The factory
+ * block in the PR body holds the same two facts and outlives the run that wrote
+ * it, which also makes the workflow_dispatch retry path work.
+ */
+export function kickoff(prNumber: number, dryRun = false): void {
+  const pr = prBodyAndBranch(prNumber)
+
+  // The branch is the fallback because the block can be absent — a PR opened by
+  // hand, or a body edited to death — and the branch name still carries the key.
+  const block = parseFactoryBlock(pr.body)
+  const key = block?.key ?? cardKeyFromBranch(pr.headRefName)
+  if (key === null || key === '') {
+    throw new Error(
+      `PR #${prNumber} has no factory block in its body and its branch ` +
+        `(${pr.headRefName}) is not a card/<KEY>-<slug> branch, so there is no card ` +
+        `to announce. Is this pull request really part of the factory?`,
+    )
+  }
+
+  const body = kickoffComment(key, block?.preview_url ?? null)
 
   if (dryRun) {
     console.log(body)
     return
   }
-  commentOnPr(pr?.number ?? prNumber, body)
-  console.log(`kickoff: commented on PR #${pr?.number ?? prNumber}`)
+  commentOnPr(prNumber, body)
+  console.log(`kickoff: commented on PR #${prNumber}`)
 }
