@@ -9,6 +9,60 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-25
 
+### A preview link that works the moment it is clicked
+
+The first real preview came up and took 30-40 seconds to answer, which is long
+enough that the reasonable conclusion is "this is broken". Measured properly it
+is worse than it looks, and the shape of the problem matters: Container Apps
+does not *refuse* a request to an app scaled to zero, it holds it. DNS 16ms,
+connect 44ms, TLS 81ms — then 22.4 seconds of silence, then a 200. Warm, the
+same request answers in 97ms.
+
+That rules out the obvious fix. A loading page cannot be served by the preview,
+because the preview is the thing that is asleep. So this is three changes, each
+covering what the one before it cannot:
+
+- **`preview-up` waits for the app to answer before it returns.** The cold
+  start is spent in CI, where nobody is watching, so the app is already hot
+  when the kickoff comment lands. It closes a second hole too, which had gone
+  unnoticed: this is the first check in the pipeline that the URL being
+  published serves anything at all. A container that never answers now fails
+  the job instead of being posted as a confident link. Budget is three
+  minutes; any non-5xx answer counts as awake, because the question is whether
+  the container is up, not whether the app is right.
+- **The scale-to-zero cooldown goes from 300s to an hour**, via
+  `AZURE_PREVIEW_COOLDOWN_SECONDS`. Azure's default is shorter than the gap
+  between the "build finished" notification and somebody actually clicking, so
+  the app being warmed had usually gone cold again by the time it mattered. As
+  of az 2.84.0 no `containerapp` command exposes the property at all; it is
+  reachable only through `az resource update --set
+  properties.template.scale.cooldownPeriod=…`, which takes effect in place and
+  creates no new revision. At Azure's published uksouth rate an idle 0.25 vCPU
+  / 0.5 GiB replica is $0.0108/hour, so an hour of warmth per build turn costs
+  about a penny — and it still reaches zero on its own, so an open PR nobody
+  looks at bills nothing.
+- **A launcher page covers everything left over** — the person who comes back
+  tomorrow. `infra/azure/launcher.tf` puts a static site on an Azure Storage
+  account in the same resource group: always awake, no compute, no deployment
+  token, and still inside the one group that `az group delete` removes.
+  Given `?u=<preview url>` it renders instantly, explains that previews sleep,
+  counts the seconds, and forwards the moment the app answers. It refuses any
+  redirect target outside `*.azurecontainerapps.io`, both in the page and in
+  `launcherFor()`, so it cannot be turned into an open redirect.
+
+The split that keeps this honest: **only links a human clicks go through the
+launcher** — the kickoff comment, the Jira report, the PR's "View deployment"
+button. `PREVIEW_URL` and the factory block keep the raw app URL, because the
+agent's build turn curls it to check the site is serving, and a loading page
+would answer 200 whether or not there was anything behind it. That is exactly
+the trap the `ghcr` stub already falls into by pointing at a package page.
+
+One honest cost: creating a storage account puts its access keys in the local
+Terraform state, so the state is no longer secret-free. The key can write one
+public HTML file in one `$web` container and nothing else. The alternative —
+keys disabled, Entra data-plane role — needs a role assignment created in the
+same apply that uses it, and propagation would make the first apply fail.
+
 ### Nothing was carrying the preview URL
 
 DF-4 was the first card to run the whole pipeline, and it ended with the

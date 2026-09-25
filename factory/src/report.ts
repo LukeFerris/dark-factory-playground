@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { prUrl, runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import * as jira from './jira.ts'
+import { launcherFor } from './launcher.ts'
 import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
@@ -132,7 +133,16 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
-  const comment = buildComment(options.stage, result, pr, meta.preview_url, runUrl())
+  // Through the launcher: the Jira comment is read by a person, who may open
+  // it days later, long after the app has scaled back to zero. meta.preview_url
+  // itself stays raw — that is the agent's copy.
+  const comment = buildComment(
+    options.stage,
+    result,
+    pr,
+    launcherFor(meta.preview_url),
+    runUrl(),
+  )
 
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))

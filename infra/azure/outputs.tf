@@ -17,6 +17,11 @@ output "preview_identity_id" {
   value       = azurerm_user_assigned_identity.preview.id
 }
 
+output "launcher_url" {
+  description = "The always-on loading page preview links are wrapped in. Becomes AZURE_PREVIEW_LAUNCHER."
+  value       = trimsuffix(azurerm_storage_account.launcher.primary_web_endpoint, "/")
+}
+
 output "client_id" {
   description = "The app registration Actions signs in as. Not a secret; there is no secret."
   value       = azuread_application.factory.client_id

@@ -13,6 +13,7 @@ import {
   updatePrBody,
   upsertFactoryBlock,
 } from './github.ts'
+import { launcherFor } from './launcher.ts'
 import { updateMeta } from './meta.ts'
 import {
   azureConfig,
@@ -95,6 +96,72 @@ function raise(prNumber: number): string {
   return packageUrl()
 }
 
+/** How long `preview-up` keeps knocking before it calls the preview broken. */
+const WARM_BUDGET_MS = 180_000
+/** One knock waits this long — comfortably past the 22s a cold start took. */
+const KNOCK_TIMEOUT_MS = 60_000
+const KNOCK_GAP_MS = 2_000
+
+export interface WarmOptions {
+  budgetMs?: number
+  gapMs?: number
+  knockTimeoutMs?: number
+  fetchImpl?: typeof fetch
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Knocks until the preview answers, and returns how long that took.
+ *
+ * Two jobs, and the second is the one that was missing. It warms the app, so
+ * the cold start is spent here — in a job nobody is watching — rather than in
+ * the tab of the person who has just clicked the link in the kickoff comment.
+ * And it is the first thing in this pipeline that ever checks the URL it
+ * publishes actually serves anything: until now a preview could fail to start
+ * and the PR would still show a confident link to it.
+ *
+ * Any answer counts as awake, including a 404. The question here is whether
+ * the container is up, not whether the app is correct — that is the agent's
+ * job, and it needs the site running before it can do it. Only a 5xx or a
+ * dropped connection is retried.
+ *
+ * A sleeping app holds the connection open for the whole cold start rather
+ * than refusing it, so most of the waiting happens inside one knock; the gap
+ * and the retries are for the cases that fail outright, like DNS that has not
+ * caught up with a brand-new ingress hostname.
+ */
+export async function waitUntilAwake(url: string, options: WarmOptions = {}): Promise<number> {
+  const budgetMs = options.budgetMs ?? WARM_BUDGET_MS
+  const gapMs = options.gapMs ?? KNOCK_GAP_MS
+  const knockTimeoutMs = options.knockTimeoutMs ?? KNOCK_TIMEOUT_MS
+  const knock = options.fetchImpl ?? fetch
+
+  const started = Date.now()
+  let lastReason = 'it was never reached'
+
+  while (Date.now() - started < budgetMs) {
+    try {
+      const response = await knock(url, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(knockTimeoutMs),
+      })
+      await response.arrayBuffer().catch(() => undefined)
+      if (response.status < 500) return Date.now() - started
+      lastReason = `it answered HTTP ${response.status}`
+    } catch (error) {
+      lastReason = (error as Error).message
+    }
+    await sleep(gapMs)
+  }
+
+  throw new Error(
+    `${url} did not answer within ${Math.round(budgetMs / 1000)}s: ${lastReason}. ` +
+      `The image was built and deployed, so this is the container failing to serve ` +
+      `rather than the build failing — check the Container App's console logs.`,
+  )
+}
+
 /**
  * Raises (or re-raises) the preview and records the URL in the three places
  * that need it: the Deployment, the PR's factory block, and meta.json.
@@ -104,7 +171,7 @@ function raise(prNumber: number): string {
  * build turn re-enters here and the preview follows the branch instead of
  * showing turn 1 forever.
  */
-export function previewUp(prNumber: number, dryRun = false): string {
+export async function previewUp(prNumber: number, dryRun = false): Promise<string> {
   const backend = previewBackend()
 
   if (dryRun) {
@@ -113,6 +180,16 @@ export function previewUp(prNumber: number, dryRun = false): string {
   }
 
   const url = raise(prNumber)
+
+  // Spend the cold start here rather than in the reviewer's tab. Deliberately
+  // fatal if it never answers: publishing a link to a container that does not
+  // serve is worse than a red cross on the pull request, because the red cross
+  // says which of the two it is. The `ghcr` stub has nothing to warm — its URL
+  // is a package page, which is already awake and never was the app.
+  if (backend === 'azure') {
+    const elapsed = await waitUntilAwake(url)
+    console.log(`preview-up: ${url} answered after ${(elapsed / 1000).toFixed(1)}s and is warm.`)
+  }
 
   const pr = ghJson<{ headRefOid: string; body: string }>([
     'pr',
@@ -124,7 +201,11 @@ export function previewUp(prNumber: number, dryRun = false): string {
     'headRefOid,body',
   ])
 
-  createDeployment(pr.headRefOid, 'preview', url)
+  // The Deployment's URL is the "View deployment" button on the PR — a human
+  // link, so it goes through the launcher. The factory block below keeps the
+  // raw one: that is what the agent is handed, and it must not be satisfied by
+  // a loading page.
+  createDeployment(pr.headRefOid, 'preview', launcherFor(url))
 
   // Record the preview URL where later turns can find it. The PR body is the
   // only place that survives this runner, so losing it here means the agent
@@ -207,14 +288,31 @@ export function cardKeyFromBranch(branch: string): string | null {
   return /^card\/([A-Z][A-Z0-9]*-\d+)-/.exec(branch)?.[1] ?? null
 }
 
-/** Split out from `kickoff` so the wording can be tested without a PR. */
+/**
+ * Split out from `kickoff` so the wording can be tested without a PR.
+ *
+ * Takes the real preview URL and wraps it for display, rather than being
+ * handed something already wrapped — it needs to know which of the two it
+ * ended up with, because the loading page deserves a sentence of explanation
+ * and a bare app URL does not.
+ */
 export function kickoffComment(key: string, previewUrl: string | null): string {
+  const link = launcherFor(previewUrl)
+  const viaLauncher = link !== previewUrl
+
   return [
     `<!-- factory-turn kickoff -->`,
     `### ${key} — build started`,
     '',
     'The design for this card is merged and the build branch is open.',
-    ...(previewUrl === null ? [] : ['', `**Preview:** ${previewUrl}`]),
+    ...(link === null ? [] : ['', `**Preview:** ${link}`]),
+    ...(viaLauncher
+      ? [
+          '',
+          'Previews sleep when nobody is looking at them, so that link opens a',
+          'loading page that wakes this one and forwards you the moment it answers.',
+        ]
+      : []),
     '',
     '**Each build turn needs your go-ahead.** Comment on this PR to grant one —',
     '`go` to continue as planned, or any instruction you want the agent to follow',

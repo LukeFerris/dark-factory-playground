@@ -60,6 +60,41 @@ variable "preview_prefix" {
   }
 }
 
+# Storage account names are globally unique too, and stricter than ACR's:
+# 3-24 characters, lowercase letters and digits, no hyphens at all.
+variable "launcher_account_name" {
+  description = "Storage account hosting the preview launcher page. Leave empty to generate one."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.launcher_account_name == "" || can(regex("^[a-z0-9]{3,24}$", var.launcher_account_name))
+    error_message = "A storage account name is 3-24 characters, lowercase letters and digits only."
+  }
+}
+
+# How long a preview stays awake after its last request, before Container Apps
+# scales it back to zero.
+#
+# Azure's default is 300 seconds, which is shorter than the gap between "the
+# build finished" notification and someone actually clicking the link — so the
+# warm-up `preview-up` does would nearly always have gone cold again by the
+# time it mattered. An hour covers a normal review session. The cost is one
+# 0.25 vCPU / 0.5 GiB replica sitting idle, which Azure's published uksouth
+# retail rate puts at $0.0108/hour: under a penny per build turn, and it still
+# reaches zero on its own, so an open pull request nobody looks at bills
+# nothing.
+variable "preview_cooldown_seconds" {
+  description = "Seconds a preview stays warm after its last request. Azure's maximum is 3600."
+  type        = number
+  default     = 3600
+
+  validation {
+    condition     = var.preview_cooldown_seconds >= 0 && var.preview_cooldown_seconds <= 3600
+    error_message = "Container Apps accepts a cooldown between 0 and 3600 seconds."
+  }
+}
+
 variable "log_retention_days" {
   description = "How long Container Apps console logs are kept. 30 is the Log Analytics minimum."
   type        = number

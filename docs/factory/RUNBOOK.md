@@ -417,7 +417,7 @@ infra/azure/apply.sh            # any diff here is drift; empty is a clean bill
 ```
 
 A variable someone set by hand shows up as a diff, because Terraform owns all
-ten of them.
+twelve of them.
 
 | Symptom | Usually |
 | --- | --- |
@@ -427,13 +427,27 @@ ten of them.
 | `--user-assigned` denied on create | The CI principal lacks `Managed Identity Operator` **on the identity**. `Contributor` on the group is not enough to attach one |
 | Create succeeds, app never starts, `ImagePullFailure` | The identity named by `AZURE_PREVIEW_IDENTITY` has no `AcrPull` on the registry. If that variable is unset the code falls back to `--registry-identity system`, which only grants it when the deploying principal can make role assignments — see SELF-HOSTING |
 | `no ingress FQDN` | The app exists but ingress is internal or absent. Delete it and let the next push recreate it |
-| The URL resolves but the first request hangs a few seconds | Cold start. `--min-replicas 0` is deliberate |
+| `… did not answer within 180s` | The image built and deployed but the container is not serving. This is the warm-up step refusing to publish a link to a dead preview, so read the console logs below — the build was not the problem |
+| The URL resolves but the first request hangs ~20 seconds | Cold start. `--min-replicas 0` is deliberate; the launcher is what makes it legible. See below |
 
 ```bash
 az containerapp show -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" \
   --query properties.configuration.ingress.fqdn -o tsv
 az containerapp logs show -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" --tail 50
 ```
+
+**The launcher** is the loading page in front of every preview link a human
+clicks — a static page on Azure Storage, always awake, which forwards as soon
+as the app answers. Its URL is `AZURE_PREVIEW_LAUNCHER`, and the raw preview
+URL it was asked to open is in its own address bar under `?u=`, so anything it
+cannot fix can be diagnosed by opening that directly.
+
+| Symptom | Usually |
+| --- | --- |
+| "That link was not opened" | The `?u=` target is not an `https://…azurecontainerapps.io` URL. The page refuses anything else rather than being an open redirect |
+| It spins past "taking longer than usual" | The preview is not coming up. Open the `?u=` URL directly and check the app's logs; if the PR is closed, its preview was torn down and there is nothing to wake |
+| The page itself 404s | The blob was never uploaded. `infra/azure/apply.sh` re-uploads it; it is one `azurerm_storage_blob` |
+| An edit to the page has not appeared | It is served `no-cache`, so this is Terraform not having applied rather than a stale browser |
 
 **Previews that outlived their PRs** are a running cost, not just clutter.
 `build-teardown.yml` deletes the app and the image tag, and logs rather than

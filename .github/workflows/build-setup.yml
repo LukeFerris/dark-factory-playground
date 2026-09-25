@@ -121,6 +121,15 @@ jobs:
           AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
           AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
           AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
+          AZURE_PREVIEW_COOLDOWN_SECONDS: ${{ vars.AZURE_PREVIEW_COOLDOWN_SECONDS }}
+          # Wraps the Deployment's "View deployment" link, and nothing else
+          # here: the URL written into the PR's factory block stays raw,
+          # because that is the one the agent curls next turn.
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        # This step now waits for the preview to answer before it returns, so
+        # the cold start is spent here rather than in a reviewer's tab — and a
+        # container that never serves fails the job instead of being published
+        # as a working link. Budget is three minutes.
         run: npm run --silent factory -- preview-up "${PR}"
 
       # Once per PR, not once per push. The kickoff comment explains how turns
@@ -131,4 +140,5 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
         run: npm run --silent factory -- kickoff "${PR}"

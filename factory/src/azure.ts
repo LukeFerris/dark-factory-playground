@@ -131,6 +131,54 @@ function appExists(config: AzureConfig, name: string): boolean {
 }
 
 /**
+ * How long a preview stays awake after its last request.
+ *
+ * Azure's default is 300 seconds, which is shorter than the gap between the
+ * "build finished" notification and somebody actually clicking the link — so
+ * the app `preview-up` just warmed has usually gone cold again by the time it
+ * matters. An hour covers a review session. Set by infra/azure/ as a repository
+ * variable; the default here matches the Terraform default so a clone without
+ * the estate behaves the same way.
+ */
+export function previewCooldownSeconds(): number {
+  const raw = optional('AZURE_PREVIEW_COOLDOWN_SECONDS', '3600').trim()
+  const seconds = Number(raw)
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) {
+    throw new Error(
+      `AZURE_PREVIEW_COOLDOWN_SECONDS must be a whole number of seconds between ` +
+        `0 and 3600 (Azure's maximum), not "${raw}".`,
+    )
+  }
+  return seconds
+}
+
+/**
+ * Sets the scale-to-zero cooldown on a preview app.
+ *
+ * Deliberately `az resource update` and not `az containerapp update`: as of az
+ * 2.84.0 the containerapp commands expose no cooldown flag at all, so the only
+ * way to reach the property is to patch the ARM resource directly. Verified
+ * against a live app — it takes effect in place and creates no new revision,
+ * so this does not cost a restart on every turn.
+ */
+export function setPreviewCooldown(config: AzureConfig, name: string, seconds: number): void {
+  az([
+    'resource',
+    'update',
+    '--resource-group',
+    config.resourceGroup,
+    '--name',
+    name,
+    '--resource-type',
+    'Microsoft.App/containerApps',
+    '--set',
+    `properties.template.scale.cooldownPeriod=${seconds}`,
+    '--output',
+    'none',
+  ])
+}
+
+/**
  * Creates the preview app, or repoints an existing one at the new image.
  *
  * Both paths are needed because this runs on `labeled` AND on `synchronize`:
@@ -185,12 +233,28 @@ export function deployPreview(config: AzureConfig, prNumber: number, prefix?: st
       `${config.registry}.azurecr.io`,
       ...identity,
       // Scale to zero between visits. A preview that nobody is looking at
-      // should cost nothing; the trade is a few seconds of cold start.
+      // should cost nothing. The trade is a cold start — measured at 22
+      // seconds, not the few this comment used to claim — which is why the
+      // cooldown below is raised and why human-facing links go through the
+      // launcher.
       '--min-replicas',
       '0',
       '--max-replicas',
       '1',
     ])
+  }
+
+  // Applied on both paths, every turn, so that changing the repository
+  // variable converges without anyone having to recreate an app. A cold start
+  // is a nuisance; failing the deployment over one would be worse, so this
+  // warns rather than throws.
+  try {
+    setPreviewCooldown(config, name, previewCooldownSeconds())
+  } catch (error) {
+    console.warn(
+      `::warning::could not set the scale-to-zero cooldown on ${name}, so it keeps ` +
+        `Azure's 300s default: ${(error as Error).message}`,
+    )
   }
 
   const fqdn = az([

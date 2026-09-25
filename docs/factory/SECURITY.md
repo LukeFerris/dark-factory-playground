@@ -46,6 +46,18 @@ constraint is the reason previews pull with a user-assigned identity granted
 required **User Access Administrator** on the group, which is the power to
 grant. See `infra/azure/README.md`.
 
+The preview **launcher** adds one public page and no credential. It is a static
+file on Azure Storage that takes a preview URL in `?u=` and redirects to it, so
+the question it raises is whether it can be pointed at somewhere it should not
+go. It cannot: both the page and `launcherFor()` refuse any target that is not
+`https://` on a `*.azurecontainerapps.io` host, so it forwards only to Azure
+Container Apps and never to an arbitrary site. Nothing is read from the target
+and nothing is posted to it — the page fires an opaque `no-cors` request purely
+to find out whether the app has woken up, and cannot see the response. The one
+credential involved, the storage account key that uploads the page, exists only
+in the operator's local Terraform state and never reaches the repository or any
+workflow; what it can write is the public page itself.
+
 | Credential | Where it lives | In scope during an agent step |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Repository secret | **Yes** — the only one |
