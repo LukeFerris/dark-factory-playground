@@ -1,0 +1,20 @@
+/* The whole of the app's styling: centre the page's single block of content in
+   the viewport. No colours, no fonts, no reset — see
+   docs/adr/0002-styling-with-a-single-global-stylesheet.md. */
+
+body {
+  margin: 0;
+  /* min-height, not height, so content taller than the window scrolls instead
+     of being clipped. 100vh first as the fallback for browsers without dvh. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  /* Padding here rather than on body: body is content-box, so padding there
+     would add to its min-height and scroll a page that already fits. */
+  padding: 1rem;
+  text-align: center;
+}
