@@ -8,7 +8,9 @@ import {
   deletePreviewImage,
   deployPreview,
   previewAppName,
+  previewCooldownSeconds,
   previewImage,
+  setPreviewCooldown,
   setRunner,
   type AzureConfig,
 } from './azure.ts'
@@ -168,6 +170,101 @@ describe('deploying the preview', () => {
   it('throws rather than returning a URL with no host', () => {
     stub((args) => (isFqdnRead(args) ? { stdout: '\n' } : {}))
     expect(() => deployPreview(config, 7)).toThrow(/no ingress FQDN/)
+  })
+})
+
+/**
+ * Azure's default is 300 seconds, so an app warmed by `preview-up` had usually
+ * gone cold again before anybody clicked the link in the kickoff comment. The
+ * property is only reachable through `az resource update`: as of az 2.84.0 the
+ * containerapp commands have no cooldown flag at all.
+ */
+describe('the scale-to-zero cooldown', () => {
+  const previous = process.env['AZURE_PREVIEW_COOLDOWN_SECONDS']
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env['AZURE_PREVIEW_COOLDOWN_SECONDS']
+    else process.env['AZURE_PREVIEW_COOLDOWN_SECONDS'] = previous
+  })
+
+  const cooldownCall = (calls: string[][]): string[] | undefined =>
+    calls.find((c) => c[0] === 'resource' && c[1] === 'update')
+
+  it('defaults to an hour, which is a review session rather than a coffee', () => {
+    delete process.env['AZURE_PREVIEW_COOLDOWN_SECONDS']
+    expect(previewCooldownSeconds()).toBe(3600)
+  })
+
+  it('refuses a value Azure would reject, rather than sending it', () => {
+    process.env['AZURE_PREVIEW_COOLDOWN_SECONDS'] = '7200'
+    expect(() => previewCooldownSeconds()).toThrow(/between 0 and 3600/)
+    process.env['AZURE_PREVIEW_COOLDOWN_SECONDS'] = 'an hour'
+    expect(() => previewCooldownSeconds()).toThrow(/whole number/)
+  })
+
+  it('patches the ARM resource directly, since no containerapp flag reaches it', () => {
+    delete process.env['AZURE_PREVIEW_COOLDOWN_SECONDS']
+    const calls = stub(() => ({}))
+
+    setPreviewCooldown(config, 'df-preview-pr-7', 3600)
+
+    expect(calls[0]).toEqual([
+      'resource',
+      'update',
+      '--resource-group',
+      'rg-factory',
+      '--name',
+      'df-preview-pr-7',
+      '--resource-type',
+      'Microsoft.App/containerApps',
+      '--set',
+      'properties.template.scale.cooldownPeriod=3600',
+      '--output',
+      'none',
+    ])
+  })
+
+  /**
+   * Applied on both paths, every turn, so that editing the repository variable
+   * converges on apps that already exist instead of only new ones.
+   */
+  it('is applied when the app is created and when it is updated', () => {
+    process.env['AZURE_PREVIEW_COOLDOWN_SECONDS'] = '900'
+
+    const created = stub((args) =>
+      isFqdnRead(args)
+        ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' }
+        : args[0] === 'containerapp' && args[1] === 'show'
+          ? { status: 1, stderr: 'ResourceNotFound' }
+          : {},
+    )
+    deployPreview(config, 7)
+    expect(cooldownCall(created)).toContain('properties.template.scale.cooldownPeriod=900')
+
+    const updated = stub((args) =>
+      isFqdnRead(args) ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' } : {},
+    )
+    deployPreview(config, 7)
+    expect(cooldownCall(updated)).toContain('properties.template.scale.cooldownPeriod=900')
+  })
+
+  /**
+   * A longer cooldown is a nicety. Losing it costs somebody twenty seconds;
+   * failing the deployment over it costs them the preview entirely.
+   */
+  it('warns rather than failing the deployment when it cannot be set', () => {
+    delete process.env['AZURE_PREVIEW_COOLDOWN_SECONDS']
+    stub((args) =>
+      isFqdnRead(args)
+        ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' }
+        : args[0] === 'resource'
+          ? { status: 1, stderr: 'AuthorizationFailed' }
+          : {},
+    )
+
+    expect(deployPreview(config, 7)).toBe(
+      'https://df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io',
+    )
   })
 })
 

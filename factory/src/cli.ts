@@ -157,8 +157,8 @@ program
   .description('Build and push the PR image, and record a preview Deployment.')
   .argument('<pr>', 'PR number', (v) => Number.parseInt(v, 10))
   .option('--dry-run', 'Print what would happen', false)
-  .action((pr: number, opts: { dryRun: boolean }) => {
-    console.log(previewUp(pr, opts.dryRun))
+  .action(async (pr: number, opts: { dryRun: boolean }) => {
+    console.log(await previewUp(pr, opts.dryRun))
   })
 
 program

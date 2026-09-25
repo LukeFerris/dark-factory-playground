@@ -1,0 +1,253 @@
+<!doctype html>
+<!--
+  The preview launcher.
+
+  Deployed by infra/azure/launcher.tf to a storage account's static website,
+  which is always awake. Preview container apps are not: they scale to zero,
+  and Container Apps holds the first request while a replica starts rather than
+  answering it — about 22 seconds of nothing on a measured cold start. This
+  page fills that gap with something that renders instantly and explains
+  itself.
+
+  Usage: <launcher>/?u=<url-encoded preview URL>. It probes the target until it
+  responds and then replaces itself with it, so Back does not bounce the person
+  through the loading page again.
+
+  Self-contained on purpose: no fonts, no scripts, no analytics. It has to work
+  on a first load, on a bad connection, from a cold CDN edge.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Waking the preview…</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --ink: #16191d;
+    --muted: #5c646e;
+    --line: #e2e5ea;
+    --accent: #2f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --card: #171a20;
+      --ink: #e8eaed;
+      --muted: #9aa3ae;
+      --line: #272b33;
+      --accent: #6c9bf7;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  main {
+    width: 100%;
+    max-width: 30rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 28px;
+  }
+
+  h1 { margin: 0 0 4px; font-size: 1.25rem; letter-spacing: -0.01em; }
+  p  { margin: 12px 0 0; color: var(--muted); }
+  a  { color: var(--accent); }
+
+  .rail {
+    margin-top: 20px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .rail i {
+    display: block;
+    height: 100%;
+    width: 35%;
+    border-radius: 999px;
+    background: var(--accent);
+    animation: slide 1.6s ease-in-out infinite;
+  }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rail i { animation: none; width: 100%; opacity: 0.5; }
+  }
+
+  .meta {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 0.875rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .elapsed { font-variant-numeric: tabular-nums; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Waking the preview…</h1>
+
+  <div id="waking">
+    <p>
+      Previews for this repository scale to zero when nobody is looking at
+      them, so the first visit after a quiet spell has to start a container.
+      That normally takes twenty or thirty seconds.
+    </p>
+    <p aria-live="polite">
+      Watching for it — you will be sent on the moment it answers.
+      <span class="elapsed" id="elapsed"></span>
+    </p>
+    <div class="rail"><i></i></div>
+  </div>
+
+  <div id="slow" hidden>
+    <p>
+      This is taking longer than a cold start usually does. It may still
+      arrive, and this page will keep trying. If the pull request has already
+      been merged or closed, its preview has been torn down and there is
+      nothing left to wake.
+    </p>
+  </div>
+
+  <div id="refused" hidden>
+    <p>
+      This page only opens Azure Container Apps preview URLs, and the address
+      it was handed is not one, so nothing has been opened. If you followed a
+      link from a pull request, the link is malformed — the preview URL belongs
+      in the <code>?u=</code> parameter.
+    </p>
+  </div>
+
+  <div id="empty" hidden>
+    <p>
+      Nothing to open. This is the loading page the factory puts in front of
+      its preview environments; it needs a preview URL in the <code>?u=</code>
+      parameter to do anything. On its own it is just this sentence.
+    </p>
+  </div>
+
+  <p class="meta" id="meta" hidden>
+    Or open it directly: <a id="direct" href="#" rel="noreferrer noopener"></a>
+  </p>
+</main>
+
+<script>
+(function () {
+  'use strict'
+
+  // Container Apps ingress hostnames all live under this suffix. Checking it
+  // is what stops the launcher being an open redirect: a link of the form
+  // ?u=https://example.invalid/ is refused rather than followed. It is a
+  // closed set in the sense that everything inside it is somebody's Azure
+  // container app — not that every app in it is ours.
+  var ALLOWED_SUFFIX = '.azurecontainerapps.io'
+
+  // How long before the copy stops promising twenty or thirty seconds.
+  var SLOW_AFTER_MS = 90000
+  var RETRY_MS = 2000
+
+  var show = function (id, on) {
+    var el = document.getElementById(id)
+    if (el) el.hidden = !on
+  }
+
+  /** The target, if there is a legitimate one. Null covers every other case. */
+  function readTarget() {
+    var raw = new URLSearchParams(window.location.search).get('u')
+    if (!raw) return { state: 'empty', url: null }
+    var parsed
+    try {
+      parsed = new URL(raw)
+    } catch (e) {
+      return { state: 'refused', url: null }
+    }
+    if (parsed.protocol !== 'https:') return { state: 'refused', url: null }
+    if (parsed.hostname.slice(-ALLOWED_SUFFIX.length) !== ALLOWED_SUFFIX) {
+      return { state: 'refused', url: null }
+    }
+    return { state: 'ok', url: parsed.href }
+  }
+
+  var target = readTarget()
+
+  if (target.state !== 'ok') {
+    document.title = target.state === 'empty' ? 'Preview launcher' : 'Preview not opened'
+    document.getElementById('title').textContent =
+      target.state === 'empty' ? 'Preview launcher' : 'That link was not opened'
+    show('waking', false)
+    show(target.state, true)
+    return
+  }
+
+  var direct = document.getElementById('direct')
+  direct.href = target.url
+  direct.textContent = target.url
+  show('meta', true)
+
+  var started = Date.now()
+  var elapsed = document.getElementById('elapsed')
+
+  setInterval(function () {
+    var seconds = Math.round((Date.now() - started) / 1000)
+    elapsed.textContent = '(' + seconds + 's)'
+    if (Date.now() - started > SLOW_AFTER_MS) show('slow', true)
+  }, 1000)
+
+  /**
+   * One knock on the door.
+   *
+   * `no-cors` because the preview sends no CORS headers and does not need to:
+   * the response is opaque and unreadable, but the promise still settles, and
+   * "it settled" is the only fact this page needs. A sleeping app holds the
+   * connection open for the whole cold start and then resolves, which is
+   * exactly the signal we are waiting for. A cache-buster keeps the browser
+   * from satisfying the probe from its own cache without ever asking Azure.
+   */
+  function knock() {
+    var url = target.url + (target.url.indexOf('?') === -1 ? '?' : '&') + '_wake=' + Date.now()
+    return fetch(url, { mode: 'no-cors', cache: 'no-store', redirect: 'follow' })
+  }
+
+  // replace() rather than assign(): the launcher should not sit in the history
+  // stack, or Back from the preview lands here and starts waiting all over
+  // again.
+  function arrive() {
+    window.location.replace(target.url)
+  }
+
+  function attempt() {
+    knock().then(arrive, function () {
+      // A rejection here is a genuine network failure — DNS not yet resolving
+      // for a brand-new app, a dropped connection, an offline laptop. None of
+      // those are permanent, so wait and knock again.
+      window.setTimeout(attempt, RETRY_MS)
+    })
+  }
+
+  attempt()
+})()
+</script>
+</body>
+</html>

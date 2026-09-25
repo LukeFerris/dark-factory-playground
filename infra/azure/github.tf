@@ -23,6 +23,17 @@ locals {
     AZURE_PREVIEW_REPOSITORY        = var.github_repository
     AZURE_PREVIEW_PREFIX            = var.preview_prefix
     AZURE_PREVIEW_IDENTITY          = azurerm_user_assigned_identity.preview.id
+
+    # The always-on loading page that human-facing preview links are wrapped
+    # in. Only the links people click — the agent is still given the raw app
+    # URL, or its "is the preview serving?" check would be satisfied by this
+    # page rather than by the site it is supposed to be testing.
+    #
+    # trimsuffix because Azure's endpoint ends in a slash and the code appends
+    # `/?u=…`; two slashes work but look like a bug on a PR.
+    AZURE_PREVIEW_LAUNCHER = trimsuffix(azurerm_storage_account.launcher.primary_web_endpoint, "/")
+
+    AZURE_PREVIEW_COOLDOWN_SECONDS = tostring(var.preview_cooldown_seconds)
   }
 }
 

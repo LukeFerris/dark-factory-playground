@@ -121,6 +121,10 @@ jobs:
           JIRA_BASE: ${{ vars.JIRA_BASE }}
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          # The Jira comment's preview link is read by a person, possibly days
+          # later when the app has long since scaled to zero, so it goes
+          # through the launcher. meta.preview_url itself stays raw.
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
         run: npm run --silent factory -- report --stage build
 
       - name: Upload the turn

@@ -93,8 +93,8 @@ and is not needed for this.
 ### Setting it up
 
 It is Terraform, in `infra/azure/`. One apply provisions the estate and sets
-the ten repository variables, each read off the Azure resource it just made —
-so `AZURE_CLIENT_ID` cannot drift from the app registration it names.
+the twelve repository variables, each read off the Azure resource it just made
+— so `AZURE_CLIENT_ID` cannot drift from the app registration it names.
 
 ```bash
 az login
@@ -123,9 +123,33 @@ for the manual `workflow_dispatch` retry. Terraform creates a federated
 credential for each. A token from any other repository, branch or event type
 matches neither and is refused.
 
-All variables, no secrets: OIDC means there is nothing long-lived to store.
+All variables, no secrets in the *repository*: OIDC means there is nothing
+long-lived to store there. The local state does hold one — the launcher storage
+account's key, which can write one public HTML file and nothing else. See
+"State" in `infra/azure/README.md`.
+
 `AZURE_PREVIEW_PREFIX` is what keeps two factories sharing one Container Apps
 environment from colliding on `pr-1`.
+
+### Cold starts, and the three things that cover them
+
+A preview runs `--min-replicas 0`, so one nobody is looking at costs nothing.
+The bill for that is the first request after idle, and it is bigger than it
+sounds: Container Apps does not refuse a request to a sleeping app, it *holds*
+it while a replica starts. Measured on a real cold start — TLS complete in
+81ms, then 22.4 seconds of silence, then a 200. A blank tab for half a minute
+reads as a broken deployment.
+
+| | What it covers |
+| --- | --- |
+| `preview-up` waits for the app to answer before it returns | The common case. The cold start is spent in CI, so the app is already hot when the kickoff comment lands. It is also the first check that the URL being published serves anything at all — a container that never answers now fails the job instead of being posted as a working link |
+| `AZURE_PREVIEW_COOLDOWN_SECONDS`, default 3600 | Staying hot through a review. Azure's default is 300s, shorter than the gap between the notification and the click. An idle replica is $0.0108/hour at Azure's published uksouth rate, so an hour of warmth per build turn is about a penny, and it still reaches zero afterwards |
+| `AZURE_PREVIEW_LAUNCHER` | Everything left over — the person who comes back tomorrow. An always-on page on Azure Storage that renders instantly, says what is happening, and forwards when the app answers |
+
+The launcher wraps **only the links a human clicks**: the kickoff comment, the
+Jira report comment, and the PR's "View deployment" button. `PREVIEW_URL` and
+the factory block keep the raw app URL, because the agent's build turn curls it
+to check the site is serving and a loading page would answer 200 regardless.
 
 To take it all down — including the repository variables, which returns the
 factory to the `ghcr` stub rather than breaking it:

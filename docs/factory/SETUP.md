@@ -337,9 +337,9 @@ good.
 
 You need an Azure subscription. Everything else is Terraform, in `infra/azure/`:
 the resource group, registry, Container Apps environment, the pull identity, the
-app registration and its two federated credentials, and all ten repository
-variables — each set from the resource it was just read off, so none of them can
-drift from what they name.
+app registration and its two federated credentials, the launcher's storage
+account, and all twelve repository variables — each set from the resource it was
+just read off, so none of them can drift from what they name.
 
 ```bash
 az login
