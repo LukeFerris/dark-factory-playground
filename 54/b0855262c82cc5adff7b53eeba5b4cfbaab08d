@@ -1,0 +1,26 @@
+infra/azure/identity.tf
+  s_6735740180f350::t_87c5ba0a3e92c8 21-46,51-52,57,61
+infra/azure/.terraform.lock.hcl
+  s_6735740180f350::t_2ffa8b01914aa9 5,8-10,12-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "54b0855262c82cc5adff7b53eeba5b4cfbaab08d",
+  "prompts": {},
+  "humans": {
+    "h_c80a3233dcbabb": {
+      "author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  },
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
