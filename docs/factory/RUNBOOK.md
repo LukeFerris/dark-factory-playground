@@ -333,6 +333,10 @@ npm run --silent factory -- jira-transition DF-1 "In review"
 If that fails too, the status name in Jira no longer matches
 `STATUS_TRANSITIONS`. `smoke.sh` lists all ten.
 
+*Done* is the exception and does not belong here: it is restricted to the bot
+by a workflow condition, and nothing but `production.yml` should be setting it.
+See *The PR is merged but the card is still in review*.
+
 ---
 
 ## Jira returns 401 or 403
@@ -470,6 +474,75 @@ fails if either step cannot. To sweep by hand:
 az containerapp list -g "$AZURE_RESOURCE_GROUP" --query "[].name" -o tsv | grep -- '-preview-pr-'
 az containerapp delete -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" --yes
 ```
+
+If `az containerapp list` returns `(InvalidApiVersionParameter)`, the CLI's
+`containerapp` extension is older than the API version it is asking for. Update
+it (`az extension update -n containerapp`), or list through the generic
+resource API, which does not pin one:
+
+```bash
+az resource list -g "$AZURE_RESOURCE_GROUP" \
+  --resource-type Microsoft.App/containerApps --query "[].name" -o tsv
+```
+
+---
+
+## The PR is merged but the card is still in review
+
+`production.yml` is what closes a card, and it does two things in order: deploy
+production, then move the card to *Done*. Which one failed decides what to do,
+and the run log says plainly.
+
+```bash
+gh run list --workflow production.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+```
+
+| What the run shows | Meaning |
+| --- | --- |
+| No run at all | The gate did not match. It needs `merged == true`, a `card/` head branch, and `FACTORY_PREVIEW_BACKEND == azure`. Closing a PR without merging is a no-op by design, and on the `ghcr` backend shipping is skipped entirely |
+| Failed in **Deploy production** | Nothing shipped and the card is correctly still in review. Same failures as a preview — see the `azure` table above, substituting `df-production` for the app name |
+| `production-up printed no URL; refusing to close the card` | The deploy step did not end with a URL on stdout. The card is deliberately left alone rather than closed on a guess |
+| Failed in **Move the card to Done** | **Production is live and the card is wrong.** The Jira call failed after the site came up |
+
+That last row is the one that needs a decision, because the transition into
+*Done* is restricted to the bot by a Jira workflow condition — and conditions
+bind administrators too, so you cannot finish the move by dragging the card.
+The intended fix is to re-run the failed job:
+
+```bash
+gh run rerun <run-id> --failed --repo "$GH_OWNER/$GH_REPO"
+```
+
+That redeploys the same commit, which is idempotent, and retries the
+transition. If it keeps failing, the usual cause is the condition itself: the
+bot is not in the group the condition names, so Jira stops offering the
+transition and `ship` reports `has no transition to "Done"` rather than a 403.
+Check what the bot is actually offered:
+
+```bash
+curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
+  "$JIRA_BASE/rest/api/3/issue/$KEY/transitions" | jq -r '.transitions[].to.name'
+```
+
+If *Done* is missing from that list, fix the group membership — see the
+*Locking Done to the factory* section of `SETUP.md` — and re-run. A card left
+in review with production already serving is untidy, not dangerous; resist the
+temptation to add a second transition into *Done* to get out of it, because
+that is the escape hatch [ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md)
+deliberately did not build.
+
+**Rolling production back** is deploying the previous commit's tag. Every
+merge keeps its own:
+
+```bash
+az acr repository show-tags -n "$AZURE_ACR_NAME" --repository "$AZURE_PREVIEW_REPOSITORY" \
+  --orderby time_desc -o tsv | grep '^main-' | head
+az containerapp update -n df-production -g "$AZURE_RESOURCE_GROUP" \
+  --image "$AZURE_ACR_NAME.azurecr.io/$AZURE_PREVIEW_REPOSITORY:main-<sha>"
+```
+
+The next merge will deploy over it, so a rollback buys time rather than
+settling anything.
 
 ---
 

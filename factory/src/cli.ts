@@ -10,6 +10,7 @@ import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
+import { productionUp, ship } from './production.ts'
 import { readMeta, turnBase, writeFileEnsuringDir } from './meta.ts'
 import { Stage, toJsonSchema } from './schema.ts'
 
@@ -168,6 +169,29 @@ program
   .option('--dry-run', 'Print what would happen', false)
   .action((pr: number, opts: { dryRun: boolean }) => {
     previewDown(pr, opts.dryRun)
+  })
+
+// The two halves of shipping, kept apart on purpose. `production-up` proves
+// the site is live; `ship` tells Jira. Running them as one command would make
+// "the card says Done" and "the deployment answered" a single fallible step,
+// and the ordering between them is the whole point.
+program
+  .command('production-up')
+  .description('Build the merge commit, deploy it to production, and wait for it to answer.')
+  .argument('<sha>', 'The merge commit on main')
+  .option('--dry-run', 'Print what would happen', false)
+  .action(async (sha: string, opts: { dryRun: boolean }) => {
+    console.log(await productionUp(sha, opts.dryRun))
+  })
+
+program
+  .command('ship')
+  .description("Move a merged card to Done and record where it went live.")
+  .argument('<pr>', 'PR number', (v) => Number.parseInt(v, 10))
+  .requiredOption('--url <url>', 'The production URL now serving this card')
+  .option('--dry-run', 'Print the comment without posting or transitioning', false)
+  .action(async (pr: number, opts: { url: string; dryRun: boolean }) => {
+    await ship({ pr, url: opts.url, dryRun: opts.dryRun })
   })
 
 program

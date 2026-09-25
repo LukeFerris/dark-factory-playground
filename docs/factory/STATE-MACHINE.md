@@ -1,8 +1,16 @@
 # The state machine
 
-Ten Jira statuses. Five are moved by the factory, five by a human. Which is
+Ten Jira statuses. Seven are moved by the factory, three by a human. Which is
 which is the whole design: **the factory never moves a card into a state that
 means "approved".**
+
+*Done* is the one status that looks like an exception and is not. The factory
+moves it, but only as a report of something a human already approved: the card
+reaches *Done* because the pull request was merged and production came up
+serving it. The approval happened at the merge button. And because *Done* is
+now a statement of fact rather than an opinion, nobody else is allowed to make
+it — a Jira condition restricts that transition to the bot, so the status
+cannot be set by anyone who has not actually shipped.
 
 ```
                        ┌─────────┐
@@ -49,6 +57,12 @@ means "approved".**
       │       (or a comment on the pull request)
  human reviews and merges the PR
       ▼
+ ┌─────────────┐
+ │ production  │  production.yml: builds the merge commit, deploys it,
+ │ deployed    │  and waits for it to answer
+ └──────┬──────┘
+ factory │  only if the site is live
+        ▼
   ┌──────┐
   │ Done │
   └──────┘
@@ -71,11 +85,45 @@ comment on a card in *Design review* can start a **build** one. See below.
 | **Building** | In progress | A build turn is running, or waiting for the next to be granted | Poller (from *Ready for build*, or from any waiting status on a comment) |
 | **In review** | In progress | The PR is ready for a human | Factory |
 | **Blocked on engineer** | In progress | The build agent asked a question | Factory |
-| **Done** | Done | Merged | Human |
+| **Done** | Done | Merged, and production is serving it | Factory (`production.yml`, after the deployment answers) — **and nobody else** |
 
 A human putting a card in one of the two *Ready for …* statuses is how work
 starts. After that the card comes back on its own, driven by what people say on
 it rather than by where they drag it.
+
+## Shipping
+
+A merged pull request raises two GitHub events at once — `pull_request: closed`
+and `push` to main — and the ordering between the deployment and the card
+matters, so everything hangs off the first of them in one workflow:
+
+1. `production.yml` fires on `pull_request: closed`, and does nothing unless the
+   PR was **merged** (not merely closed), came from a `card/` branch, and the
+   preview backend is `azure`.
+2. `factory production-up <merge-sha>` builds the merge commit in ACR, deploys
+   it to the single long-lived `df-production` Container App, and blocks until
+   the site answers. A container that builds but will not serve fails here.
+3. `factory ship <pr> --url <url>` reads the card key off the pull request,
+   comments the live URL on the card, and moves it to *Done*.
+
+Step 3 only runs if step 2 succeeded. That is the same rule the build turn
+follows for previews — the card does not claim something is true before it is —
+applied one column further right. If the deployment fails, the card stays in
+*In review* with a red cross on the merged PR, which is a state somebody can
+see and act on.
+
+Production differs from a preview in exactly two ways, and shares everything
+else — the registry, the Container Apps environment, the managed identity, the
+Dockerfile:
+
+- **It never sleeps.** `min-replicas` is 1, so there is no cold start and no
+  launcher in front of the link. It is also the first thing in the factory that
+  costs money while nobody is looking at it.
+- **Its image is tagged by commit** (`main-<sha>`), never `latest`. A rollback
+  is then "deploy the previous tag", and `az containerapp update --image` is
+  guaranteed to make a new revision.
+
+Closing a pull request **without** merging deploys nothing and moves no card.
 
 ## Comments are the third entrance
 
@@ -201,17 +249,34 @@ happens to be, and a workflow drawn to match the diagram above would turn that
 into a `JiraTransitionError` after the turn had already done its work. The gate
 on this pipeline is the pull request review, not the Jira workflow.
 
+**With one exception.** The transition into *Done* carries a condition
+restricting it to the factory's bot account, because *Done* means "production
+is serving this" and only the thing that deployed it can know that. A condition
+is the right tool rather than a permission: it *hides* the transition, so the
+status simply is not offered on the board, and `factory jira-transition` — which
+looks a transition up by destination before using it — reports
+`has no transition to "Done"` rather than a bare 403.
+
+Conditions bind project administrators too, which is the intended effect and
+also the cost: there is no manual override. A card whose deployment succeeded
+but whose `ship` step failed has to be closed by re-running the workflow, not by
+dragging it. `docs/factory/SETUP.md` has the steps for adding the condition, and
+for adding an admin-only escape hatch if you decide you want one after all.
+
 ## Who can do what
 
 The factory has two identities, one per system, and neither of them is you.
 
-| | Comment on a card | Move a card | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| The Jira bot user | ✅ | ✅ | ❌ | — | — | — | — |
-| The factory App | — | — | — | ✅ | ❌ | ❌ | ❌ |
-| You | ✅ | ✅ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
+| | Comment on a card | Move a card | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| The Jira bot user | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
+| The factory App | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
+| You | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
 
-Neither party can do the whole job alone, which is the point.
+Neither party can do the whole job alone, which is the point. The bot is the
+only one that can call something *Done*, and it cannot approve or merge the
+thing that gets it there; you are the only one who can approve and merge, and
+you cannot declare the result shipped.
 
 The Jira bot is a plain licensed user, which on the project's default permission
 scheme is exactly what the factory needs — browse, comment, transition, edit,

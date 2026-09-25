@@ -2,7 +2,8 @@
 
 A card goes into a Jira column. Some time later a pull request appears, with a
 design, an implementation, tests, and a preview. A human reviews it and merges
-it. Nobody opened an editor.
+it; the merge puts it into production and the card closes itself. Nobody opened
+an editor.
 
 That is the whole idea. This repository is a working, deliberately small proof
 of it: an example React app that the factory builds features into, and the
@@ -35,10 +36,15 @@ machinery that makes the loop run.
                            ▼
                     ┌──────────────┐
                     │   GitHub PR  │──▶ human comment grants the next build turn
+                    └──────┬───────┘
+                           │ a human merges
+                           ▼
+                    ┌──────────────┐
+                    │  production  │──▶ once it answers, the card moves to Done
                     └──────────────┘
 ```
 
-Two stages, one card:
+Two stages and an ending, one card:
 
 1. **Design.** The card reaches *Ready for design*. An agent with no shell reads
    the card and the code, and writes `docs/design/<KEY>/design.md` on a new
@@ -51,8 +57,11 @@ Two stages, one card:
    for build*. An agent implements it, one turn at a time, on the same branch
    the design came in on — so the design document is simply already there.
    Each turn after the first is granted by a human comment on the PR.
-
-A human merges. Nothing else does.
+3. **Ship.** A human merges — nothing else can. The merge builds that commit,
+   deploys it to the always-on production app, waits for it to answer, and only
+   then moves the card to *Done*. That last transition is restricted to the
+   factory's own account in Jira, so *Done* means the software is live rather
+   than that somebody tidied the board.
 
 ### Comments are the third entrance
 
@@ -75,7 +84,7 @@ why a comment on a card in *In review* can legitimately start a *design* turn.
 | `app/` | The example React 19 + TypeScript app the factory writes features into |
 | `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
 | `.agent/` | The agent boundary: the two manuals, and the in/out directories |
-| `.github/workflows/` | Six workflows: the poller, design, and build start/setup/turn/teardown |
+| `.github/workflows/` | Seven workflows: the poller, design, build start/setup/turn/teardown, and production |
 | `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
 | `docs/design/<KEY>/` | One directory per card: the design, and the build log |
 

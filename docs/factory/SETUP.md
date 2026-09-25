@@ -240,6 +240,63 @@ curl -u "$JIRA_USER:$JIRA_TOKEN" -X DELETE "$JIRA_BASE/rest/agile/1.0/board/<id>
 Check the name before you delete — `smoke.sh` names the stray board, and the
 factory's is always *Dark Factory*.
 
+### Locking *Done* to the factory
+
+**Manual, and browser-only.** The bot deliberately has no *Administer Projects*
+permission, so it cannot configure the workflow it runs inside — asking Jira
+for `/project/DF/role` as the bot returns *"You cannot edit the configuration
+of this project."*
+
+*Done* means "merged, and production is serving it", which only the thing that
+deployed it can know. `production.yml` is the sole writer; this stops anyone
+else claiming it by dragging a card.
+
+This needs a **company-managed** project. Check with:
+
+```bash
+curl -s -u "$JIRA_USER:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$JIRA_PROJECT_KEY" \
+  | jq '{style, simplified}'          # want: {"style":"classic","simplified":false}
+```
+
+Team-managed projects (`"style":"next-gen"`) have no transition conditions and
+cannot do this. `bootstrap/jira.sh` creates a company-managed project, so a
+factory set up by the script is already on the right side of that line.
+
+1. Make a group holding only the bot — **Settings → User management → Groups**,
+   new group `factory-bot`, add `JIRA_BOT_EMAIL` and nobody else.
+2. **Project settings → Workflows**, edit the `Factory` workflow. Its scope is
+   `GLOBAL`, so it is available to every project — if a second project is using
+   it, copy it and point `Factory scheme` at the copy first, or the condition
+   lands there too.
+3. Select the transition named **Done**. There is exactly one: `bootstrap/jira.sh`
+   gives each status a single *global* transition into it, from anywhere. That
+   is convenient here — one condition closes every route in.
+4. **Conditions → Add → User Is In Group → `factory-bot`**, and publish.
+
+Then verify. As the bot, *Done* must still be reachable:
+
+```bash
+curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
+  "$JIRA_BASE/rest/api/3/issue/$KEY/transitions" | jq -r '.transitions[].to.name'
+```
+
+As yourself, it must not be — and the drag target should be gone from the
+board.
+
+Two things to know before you do it:
+
+- **Conditions bind administrators too.** Unlike permissions, being a Jira
+  admin is not an exemption. You will not be able to close a card by hand
+  either, which is the point and also the cost: a card whose deploy succeeded
+  but whose `ship` step failed needs the workflow re-run, not a drag.
+- **If you want an escape hatch**, add a second transition into *Done* — call
+  it *Force done* — with a **User Is In Project Role → Administrators**
+  condition instead. `factory jira-transition` resolves transitions by
+  destination status, so it will happily use whichever one it is offered, and
+  the bot being in neither role would break shipping. Keep the bot's group
+  condition on the normal transition and put the role condition only on the
+  second. ADR 0004 argues for not having one at all.
+
 ---
 
 ## First card

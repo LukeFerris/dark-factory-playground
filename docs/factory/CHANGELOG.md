@@ -9,6 +9,88 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-25
 
+### The factory ships
+
+Asked what happens when a card is dragged to **Done**, went to read the code,
+and the answer was: nothing. Not "nothing much" — the poller looks at two
+columns and neither is Done, triage's docstring says outright that *"a card in
+Backlog or Done is not the factory's problem"*, and `grep -rni production`
+over the whole repository returned no matches at all.
+
+Which exposed the bigger hole behind it. On merge, `ci.yml` ran the tests and
+`build-teardown.yml` destroyed the preview the card had been reviewed on, and
+**nothing replaced it**. The end state of a card was code on `main`, running
+nowhere. The factory could design, build, preview and review software and had
+never shipped any. The two halves of "finished" were also unconnected: you
+could merge without the card moving, or move the card with nothing merged.
+
+New `production.yml`, on `pull_request: closed`:
+
+1. gated on `merged == true`, a `card/` branch, and the azure backend
+2. `factory production-up <merge-sha>` — builds the merge commit in ACR,
+   deploys `df-production`, blocks until the URL answers
+3. `factory ship <pr> --url …` — comments the live URL on the card and moves
+   it to **Done**
+
+Step 3 only runs if step 2 succeeded, which is ADR 0003's rule moved one
+column right: the card did not say *In review* before there was something to
+review, and it does not say *Done* before the thing is live.
+
+Production is the same Container App as a preview in every respect that could
+make it a different artefact — same registry, environment, managed identity
+and Dockerfile. Two differences on purpose: `min-replicas: 1`, so it never
+sleeps and needs no launcher, and an image tagged `main-<sha>` rather than
+`pr-<n>`. The tag is not cosmetic: `az containerapp update --image` only makes
+a new revision when the *reference* changes, so a fixed tag like `latest`
+would push new bytes and leave the old revision serving.
+
+Things worth knowing:
+
+- **`pull_request: closed`, not `push: main`.** A merge fires both,
+  concurrently, and only one can own the ordering. The pull request carries
+  the card key in two places; a bare push would have to ask the API which PR a
+  commit came from. And the main ruleset forbids direct pushes, so nothing is
+  missed by not listening for them.
+- **A `factory-production` concurrency group.** Two merges close together
+  would collide on one Container App and Azure would reject the second with
+  `ContainerAppOperationInProgress` — which is not a guess, it is how the old
+  `pull_request`-triggered preview died when it raced a turn on PR #20.
+  `cancel-in-progress: false`, because the loser is a commit that still has to
+  reach production.
+- **No new Azure credential.** A `pull_request` event presents
+  `repo:<slug>:pull_request`, which `identity.tf` already provisions for
+  teardown.
+- **Scale is create-time only.** `upsertApp` sets the image on the update path
+  and nothing else, so editing the replica constants will not move an app that
+  already exists. Unlike the preview cooldown, which is reapplied every turn
+  precisely so it converges.
+- **Production is azure-only.** The `ghcr` stub pushes an image nobody serves;
+  closing a card on the strength of a package page would be a lie. The
+  workflow skips and the card stays in review.
+
+And **Done became a status nobody can fake**: a Jira transition condition
+restricts it to the bot account. A condition rather than a permission because
+it *hides* the transition — so it vanishes from the board, and
+`factory jira-transition` (which resolves by destination first) reports
+`has no transition to "Done"` rather than a bare 403. Conditions bind project
+admins too, so there is deliberately no manual override; ADR 0004 argues why,
+and what to do if that turns out to be wrong.
+
+That condition is the one part of this that `bootstrap/` cannot do. The bot is
+deliberately not a project administrator — asking Jira for `/project/DF/role`
+as the bot returns *"You cannot edit the configuration of this project"* —
+which is the same separation that stops it deleting its own cards, and it
+cuts both ways: the account the condition protects cannot install the
+condition. It is four clicks in a browser, written up as *Locking Done to the
+factory* in `SETUP.md`. It also needs a **company-managed** project; team-
+managed ones have no transition conditions at all. `bootstrap/jira.sh` already
+creates the right kind, and helpfully gives every status a single *global*
+transition in, so there is exactly one transition into *Done* to guard.
+
+Still unproven: no build PR has ever been closed in this repository, so
+`build-teardown.yml` has never run either. The first card merged after this
+lands exercises both for the first time, at once.
+
 ### The card no longer says "come and look" before there is anything to see
 
 DF-5's preview came up, worked, and was nowhere in Jira. Chased it and found

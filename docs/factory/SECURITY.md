@@ -34,7 +34,7 @@ The same holds for the preview's Azure credential, and slightly more strongly.
 It is obtained by OIDC, so there is nothing long-lived to store in the
 repository at all, and it is obtained in a **job that never runs an agent** —
 the `preview` job of `build-start.yml` and `build-turn.yml`, or the whole of
-`build-teardown.yml` and `build-setup.yml`. `packages: write`,
+`build-teardown.yml`, `build-setup.yml` and `production.yml`. `packages: write`,
 `deployments: write` and `id-token: write` must not be in scope while the agent
 runs, and they are not.
 
@@ -54,6 +54,24 @@ constraint is the reason previews pull with a user-assigned identity granted
 `AcrPull` up front by Terraform — `--registry-identity system` would have
 required **User Access Administrator** on the group, which is the power to
 grant. See `infra/azure/README.md`.
+
+`production.yml` is the most privileged thing in the factory and holds no
+Anthropic key at all. It runs on a merged pull request, so no model is in the
+loop: the code it deploys was written by an agent in an earlier run, reviewed
+by a human, and approved at the merge button. It carries Azure by OIDC,
+`deployments: write`, an App token and `JIRA_BOT_TOKEN` — enough to put a
+container on the public internet and close a card — and every one of those is
+exercised by a shell step running `factory production-up` and `factory ship`,
+with no prompt anywhere near them. It reuses the `repo:<slug>:pull_request`
+federated credential the preview jobs already use, so shipping added no new way
+into the subscription.
+
+It is also the only thing that can move a card to *Done*. That restriction is
+enforced on Jira's side by a transition condition rather than by anything in
+this repository (see `docs/factory/SETUP.md`), which means the guarantee rests
+on `JIRA_BOT_TOKEN` not being shared: anyone holding it can close a card
+without deploying anything. It was already the credential that speaks as the
+factory; it is now also the credential that says a thing is live.
 
 The preview **launcher** adds one public page and no credential. It is a static
 file on Azure Storage that takes a preview URL in `?u=` and redirects to it, so
@@ -254,6 +272,13 @@ threat model:
   *not* bounded is `npm ci` and the Docker build running install scripts from
   `app/package.json` — the same gap as the dependency point above, with a
   narrower credential in the room. The control is the human reading the diff.
+- **Whatever reaches `main` is deployed to the public internet.** `production.yml`
+  builds the merge commit and serves it, so the last gate in front of production
+  is the pull request review, not anything in this list. The blast radius is
+  larger than a preview's in exactly one way: the preview is a URL you chose to
+  open, and production is a site that stays up. The rulesets are what make that
+  review unavoidable — one approval, `ci` green, no direct pushes — and they are
+  also, being repository configuration, editable by anyone with admin rights.
 - **Anyone with write access to this repository.** They can edit the workflows,
   the manuals and the validator. Every control here assumes the repository
   itself is trusted; `CODEOWNERS` marks those paths but does not enforce review

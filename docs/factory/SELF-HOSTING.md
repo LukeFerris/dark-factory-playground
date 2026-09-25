@@ -183,6 +183,44 @@ is a few seconds of cold start on the first request after idle — worth saying
 out loud on the PR, because a reviewer who clicks and sees nothing for four
 seconds assumes it is broken.
 
+### Production
+
+One more Container App, in the same environment, on the same registry: merging
+a card's pull request builds the merge commit and deploys it to
+`<prefix>-production`. `.github/workflows/production.yml` does it, and only once
+the site answers does it move the card to *Done*. See
+[ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md).
+
+Two differences from a preview, and no others:
+
+| | Preview | Production |
+| --- | --- | --- |
+| `min-replicas` | 0 — sleeps, costs nothing idle | **1** — always warm |
+| Image tag | `pr-<n>` | **`main-<sha>`** |
+
+`min-replicas: 1` is the first thing in this factory that bills while nobody is
+looking — one replica, at the Container Apps default allocation, 24 hours a
+day. That is a real monthly figure rather than the rounding error a scaled-to-
+zero preview is, and it is the price of no cold start, which is why production
+is linked directly rather than through the launcher. `max-replicas: 2` only
+lets a new revision come up beside the old one during a deploy; at rest one
+replica runs.
+
+Tagging by commit is not cosmetic. `az containerapp update --image` creates a
+new revision only when the image *reference* changes, so pushing fresh bytes to
+a fixed `latest` tag would leave the old revision serving — a deploy that looks
+successful forever. It also makes rollback "deploy the previous tag", though
+there is no command for that yet.
+
+**Nothing changes on the `ghcr` backend.** There is no URL to prove and no site
+to point anyone at, so `production.yml` skips itself, and a card stays in
+review after its PR is merged. The factory works exactly as before, minus the
+last step.
+
+No new Azure credential was needed: production runs on a `pull_request` event,
+and `repo:<slug>:pull_request` is a federated credential subject the preview
+jobs already use.
+
 ### Other hosts
 
 Nothing about the factory is Azure-specific. `previewUp` in
@@ -254,8 +292,9 @@ between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 | Anthropic API | The dominant cost. Capped per step by `--max-budget-usd` |
 | GitHub Actions | Free on public repositories; the poller is 144 short runs/day |
 | GHCR storage | One image per open PR, deleted on close (`ghcr` backend) |
-| Azure Container Apps | Scales to zero; an idle preview bills nothing (`azure` backend) |
-| Azure Container Registry | Basic tier, one tag per open PR, deleted on close |
+| Azure Container Apps — previews | Scale to zero; an idle preview bills nothing (`azure` backend) |
+| Azure Container Apps — production | **One replica, always on.** The only thing here that bills while idle |
+| Azure Container Registry | Basic tier, one tag per open PR deleted on close, plus one per merge kept |
 | Jira Cloud Free | Free to 10 users |
 
 The poller is the only thing that runs unattended, and it does nothing but one

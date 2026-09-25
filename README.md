@@ -1,7 +1,8 @@
 # dark-factory-playground
 
 A Jira card goes into a column. A pull request comes out — designed,
-implemented, tested, previewed. A human reviews it and merges it.
+implemented, tested, previewed. A human reviews it and merges it; the merge
+deploys production, and the card closes itself once the site answers.
 
 This repository is a small working proof of that: an example React app for the
 factory to build features into, and the machinery that runs the loop.
@@ -21,9 +22,9 @@ Then follow **[docs/factory/SETUP.md](docs/factory/SETUP.md)**.
 | `app/` | The example React 19 + TypeScript + Vite app |
 | `factory/` | `@factory/cli` — every step of a turn, as subcommands |
 | `.agent/` | The agent boundary: the two manuals, and the result contract |
-| `.github/workflows/` | The poller, design, and build start/setup/turn/teardown |
+| `.github/workflows/` | The poller, design, build start/setup/turn/teardown, and production |
 | `bootstrap/` | Scripts that configure GitHub and Jira from nothing |
-| `infra/azure/` | Terraform for the optional Azure preview estate |
+| `infra/azure/` | Terraform for the optional Azure preview and production estate |
 | `docs/` | How it works, how to run it, and why it is built this way |
 | `PLAN.md` | The build plan this repository was built from. Historical — where it and the code disagree, the code is right and [the changelog](docs/factory/CHANGELOG.md) says why |
 
