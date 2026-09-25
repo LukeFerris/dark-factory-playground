@@ -205,14 +205,42 @@ export function renderFactoryBlock(block: FactoryBlock): string {
   return `${FACTORY_BLOCK_START}\n${JSON.stringify(block, null, 2)}\n${FACTORY_BLOCK_END}`
 }
 
+/**
+ * Finds the block, which is not the same as finding `<!-- factory` in the body.
+ *
+ * The prose the factory writes above the block *mentions* the marker — "the
+ * `<!-- factory … -->` block below is machine-read" — and a reviewer quoting
+ * it in the description would do the same. Searching for the bare marker finds
+ * that sentence first, and then everything downstream is wrong in a way that
+ * looks like nothing happening: `parseFactoryBlock` returns null because the
+ * prose is not JSON, so `preview-up` quietly declines to record the preview
+ * URL, and `upsertFactoryBlock` rewrites from the middle of the sentence and
+ * eats the paragraph.
+ *
+ * So both markers only count on a line of their own, and the last such pair
+ * wins — the real block is at the bottom of the body.
+ */
+const FACTORY_BLOCK_RE = /^<!-- factory[ \t]*\r?\n([\s\S]*?)\r?\n^factory -->[ \t]*$/gm
+
+function locateFactoryBlock(
+  body: string,
+): { start: number; end: number; json: string } | null {
+  let found: { start: number; end: number; json: string } | null = null
+  for (const match of body.matchAll(FACTORY_BLOCK_RE)) {
+    found = {
+      start: match.index,
+      end: match.index + match[0].length,
+      json: match[1] ?? '',
+    }
+  }
+  return found
+}
+
 export function parseFactoryBlock(body: string): FactoryBlock | null {
-  const start = body.indexOf(FACTORY_BLOCK_START)
-  if (start === -1) return null
-  const end = body.indexOf(FACTORY_BLOCK_END, start)
-  if (end === -1) return null
-  const json = body.slice(start + FACTORY_BLOCK_START.length, end).trim()
+  const found = locateFactoryBlock(body)
+  if (found === null) return null
   try {
-    return JSON.parse(json) as FactoryBlock
+    return JSON.parse(found.json) as FactoryBlock
   } catch {
     return null
   }
@@ -221,11 +249,25 @@ export function parseFactoryBlock(body: string): FactoryBlock | null {
 /** Replaces the factory block in a body, or appends one if there is none. */
 export function upsertFactoryBlock(body: string, block: FactoryBlock): string {
   const rendered = renderFactoryBlock(block)
-  const start = body.indexOf(FACTORY_BLOCK_START)
-  if (start === -1) return `${body.trimEnd()}\n\n${rendered}\n`
-  const end = body.indexOf(FACTORY_BLOCK_END, start)
-  if (end === -1) return `${body.trimEnd()}\n\n${rendered}\n`
-  return body.slice(0, start) + rendered + body.slice(end + FACTORY_BLOCK_END.length)
+  const found = locateFactoryBlock(body)
+  if (found === null) return `${body.trimEnd()}\n\n${rendered}\n`
+  return body.slice(0, found.start) + rendered + body.slice(found.end)
+}
+
+/**
+ * A pull request's body and head branch: everything a run that did not open it
+ * needs to work out which card it belongs to and where its preview is.
+ */
+export function prBodyAndBranch(number: number): { body: string; headRefName: string } {
+  return ghJson<{ body: string; headRefName: string }>([
+    'pr',
+    'view',
+    String(number),
+    '--repo',
+    repoSlug(),
+    '--json',
+    'body,headRefName',
+  ])
 }
 
 /**

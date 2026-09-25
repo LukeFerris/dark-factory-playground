@@ -39,6 +39,32 @@ describe('the factory block', () => {
   it('returns null rather than throwing when the block is corrupt', () => {
     expect(parseFactoryBlock('<!-- factory\nnot json\nfactory -->')).toBeNull()
   })
+
+  /**
+   * The prose the factory itself writes above the block quotes the marker, so
+   * a search for the bare string finds the sentence rather than the block.
+   * That is not hypothetical: it is why PR #16's preview URL was never
+   * recorded, and it fails silently in both directions.
+   */
+  describe('when the prose mentions the marker', () => {
+    const prose = 'The `<!-- factory … -->` block below is machine-read — leave it alone.'
+    const body = `${prose}\n\n${renderFactoryBlock(block)}\n`
+
+    it('reads the real block and not the sentence', () => {
+      expect(parseFactoryBlock(body)).toEqual(block)
+    })
+
+    it('rewrites the real block and leaves the sentence alone', () => {
+      const next = upsertFactoryBlock(body, { ...block, turn: 4 })
+      expect(next).toContain(prose)
+      expect(parseFactoryBlock(next)?.turn).toBe(4)
+    })
+
+    it('does not mistake an inline mention for a block of its own', () => {
+      expect(parseFactoryBlock(prose)).toBeNull()
+      expect(upsertFactoryBlock(prose, block)).toContain(prose)
+    })
+  })
 })
 
 describe('the GHCR package route', () => {

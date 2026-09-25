@@ -1,7 +1,7 @@
 import { optional } from './env.ts'
 import * as jira from './jira.ts'
 import { git } from './git.ts'
-import { prComments } from './github.ts'
+import { parseFactoryBlock, prBodyAndBranch, prComments } from './github.ts'
 import { writeFileEnsuringDir, writeMeta, TASK_PATH, type Meta } from './meta.ts'
 import type { Stage } from './schema.ts'
 
@@ -33,6 +33,28 @@ async function fetchFieldIndex(cfg: jira.JiraConfig): Promise<Map<string, string
   const fields = response.ok ? ((await response.json()) as Array<{ id: string; name: string }>) : []
   fieldIndex = new Map(fields.map((f) => [f.name.toLowerCase(), f.id]))
   return fieldIndex
+}
+
+/**
+ * Where the PR's preview is, if it has one and anybody recorded it.
+ *
+ * This used to be hard-coded to null, which meant PREVIEW_URL was empty in
+ * every build turn there has ever been: the agent was told to go and look at
+ * the running site and given nowhere to look. `preview-up` writes the URL into
+ * the PR's factory block precisely so a later run — a different workflow on a
+ * different runner — can read it back here.
+ *
+ * Tolerant of failure. A turn with no preview URL is worse than one with it,
+ * but it still runs; a turn that cannot start because `gh` hiccuped does not.
+ */
+function previewUrlOf(pr: number | undefined): string | null {
+  if (pr === undefined) return null
+  try {
+    return parseFactoryBlock(prBodyAndBranch(pr).body)?.preview_url ?? null
+  } catch (error) {
+    console.warn(`::warning::could not read the preview URL off PR #${pr}: ${(error as Error).message}`)
+    return null
+  }
 }
 
 export interface GatherOptions {
@@ -107,7 +129,7 @@ export async function gather(options: GatherOptions): Promise<Meta> {
     // them. Tolerant of a missing git because a turn is replayable locally.
     base_sha: git(['rev-parse', 'HEAD'], true).trim(),
     pr: options.pr ?? null,
-    preview_url: null,
+    preview_url: previewUrlOf(options.pr),
   }
   writeMeta(meta)
   return meta

@@ -1,0 +1,128 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ghRunner, renderFactoryBlock, setRunner, type FactoryBlock } from './github.ts'
+import { cardKeyFromBranch, kickoff, kickoffComment } from './preview.ts'
+
+describe('cardKeyFromBranch', () => {
+  it('reads the key out of a card branch', () => {
+    expect(cardKeyFromBranch('card/DF-12-let-the-user-type-their-name')).toBe('DF-12')
+  })
+
+  /** The key contains a hyphen itself, so a lazy split on `-` loses the number. */
+  it('keeps the number that is part of the key', () => {
+    expect(cardKeyFromBranch('card/DF-4-greet-the-visitor')).toBe('DF-4')
+  })
+
+  it('returns null for a branch the factory did not cut', () => {
+    expect(cardKeyFromBranch('fix/the-thing')).toBeNull()
+    expect(cardKeyFromBranch('main')).toBeNull()
+    expect(cardKeyFromBranch('card/DF-4')).toBeNull()
+  })
+})
+
+describe('the kickoff comment', () => {
+  it('names the card and says every turn needs a comment', () => {
+    const body = kickoffComment('DF-4', null)
+    expect(body).toContain('### DF-4 — build started')
+    expect(body).toContain('auto-continue is off')
+  })
+
+  it('links the preview when there is one, and says nothing when there is not', () => {
+    expect(kickoffComment('DF-4', 'https://df-preview-pr-16.example/')).toContain(
+      '**Preview:** https://df-preview-pr-16.example/',
+    )
+    expect(kickoffComment('DF-4', null)).not.toContain('Preview:')
+  })
+})
+
+/**
+ * The regression these guard is that `kickoff` used to open with `readMeta()`.
+ * meta.json is written by `factory gather` inside build-start.yml and `kickoff`
+ * runs in build-setup.yml — another workflow, another runner, a fresh checkout
+ * of a tree where `.agent/` is gitignored. It was never there, so the comment
+ * was never posted. Everything now comes off the pull request.
+ */
+describe('kickoff', () => {
+  const previous = process.env['GITHUB_REPOSITORY']
+
+  const block: FactoryBlock = {
+    key: 'DF-4',
+    stage: 'build',
+    turn: 1,
+    preview_url: 'https://df-preview-pr-16.example/',
+  }
+
+  beforeEach(() => {
+    process.env['GITHUB_REPOSITORY'] = 'acme/dark-factory-playground'
+  })
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env['GITHUB_REPOSITORY']
+    else process.env['GITHUB_REPOSITORY'] = previous
+    setRunner(ghRunner)
+  })
+
+  /** Answers `pr view` with one PR and records everything else. */
+  function stub(pr: { body: string; headRefName: string }) {
+    const calls: Array<{ args: string[]; input?: string }> = []
+    setRunner((args, input) => {
+      calls.push(input === undefined ? { args } : { args, input })
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return { status: 0, stdout: JSON.stringify(pr), stderr: '' }
+      }
+      return { status: 0, stdout: '', stderr: '' }
+    })
+    return calls
+  }
+
+  it('takes the key and the preview URL from the factory block', () => {
+    const calls = stub({
+      body: `Prose.\n\n${renderFactoryBlock(block)}`,
+      headRefName: 'card/DF-4-greet-the-visitor',
+    })
+
+    kickoff(16)
+
+    const comment = calls.find((c) => c.args[1] === 'comment')
+    expect(comment?.args).toContain('16')
+    expect(comment?.input).toContain('### DF-4 — build started')
+    expect(comment?.input).toContain('**Preview:** https://df-preview-pr-16.example/')
+  })
+
+  it('falls back to the branch name when the body has no block', () => {
+    const calls = stub({ body: 'Someone rewrote this.', headRefName: 'card/DF-4-greet-the-visitor' })
+
+    kickoff(16)
+
+    const comment = calls.find((c) => c.args[1] === 'comment')
+    expect(comment?.input).toContain('### DF-4 — build started')
+    expect(comment?.input).not.toContain('Preview:')
+  })
+
+  it('comments on the PR it was given, not one it looked up by branch', () => {
+    const calls = stub({
+      body: renderFactoryBlock(block),
+      headRefName: 'card/DF-4-greet-the-visitor',
+    })
+
+    kickoff(16)
+
+    expect(calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'list')).toHaveLength(0)
+    expect(calls.find((c) => c.args[1] === 'comment')?.args[2]).toBe('16')
+  })
+
+  it('refuses rather than guessing when the PR belongs to no card', () => {
+    stub({ body: 'Nothing factory-shaped here.', headRefName: 'fix/the-thing' })
+    expect(() => kickoff(16)).toThrow(/is not a card/)
+  })
+
+  it('prints the comment and posts nothing on a dry run', () => {
+    const calls = stub({
+      body: renderFactoryBlock(block),
+      headRefName: 'card/DF-4-greet-the-visitor',
+    })
+
+    kickoff(16, true)
+
+    expect(calls.some((c) => c.args[1] === 'comment')).toBe(false)
+  })
+})

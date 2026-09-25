@@ -7,6 +7,47 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-25
+
+### Nothing was carrying the preview URL
+
+DF-4 was the first card to run the whole pipeline, and it ended with the
+kickoff step failing on `.agent/in/meta.json is missing`. Pulling on that
+found four faults in a row, all on the path a preview URL has to travel from
+the runner that raises it to the people and agents who need it. Each one
+failed silently, which is why a pipeline that had "worked" had never once
+delivered a preview link.
+
+- **`kickoff` read meta.json, which cannot exist where it runs.** `factory
+  gather` writes that file during a build turn in build-start.yml; kickoff
+  runs in build-setup.yml — a different workflow, a different runner, a fresh
+  checkout, and `.agent/` is gitignored. Not a flake: the kickoff comment has
+  never been posted, on any card. It now takes the card key and the preview
+  URL off the pull request, falling back to the `card/<KEY>-` branch name when
+  the body has been rewritten by hand.
+- **`parseFactoryBlock` found the prose instead of the block.** It searched
+  for the bare `<!-- factory` marker, and the paragraph the factory itself
+  writes above the block quotes it — "the `<!-- factory … -->` block below is
+  machine-read". So it parsed that sentence as JSON, failed, and returned
+  null. Downstream, `preview-up` decided there was no block and declined to
+  record the URL; on a second turn `upsertFactoryBlock` would have rewritten
+  from the middle of the sentence and eaten the paragraph. Both markers now
+  only count on a line of their own, and the last pair wins. Verified against
+  PR #16's real body: the old code returns null on it.
+- **`gather` hard-coded `preview_url: null`.** `PREVIEW_URL` has therefore
+  been empty in every build turn there has ever been — the agent is told to
+  open the running site and given nowhere to look. The build agent on DF-4
+  said as much in its own summary and nobody had read it as a bug. It now
+  reads the URL off the PR's factory block, which is the whole reason
+  `preview-up` writes it there.
+- **build-setup.yml had no `pull-requests: write`.** The body write would have
+  started failing the moment the parser began finding the block. Nothing had
+  ever got that far, so the missing scope was invisible.
+
+`preview-up` now emits a warning when there is no readable block rather than
+skipping in silence. A preview URL that reaches nobody is worth more noise
+than that.
+
 ## 2026-09-24
 
 ### The preview estate is Terraform, and CI cannot hand out roles
@@ -58,7 +99,7 @@ all ten repository variables, each read off the resource Terraform just made.
   reason sourcing a data file is always wrong.
 
 **Applied.** 22 resources in `rg-factory-preview`, and a second plan comes back
-clean. Three things only running it could have found:
+clean. Four things only running it could have found:
 
 - **`az account show` never calls Azure.** It reads the local token cache, so
   `apply.sh`'s sign-in check described a session whose refresh token had
@@ -74,11 +115,22 @@ clean. Three things only running it could have found:
   every subsequent plan proposed deleting it. Declared explicitly: a plan that
   is never empty is a plan nobody reads, and real drift then hides in the
   noise.
+- **GitHub mints an immutable OIDC subject, and the entry above got the prefix
+  wrong.** It has the event shapes right: `pull_request` and
+  `ref:refs/heads/main`. But new repositories default to
+  `use_immutable_subject`, so the subject is
+  `repo:<owner>@<owner_id>/<repo>@<repo_id>:<event>` rather than
+  `repo:<owner>/<repo>:<event>`, and Entra matches it as an exact string —
+  every sign-in failed with `AADSTS700213` until a real token showed what was
+  being presented. `identity.tf` reads both ids from GitHub. The immutable
+  form is also the better one: a repository name is re-registrable, so trust
+  written against a name follows whoever claims it next; the ids are not.
 
-Still unproven: **no preview has ever been raised**, on either backend. The
-estate exists and the credentials resolve; whether `az acr build` and
-`az containerapp create` do what `azure.ts` believes is the next thing to find
-out.
+**A preview is real.** PR #16 came up at
+`https://df-preview-pr-16.redbush-3ff4fb61.uksouth.azurecontainerapps.io`,
+HTTP 200, serving the bundle the build turn produced. Caveat: that was a
+re-run of the job after the subject fix, so the path has not yet succeeded on
+a first attempt from a clean `synchronize`.
 
 ## 2026-09-23
 
