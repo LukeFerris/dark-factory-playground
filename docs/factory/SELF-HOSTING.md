@@ -237,6 +237,7 @@ optional). A turn is:
 
 ```bash
 npm run --silent factory -- gather DF-1 --stage build --pr 7
+npm run --silent factory -- announce
 npm run --silent factory -- prepare-branch DF-1 --stage build
 claude -p "$(cat .agent/build.md)" --allowedTools "…" --output-format json \
   > .agent/out/transcript.json

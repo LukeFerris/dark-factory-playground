@@ -7,6 +7,70 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-26
+
+### A card now says when work starts on it
+
+Asked for a progress notification on the card, because a claimed card looked
+identical to an ignored one. It did, and worse than expected: a Jira status
+change is *silent*. It notifies no watcher and it does not appear in the comment
+stream, which is the only part of a card most people read. So between the
+poller's claim and `report` at the end of the turn — the entire duration of the
+work — the card said nothing at all.
+
+New `factory announce`, and a step calling it in `design.yml`,
+`build-start.yml` and `build-turn.yml`. One short comment per turn: which stage
+and turn this is, one sentence on what it is about to do, and links to the
+Actions run and the pull request if there is one. Turns now bracket themselves,
+`announce` at the start and `report` at the end.
+
+Three things it deliberately is not:
+
+- **Not in the poller.** It runs straight after `gather`, which is the first
+  step that knows the turn number, and it can then link its own Actions run. It
+  also means a build turn granted by a pull-request comment gets one, and that
+  turn was previously invisible from Jira entirely — the card does not even
+  change status for it.
+- **Not able to fail a turn.** A failed post is a `::warning::` and the turn
+  continues.
+- **Not visible to the agent, and not a turn.** See below.
+
+### The start comment would have doubled every design turn number
+
+**Found by reading `gather.ts` before committing, not by a failing test** —
+nothing would have gone red.
+
+`gather` derives a design card's round number by counting the factory's own
+comments on the card. Nothing stores a counter anywhere, which is precisely
+what stops a card disagreeing with itself about how many turns it has had — and
+which makes any second factory comment per turn a silent corruption of it.
+Design turns would have counted 1, 3, 5; and every turn past the first tells the
+agent *"You asked questions on an earlier turn and they have been answered"*,
+which on a turn that asked nothing is an instruction to go and find replies that
+do not exist.
+
+`gather` feeds every card comment to the agent as well, so the pings would also
+have landed in `task.md` — "nothing is expected of you while this runs",
+addressed to the thing that is running.
+
+**Done:** start comments are recognisable by their first line
+(`isStartComment`, in `announce.ts`), and `gather` filters them out once, before
+both the count and the task file. `announce.test.ts` round-trips every comment
+`startComment` produces through `isStartComment` so the two cannot drift apart,
+and a new `gather.test.ts` pins the count itself against a msw-stubbed Jira.
+
+Build-turn numbering is unaffected — it counts `<!-- factory-turn` markers in
+GitHub PR comments, not Jira ones. Triage is unaffected and slightly protected:
+it only acts when the newest comment is *not* the factory's, and a start comment
+makes the newest comment the factory's.
+
+### SECURITY.md said credentialed steps run after the agent
+
+They run in a **different step**; that is the invariant, and the ordering claim
+was always a description of the common case rather than the rule. `gather` ran
+before the agent already, and `announce` now makes two. Corrected rather than
+worked around, because the security argument is only worth what its accuracy is.
+
 ## 2026-09-25
 
 ### The factory ships

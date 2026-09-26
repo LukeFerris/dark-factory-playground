@@ -1,4 +1,5 @@
 import { optional } from './env.ts'
+import { isStartComment } from './announce.ts'
 import * as jira from './jira.ts'
 import { git } from './git.ts'
 import { parseFactoryBlock, prBodyAndBranch, prComments } from './github.ts'
@@ -83,6 +84,12 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   const factoryId = await jira.myAccountId(cfg).catch(() => '')
   const isOurs = (c: jira.JiraComment): boolean => factoryId !== '' && c.authorId === factoryId
 
+  // The "this turn has started" pings are for whoever is watching the card,
+  // not for the agent. They say nothing about the work, they are addressed to
+  // a human, and there is one per turn — so counting them as turns would make
+  // every design round count double. Dropped here, once, for both uses below.
+  const conversation = comments.filter((c) => !(isOurs(c) && isStartComment(c.body)))
+
   const summary = (issue.fields['summary'] as string) ?? '(no summary)'
   const description = jira.adfToText(issue.fields['description']).trim()
   const criteria = await acceptanceCriteria(cfg, issue.fields)
@@ -99,9 +106,9 @@ export async function gather(options: GatherOptions): Promise<Meta> {
 
   lines.push('', '## Acceptance criteria', '', criteria === '' ? '_(none given)_' : criteria)
 
-  if (comments.length > 0) {
+  if (conversation.length > 0) {
     lines.push('', '## Card comments (oldest first)', '')
-    for (const c of comments) {
+    for (const c of conversation) {
       const who = isOurs(c) ? `${c.author} — you, on an earlier turn` : c.author
       lines.push(`### ${who} — ${c.created}`, '', c.body.trim(), '')
     }
@@ -112,7 +119,7 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   // conversation is the card itself, which is already above.
   const turn =
     options.stage === 'design'
-      ? appendDesignRound(lines, comments.filter(isOurs).length)
+      ? appendDesignRound(lines, conversation.filter(isOurs).length)
       : await appendPrThread(lines, options)
 
   writeFileEnsuringDir(TASK_PATH, `${lines.join('\n')}\n`)

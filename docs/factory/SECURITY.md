@@ -23,9 +23,15 @@ The Agent step's environment contains `ANTHROPIC_API_KEY`, and for build turns
 `PREVIEW_URL`. Nothing else. No GitHub token, no Jira token, no repository
 variables.
 
-Everything that can write to GitHub or Jira runs in a **different step**, after
-the agent has finished, with its own `env:` block. An agent that decides to
-exfiltrate credentials finds none to take.
+Everything that can write to GitHub or Jira runs in a **different step**, with
+its own `env:` block. An agent that decides to exfiltrate credentials finds none
+to take.
+
+Most of those steps run after the agent, because most of them report what it
+did. Two run before it: `gather`, which reads the card, and `announce`, which
+comments on the card to say the turn has started. The boundary is the step, not
+the ordering — a credential in a step the agent does not run in is out of its
+reach whether it comes before or after.
 
 The App token is minted per step by `actions/create-github-app-token`, lives for
 an hour, and is never in scope while the agent is running.

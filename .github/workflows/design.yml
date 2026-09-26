@@ -48,6 +48,16 @@ jobs:
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
         run: npm run --silent factory -- gather "${{ inputs.key }}" --stage design
 
+      # Straight after gather, which is the first step that knows which turn
+      # this is. The card is otherwise silent from the moment the poller claims
+      # it until `report` runs — a status change notifies nobody.
+      - name: Say the turn has started
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- announce
+
       - name: Prepare the branch
         env:
           JIRA_BASE: ${{ vars.JIRA_BASE }}
