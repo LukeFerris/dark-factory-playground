@@ -1,0 +1,57 @@
+factory/src/progress.test.ts
+  s_6735740180f350::t_038a20f578b378 1-191,212-303
+  s_6735740180f350::t_521e43368bfca0 192-211
+factory/src/progress.ts
+  s_6735740180f350::t_2856405724694f 1-137,157-160
+  s_6735740180f350::t_94921abad16fcb 152
+  s_6735740180f350::t_e516c393a252e4 138-151,153-156
+factory/src/triage.test.ts
+  s_6735740180f350::t_744fdea6c128c9 220-251
+docs/factory/SETUP.md
+  s_6735740180f350::t_6e736c5c20bfa0 113-117
+docs/factory/STATE-MACHINE.md
+  s_6735740180f350::t_1910da5aeca3b0 362-365
+  s_6735740180f350::t_4b35331e0bf90e 190-191
+  s_6735740180f350::t_2a84c7327a3fa2 216
+  s_6735740180f350::t_9d14df57910431 250-290
+factory/src/production.ts
+  s_6735740180f350::t_ffd7d36d16e2d5 165-169,174
+  s_6735740180f350::t_aa4b383be1da06 164,170-173,175
+  s_6735740180f350::t_a2b96b77c72c86 13
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_e7237072025730 74-121
+factory/src/report.ts
+  s_6735740180f350::t_449e37f87e73fb 156-167
+  s_6735740180f350::t_2aef318bbff075 8
+factory/src/jira.ts
+  s_6735740180f350::t_3ee2fda9c8c7e2 42-47,53
+  s_6735740180f350::t_b751fa3ce5f541 66-67
+  s_6735740180f350::t_12621a1aa80007 271-272
+  s_6735740180f350::t_f91e49cfea837d 280-304,318-338
+  s_6735740180f350::t_d6874238928139 6-14
+  s_6735740180f350::t_731d8f94f9a374 305-317
+  s_6735740180f350::t_a1cb97565f501b 251-270,273-275
+factory/src/announce.ts
+  s_6735740180f350::t_6b1b8bc0a470ea 5
+  s_6735740180f350::t_e85fcb1a57fe2e 90-91,96-100,105,110,114-115,117,125-127
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_9a2dfbf0736b61 351-385
+docs/factory/OVERVIEW.md
+  s_6735740180f350::t_31de53b7edbcbb 71-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6af3cfdd54a5e333377553a7b8f5417c15fbf34f",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
