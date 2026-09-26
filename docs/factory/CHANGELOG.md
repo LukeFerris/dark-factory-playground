@@ -9,6 +9,158 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-25
 
+### The factory ships
+
+Asked what happens when a card is dragged to **Done**, went to read the code,
+and the answer was: nothing. Not "nothing much" — the poller looks at two
+columns and neither is Done, triage's docstring says outright that *"a card in
+Backlog or Done is not the factory's problem"*, and `grep -rni production`
+over the whole repository returned no matches at all.
+
+Which exposed the bigger hole behind it. On merge, `ci.yml` ran the tests and
+`build-teardown.yml` destroyed the preview the card had been reviewed on, and
+**nothing replaced it**. The end state of a card was code on `main`, running
+nowhere. The factory could design, build, preview and review software and had
+never shipped any. The two halves of "finished" were also unconnected: you
+could merge without the card moving, or move the card with nothing merged.
+
+New `production.yml`, on `pull_request: closed`:
+
+1. gated on `merged == true`, a `card/` branch, and the azure backend
+2. `factory production-up <merge-sha>` — builds the merge commit in ACR,
+   deploys `df-production`, blocks until the URL answers
+3. `factory ship <pr> --url …` — comments the live URL on the card and moves
+   it to **Done**
+
+Step 3 only runs if step 2 succeeded, which is ADR 0003's rule moved one
+column right: the card did not say *In review* before there was something to
+review, and it does not say *Done* before the thing is live.
+
+Production is the same Container App as a preview in every respect that could
+make it a different artefact — same registry, environment, managed identity
+and Dockerfile. Two differences on purpose: `min-replicas: 1`, so it never
+sleeps and needs no launcher, and an image tagged `main-<sha>` rather than
+`pr-<n>`. The tag is not cosmetic: `az containerapp update --image` only makes
+a new revision when the *reference* changes, so a fixed tag like `latest`
+would push new bytes and leave the old revision serving.
+
+Things worth knowing:
+
+- **`pull_request: closed`, not `push: main`.** A merge fires both,
+  concurrently, and only one can own the ordering. The pull request carries
+  the card key in two places; a bare push would have to ask the API which PR a
+  commit came from. And the main ruleset forbids direct pushes, so nothing is
+  missed by not listening for them.
+- **A `factory-production` concurrency group.** Two merges close together
+  would collide on one Container App and Azure would reject the second with
+  `ContainerAppOperationInProgress` — which is not a guess, it is how the old
+  `pull_request`-triggered preview died when it raced a turn on PR #20.
+  `cancel-in-progress: false`, because the loser is a commit that still has to
+  reach production.
+- **No new Azure credential.** A `pull_request` event presents
+  `repo:<slug>:pull_request`, which `identity.tf` already provisions for
+  teardown.
+- **Scale is create-time only.** `upsertApp` sets the image on the update path
+  and nothing else, so editing the replica constants will not move an app that
+  already exists. Unlike the preview cooldown, which is reapplied every turn
+  precisely so it converges.
+- **Production is azure-only.** The `ghcr` stub pushes an image nobody serves;
+  closing a card on the strength of a package page would be a lie. The
+  workflow skips and the card stays in review.
+
+And **Done became a status nobody can fake**: a Jira transition condition
+restricts it to the bot account. A condition rather than a permission because
+it *hides* the transition — so it vanishes from the board, and
+`factory jira-transition` (which resolves by destination first) reports
+`has no transition to "Done"` rather than a bare 403. Conditions bind project
+admins too, so there is deliberately no manual override; ADR 0004 argues why,
+and what to do if that turns out to be wrong.
+
+That condition is the one part of this that `bootstrap/` cannot do. The bot is
+deliberately not a project administrator — asking Jira for `/project/DF/role`
+as the bot returns *"You cannot edit the configuration of this project"* —
+which is the same separation that stops it deleting its own cards, and it
+cuts both ways: the account the condition protects cannot install the
+condition. It is four clicks in a browser, written up as *Locking Done to the
+factory* in `SETUP.md`. It also needs a **company-managed** project; team-
+managed ones have no transition conditions at all. `bootstrap/jira.sh` already
+creates the right kind, and helpfully gives every status a single *global*
+transition in, so there is exactly one transition into *Done* to guard.
+
+Still unproven: no build PR has ever been closed in this repository, so
+`build-teardown.yml` has never run either. The first card merged after this
+lands exercises both for the first time, at once.
+
+### The card no longer says "come and look" before there is anything to see
+
+DF-5's preview came up, worked, and was nowhere in Jira. Chased it and found
+it was not a glitch but the ordering, which had been wrong since the first
+card and had simply never been looked at directly:
+
+1. `publish` pushes the branch, opens the PR, applies `factory:active`
+2. `report` comments on Jira and moves the card to **In review**
+3. …the label event fires…
+4. `build-setup.yml` starts, builds an image, waits for a container
+
+So `report` read `meta.preview_url` at step 2, before anything had written
+one. Turn 1's Jira comment could not carry a preview link — not sometimes,
+ever. Confirmed on DF-4: PR #16's factory block has the URL, none of DF-4's
+Jira comments do.
+
+The link was the symptom. **In review** is not a status, it is an instruction
+to a human to go and look, and the card was sending it minutes before the
+thing existed. Appending the link to the Jira comment once the deploy finished
+would have made the card eventually correct; it needs to be correct when it is
+read.
+
+`build-start.yml` and `build-turn.yml` each gained a `preview` job:
+
+| Job | Holds | Does |
+| --- | --- | --- |
+| `turn` | `contents: read` | Agent, validate, publish, upload `.agent/` |
+| `preview` | `packages`/`deployments`/`id-token`/`pull-requests` write | Restore the artifact, deploy, wait for a 200, **then** report |
+
+The thing that makes this cheap is that **a job carries its own
+`permissions:` block**. Deployment was a separate workflow purely to keep
+registry and Azure credentials out of the agent's reach; a second job enforces
+that identically and gets `needs:`, job outputs and same-run artifact passing
+thrown in. Nothing about the credential boundary is weaker — see ADR 0003 and
+`SECURITY.md`.
+
+`build-setup.yml` loses both `pull_request` triggers and becomes the manual
+retry: the thing you run when a `preview` job failed and the fix is "deploy
+again", not "run the turn again". New `kickoff` input, off by default, because
+turn 1 now posts the kickoff comment itself.
+
+Four things worth knowing:
+
+- **`if: always()` on the preview job was a bug I wrote and caught.** A job
+  whose `if:` rejects it is *skipped*, and `always()` treats skipped as reason
+  to run. build-turn's four comment guards live on the `turn` job, so a
+  comment from the bot would skip the agent and then cheerfully report on a
+  turn that never happened. It is
+  `!cancelled() && needs.turn.result != 'skipped'` in both files.
+- **The OIDC subject changed shape and nobody had to do anything.** Previews
+  used to deploy on `pull_request` events; they now deploy from
+  `workflow_dispatch` and `issue_comment`, which Actions runs against the
+  default branch and which therefore present `…:ref:refs/heads/main`. That
+  federated credential already existed as the retry path. The two subjects
+  swapped which is the common case; `pull_request` is now only
+  `build-teardown.yml`.
+- **`upload-artifact@v4` roots the artifact at the least common ancestor of
+  its search paths.** With `.agent/in/` and `.agent/out/` that is `.agent`, so
+  entries are `in/…` and `out/…` and `download-artifact` with `path: .agent`
+  puts them back where `readMeta()` looks. No code changed for this to work:
+  `report` reads `meta.json` and `result.json` off disk, and `preview-up`
+  already wrote the URL into whatever `meta.json` it found.
+- **A push to a card branch by hand no longer redeploys.** That was
+  `synchronize`, and it is gone. Run `build-setup.yml`. In practice someone
+  pushing to a card branch was going to check the result themselves anyway.
+
+The cost, stated plainly: a turn's wall-clock now includes the image build,
+because reporting waits on it. That is not avoidable. To say "there is
+something to look at" you have to wait until there is.
+
 ### A preview link that works the moment it is clicked
 
 The first real preview came up and took 30-40 seconds to answer, which is long

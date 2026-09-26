@@ -31,12 +31,21 @@ The App token is minted per step by `actions/create-github-app-token`, lives for
 an hour, and is never in scope while the agent is running.
 
 The same holds for the preview's Azure credential, and slightly more strongly.
-It is obtained by OIDC in `build-setup.yml` and `build-teardown.yml` — two
-workflows that never run an agent — so there is nothing long-lived to store in
-the repository at all, and the credential does not exist in any job an agent can
-reach. This is why raising the preview is a separate workflow rather than a step
-of `build-start.yml`: `packages: write`, `deployments: write` and `id-token:
-write` must not be in scope while the agent runs.
+It is obtained by OIDC, so there is nothing long-lived to store in the
+repository at all, and it is obtained in a **job that never runs an agent** —
+the `preview` job of `build-start.yml` and `build-turn.yml`, or the whole of
+`build-teardown.yml`, `build-setup.yml` and `production.yml`. `packages: write`,
+`deployments: write` and `id-token: write` must not be in scope while the agent
+runs, and they are not.
+
+The unit of that boundary is the job, not the workflow. A GitHub Actions job
+carries its own `permissions:` block and gets its own `GITHUB_TOKEN`, so two
+jobs in one file are as strongly separated as two files — the agent job's token
+is minted with `contents: read` and cannot be widened from inside the job.
+Deployment used to live in a separate workflow for this reason; it moved into a
+second job so that reporting could wait on it (see
+[ADR 0003](../adr/0003-the-turn-raises-its-own-preview.md)), and the boundary
+came along unchanged.
 
 What that credential can do is also bounded, and deliberately: `Contributor` on
 one resource group, and `Managed Identity Operator` on one managed identity.
@@ -45,6 +54,24 @@ constraint is the reason previews pull with a user-assigned identity granted
 `AcrPull` up front by Terraform — `--registry-identity system` would have
 required **User Access Administrator** on the group, which is the power to
 grant. See `infra/azure/README.md`.
+
+`production.yml` is the most privileged thing in the factory and holds no
+Anthropic key at all. It runs on a merged pull request, so no model is in the
+loop: the code it deploys was written by an agent in an earlier run, reviewed
+by a human, and approved at the merge button. It carries Azure by OIDC,
+`deployments: write`, an App token and `JIRA_BOT_TOKEN` — enough to put a
+container on the public internet and close a card — and every one of those is
+exercised by a shell step running `factory production-up` and `factory ship`,
+with no prompt anywhere near them. It reuses the `repo:<slug>:pull_request`
+federated credential the preview jobs already use, so shipping added no new way
+into the subscription.
+
+It is also the only thing that can move a card to *Done*. That restriction is
+enforced on Jira's side by a transition condition rather than by anything in
+this repository (see `docs/factory/SETUP.md`), which means the guarantee rests
+on `JIRA_BOT_TOKEN` not being shared: anyone holding it can close a card
+without deploying anything. It was already the credential that speaks as the
+factory; it is now also the credential that says a thing is live.
 
 The preview **launcher** adds one public page and no credential. It is a static
 file on Azure Storage that takes a preview URL in `?u=` and redirects to it, so
@@ -232,15 +259,26 @@ threat model:
   agent run producing a diff on a draft PR that a human still has to approve.
   The control is the same as everywhere else here: nothing triage starts can
   reach `main`.
-- **`build-setup.yml` builds the PR's code with `packages: write` and an Azure
+- **The `preview` job builds the PR's code with `packages: write` and an Azure
   credential in scope.** That is inherent to previewing a branch — you cannot
-  preview code without running it. Two things bound it. The workflow file itself
-  is read from the base branch on a `pull_request` event, so the agent cannot
-  change what runs; and `factory validate` rejects any turn touching `.github/`,
-  `factory/`, `bootstrap/` or `.agent/` before it reaches the branch. What is
+  preview code without running it. Two things bound it. The workflow file
+  itself is read from the default branch on `workflow_dispatch` and
+  `issue_comment`, so the agent cannot change what runs even though it can
+  write to the branch being built; and `factory validate` rejects any turn
+  touching `.github/`, `factory/`, `bootstrap/` or `.agent/` before it reaches
+  the branch. Note the job checks out the *card branch*, not the merge commit,
+  and restores the turn's `.agent/` artifact — neither of which can alter the
+  steps, only what they build. What is
   *not* bounded is `npm ci` and the Docker build running install scripts from
   `app/package.json` — the same gap as the dependency point above, with a
   narrower credential in the room. The control is the human reading the diff.
+- **Whatever reaches `main` is deployed to the public internet.** `production.yml`
+  builds the merge commit and serves it, so the last gate in front of production
+  is the pull request review, not anything in this list. The blast radius is
+  larger than a preview's in exactly one way: the preview is a URL you chose to
+  open, and production is a site that stays up. The rulesets are what make that
+  review unavoidable — one approval, `ci` green, no direct pushes — and they are
+  also, being repository configuration, editable by anyone with admin rights.
 - **Anyone with write access to this repository.** They can edit the workflows,
   the manuals and the validator. Every control here assumes the repository
   itself is trusted; `CODEOWNERS` marks those paths but does not enforce review

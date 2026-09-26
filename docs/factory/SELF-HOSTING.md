@@ -7,24 +7,37 @@ does and what it takes to turn the second one on.
 
 ## When the preview is raised
 
-Both backends are raised by `build-setup.yml`, which triggers on the pull
-request itself rather than on a dispatch:
+Both backends are raised by the turn that produced the code, in a second job of
+the same workflow run:
 
-| Event | Effect |
+| Where | Effect |
 | --- | --- |
-| `labeled` with `factory:active` | Raise the preview, post the kickoff comment |
-| `synchronize` (any push to the PR) | Re-raise the preview at the new commit |
-| `pull_request: closed` (`build-teardown.yml`) | Tear it down |
+| `build-start.yml`, job `preview` | Raise the preview, post the kickoff comment, then report |
+| `build-turn.yml`, job `preview` | Re-raise it at the new commit, then report |
+| `build-teardown.yml` on `pull_request: closed` | Tear it down |
+| `build-setup.yml` on `workflow_dispatch` | Manual retry, when a `preview` job failed |
 
-The label arrives at the end of turn 1, when `factory publish` adds it. That
-works as a trigger only because the label is applied with the **App
-installation token** — events created with `GITHUB_TOKEN` deliberately do not
-start new workflow runs, and this is the one place the distinction is load
-bearing.
+The ordering is the point. `report` is the last step of the `preview` job, so
+the card only reaches *In review* — which is an instruction to a human to go
+and look — once the preview serving that turn's code has answered. The Jira
+comment carries the link for the same reason: by the time it is written, there
+is a link to carry.
 
-`synchronize` is what makes the preview track the branch. Every build turn
-pushes, so every build turn re-enters `preview-up`; both backends are
-idempotent for a given PR number.
+Previews used to be raised by the pull request's own `labeled` and
+`synchronize` events, in `build-setup.yml`. That ran *after* the turn had
+already finished and already told Jira, so turn 1's comment could never carry a
+preview link and the card reached *In review* while the image was still
+building. The invariant that replaces it: **a preview is raised by the turn
+that produced the code, never by a pull request event.**
+
+The cost is that pushing a commit to a card branch by hand no longer redeploys
+on its own. Run `build-setup.yml` for that. Both backends are idempotent for a
+given PR number, so a retry is safe.
+
+The credentials that deploy — `packages: write`, `deployments: write`, Azure
+OIDC — live on the `preview` job, never on the job that runs the agent. Jobs
+carry their own `permissions:` block, so that boundary is exactly as strong as
+the separate workflow it replaced. See `SECURITY.md`.
 
 ## Backend: `ghcr` (default)
 
@@ -170,6 +183,44 @@ is a few seconds of cold start on the first request after idle — worth saying
 out loud on the PR, because a reviewer who clicks and sees nothing for four
 seconds assumes it is broken.
 
+### Production
+
+One more Container App, in the same environment, on the same registry: merging
+a card's pull request builds the merge commit and deploys it to
+`<prefix>-production`. `.github/workflows/production.yml` does it, and only once
+the site answers does it move the card to *Done*. See
+[ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md).
+
+Two differences from a preview, and no others:
+
+| | Preview | Production |
+| --- | --- | --- |
+| `min-replicas` | 0 — sleeps, costs nothing idle | **1** — always warm |
+| Image tag | `pr-<n>` | **`main-<sha>`** |
+
+`min-replicas: 1` is the first thing in this factory that bills while nobody is
+looking — one replica, at the Container Apps default allocation, 24 hours a
+day. That is a real monthly figure rather than the rounding error a scaled-to-
+zero preview is, and it is the price of no cold start, which is why production
+is linked directly rather than through the launcher. `max-replicas: 2` only
+lets a new revision come up beside the old one during a deploy; at rest one
+replica runs.
+
+Tagging by commit is not cosmetic. `az containerapp update --image` creates a
+new revision only when the image *reference* changes, so pushing fresh bytes to
+a fixed `latest` tag would leave the old revision serving — a deploy that looks
+successful forever. It also makes rollback "deploy the previous tag", though
+there is no command for that yet.
+
+**Nothing changes on the `ghcr` backend.** There is no URL to prove and no site
+to point anyone at, so `production.yml` skips itself, and a card stays in
+review after its PR is merged. The factory works exactly as before, minus the
+last step.
+
+No new Azure credential was needed: production runs on a `pull_request` event,
+and `repo:<slug>:pull_request` is a federated credential subject the preview
+jobs already use.
+
 ### Other hosts
 
 Nothing about the factory is Azure-specific. `previewUp` in
@@ -224,7 +275,7 @@ six workflows. Two things to think about first:
   runners the VM is destroyed after the job. A self-hosted runner is not, so a
   build turn's `npm run build` runs on hardware that persists. Use ephemeral
   runners, or containers, or both.
-- **`docker build` in `build-setup.yml`** needs a Docker daemon the runner can
+- **`docker build` in the `preview` jobs** needs a Docker daemon the runner can
   reach — on the `ghcr` backend only. The `azure` backend builds in ACR Tasks
   and needs no daemon, just the `az` CLI.
 
@@ -241,8 +292,9 @@ between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 | Anthropic API | The dominant cost. Capped per step by `--max-budget-usd` |
 | GitHub Actions | Free on public repositories; the poller is 144 short runs/day |
 | GHCR storage | One image per open PR, deleted on close (`ghcr` backend) |
-| Azure Container Apps | Scales to zero; an idle preview bills nothing (`azure` backend) |
-| Azure Container Registry | Basic tier, one tag per open PR, deleted on close |
+| Azure Container Apps — previews | Scale to zero; an idle preview bills nothing (`azure` backend) |
+| Azure Container Apps — production | **One replica, always on.** The only thing here that bills while idle |
+| Azure Container Registry | Basic tier, one tag per open PR deleted on close, plus one per merge kept |
 | Jira Cloud Free | Free to 10 users |
 
 The poller is the only thing that runs unattended, and it does nothing but one

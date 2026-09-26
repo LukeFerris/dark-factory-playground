@@ -291,7 +291,26 @@ export function packageVersionsPath(): string {
   return `${scope}/${owner}/packages/container/${repo}/versions`
 }
 
-export function createDeployment(sha: string, environment: string, environmentUrl: string): void {
+/**
+ * `transient` is what tells GitHub the environment is going to be destroyed,
+ * which is how the UI knows to stop showing a preview once its PR is gone.
+ * Production is the opposite of transient and says so, otherwise the one
+ * deployment anybody actually cares about would be the one GitHub hides.
+ */
+export interface DeploymentOptions {
+  transient?: boolean
+  production?: boolean
+}
+
+export function createDeployment(
+  sha: string,
+  environment: string,
+  environmentUrl: string,
+  options: DeploymentOptions = {},
+): void {
+  const transient = options.transient ?? true
+  const production = options.production ?? false
+
   const deployment = ghJson<{ id: number }>([
     'api',
     `repos/${repoSlug()}/deployments`,
@@ -304,7 +323,9 @@ export function createDeployment(sha: string, environment: string, environmentUr
     '-F',
     'auto_merge=false',
     '-F',
-    'transient_environment=true',
+    `transient_environment=${transient}`,
+    '-F',
+    `production_environment=${production}`,
     '-f',
     'required_contexts[]',
   ])

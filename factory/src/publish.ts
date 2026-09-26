@@ -148,9 +148,14 @@ export function publish(options: PublishOptions): PullRequest | null {
 
   // Every turn, not only the one that creates the PR. The design stage opens
   // it now, so by the time the build stage publishes there is already a pull
-  // request — and factory:active, which is the trigger build-setup.yml and
-  // build-turn.yml both key on, would never be applied at all. Adding a label
-  // that is already present is a no-op.
+  // request — and factory:active, which build-turn.yml's comment guard keys
+  // on, would never be applied at all. Adding a label that is already present
+  // is a no-op.
+  //
+  // It is no longer a *trigger* for anything. It used to start build-setup.yml
+  // on `labeled`, which is why it had to be applied with the App token rather
+  // than GITHUB_TOKEN; that requirement has gone with ADR 0003, but the App
+  // token is what publishes anyway.
   addLabel(pr.number, `factory:${options.stage}`)
   if (options.stage === 'build') addLabel(pr.number, 'factory:active')
 

@@ -2,7 +2,14 @@ import { spawnSync } from 'node:child_process'
 import { REPO_ROOT, optional, required } from './env.ts'
 
 /**
- * Azure Container Apps previews — one app per pull request.
+ * Azure Container Apps — one app per pull request, plus one for production.
+ *
+ * Previews and production are the same shape deliberately: the same registry,
+ * the same Container Apps environment, the same managed identity, the same
+ * Dockerfile. The only differences that matter are the name, the image tag and
+ * the scale, and they are all arguments. A production environment that is
+ * built a different way from the thing you reviewed is not a preview of
+ * anything.
  *
  * Every Azure call shells out to `az`, for the same reason every GitHub call
  * shells out to `gh`: the credential question stays in the workflow YAML
@@ -90,8 +97,51 @@ export function previewAppName(prNumber: number, prefix = 'df'): string {
   return name
 }
 
+/**
+ * The one long-lived app, sharing everything with the previews except its
+ * lifetime and its scale.
+ *
+ * `AZURE_PREVIEW_PREFIX` names the whole estate rather than just the previews
+ * — it is what stops two factories sharing a Container Apps environment from
+ * colliding, and production needs that every bit as much as `pr-1` does. The
+ * variable keeps its name because renaming it would strand every deployment
+ * already configured against it.
+ */
+export function productionAppName(prefix = 'df'): string {
+  const name = `${prefix}-production`
+  if (!/^[a-z][a-z0-9-]{0,30}[a-z0-9]$/.test(name)) {
+    throw new Error(
+      `Derived Container App name "${name}" is not a legal name. ` +
+        `AZURE_PREVIEW_PREFIX must be lowercase letters, digits and hyphens.`,
+    )
+  }
+  return name
+}
+
 export function previewImage(config: AzureConfig, prNumber: number): string {
   return `${config.registry}.azurecr.io/${config.repository}:pr-${prNumber}`
+}
+
+/**
+ * Production images are tagged by the commit they were built from, never by a
+ * moving name like `latest`.
+ *
+ * Two reasons. A rollback is then "deploy the previous tag" rather than "hope
+ * the registry still has the old bytes under a name something else has since
+ * overwritten". And `az containerapp update --image` only creates a new
+ * revision when the image reference changes — pushing new bytes to an
+ * unchanged tag would leave the old revision serving, which is the sort of
+ * deployment that appears to work for a week.
+ */
+export function assertCommitSha(sha: string): string {
+  if (!/^[0-9a-f]{7,40}$/.test(sha)) {
+    throw new Error(`Expected a git commit SHA to tag the production image with, got "${sha}".`)
+  }
+  return sha
+}
+
+export function productionImage(config: AzureConfig, sha: string): string {
+  return `${config.registry}.azurecr.io/${config.repository}:main-${assertCommitSha(sha)}`
 }
 
 /**
@@ -101,19 +151,30 @@ export function previewImage(config: AzureConfig, prNumber: number): string {
  * job needs no Docker daemon at all. The context is the repository root, not
  * `app/` — see the note at the top of app/Dockerfile.
  */
-export function buildImage(config: AzureConfig, prNumber: number): string {
+function buildTag(config: AzureConfig, tag: string): void {
   az([
     'acr',
     'build',
     '--registry',
     config.registry,
     '--image',
-    `${config.repository}:pr-${prNumber}`,
+    `${config.repository}:${tag}`,
     '--file',
     'app/Dockerfile',
     '.',
   ])
+}
+
+export function buildImage(config: AzureConfig, prNumber: number): string {
+  buildTag(config, `pr-${prNumber}`)
   return previewImage(config, prNumber)
+}
+
+/** The same build as a preview's, from the merge commit, under an immutable tag. */
+export function buildProductionImage(config: AzureConfig, sha: string): string {
+  const image = productionImage(config, sha)
+  buildTag(config, `main-${sha}`)
+  return image
 }
 
 function appExists(config: AzureConfig, name: string): boolean {
@@ -190,10 +251,25 @@ export function setPreviewCooldown(config: AzureConfig, name: string, seconds: n
  * sees a certificate and there is no DNS to configure. The pull uses a managed
  * identity either way — no registry credential is stored anywhere.
  */
-export function deployPreview(config: AzureConfig, prNumber: number, prefix?: string): string {
-  const name = previewAppName(prNumber, prefix)
-  const image = previewImage(config, prNumber)
+export interface AppScale {
+  min: number
+  max: number
+}
 
+/**
+ * Creates the app, or repoints an existing one at a new image.
+ *
+ * Both paths are needed because every caller here runs more than once for the
+ * same app: a preview is re-raised by every build turn, and production is
+ * re-deployed by every merge.
+ *
+ * Note what the update path does NOT do: it sets the image and nothing else.
+ * Scale is a create-time decision, so changing the constants below will not
+ * move an app that already exists — unlike the preview cooldown, which is
+ * reapplied every turn precisely so it converges. Changing an app's scale
+ * means deleting it and letting the next run rebuild it.
+ */
+function upsertApp(config: AzureConfig, name: string, image: string, scale: AppScale): void {
   // A user-assigned identity has to be attached to the app before it can be
   // named as the one that pulls; `system` is Azure creating that identity
   // itself, so there is nothing to attach.
@@ -213,50 +289,36 @@ export function deployPreview(config: AzureConfig, prNumber: number, prefix?: st
       '--image',
       image,
     ])
-  } else {
-    az([
-      'containerapp',
-      'create',
-      '--name',
-      name,
-      '--resource-group',
-      config.resourceGroup,
-      '--environment',
-      config.environment,
-      '--image',
-      image,
-      '--target-port',
-      '8080',
-      '--ingress',
-      'external',
-      '--registry-server',
-      `${config.registry}.azurecr.io`,
-      ...identity,
-      // Scale to zero between visits. A preview that nobody is looking at
-      // should cost nothing. The trade is a cold start — measured at 22
-      // seconds, not the few this comment used to claim — which is why the
-      // cooldown below is raised and why human-facing links go through the
-      // launcher.
-      '--min-replicas',
-      '0',
-      '--max-replicas',
-      '1',
-    ])
+    return
   }
 
-  // Applied on both paths, every turn, so that changing the repository
-  // variable converges without anyone having to recreate an app. A cold start
-  // is a nuisance; failing the deployment over one would be worse, so this
-  // warns rather than throws.
-  try {
-    setPreviewCooldown(config, name, previewCooldownSeconds())
-  } catch (error) {
-    console.warn(
-      `::warning::could not set the scale-to-zero cooldown on ${name}, so it keeps ` +
-        `Azure's 300s default: ${(error as Error).message}`,
-    )
-  }
+  az([
+    'containerapp',
+    'create',
+    '--name',
+    name,
+    '--resource-group',
+    config.resourceGroup,
+    '--environment',
+    config.environment,
+    '--image',
+    image,
+    '--target-port',
+    '8080',
+    '--ingress',
+    'external',
+    '--registry-server',
+    `${config.registry}.azurecr.io`,
+    ...identity,
+    '--min-replicas',
+    String(scale.min),
+    '--max-replicas',
+    String(scale.max),
+  ])
+}
 
+/** The app's external HTTPS URL, or a throw if it has no ingress. */
+function appUrl(config: AzureConfig, name: string): string {
   const fqdn = az([
     'containerapp',
     'show',
@@ -274,6 +336,70 @@ export function deployPreview(config: AzureConfig, prNumber: number, prefix?: st
     throw new Error(`Container App ${name} reported no ingress FQDN. Is ingress external?`)
   }
   return `https://${fqdn}`
+}
+
+/**
+ * Scale to zero between visits. A preview that nobody is looking at should
+ * cost nothing. The trade is a cold start — measured at 22 seconds — which is
+ * why the cooldown is raised and why human-facing links go through the
+ * launcher.
+ */
+const PREVIEW_SCALE: AppScale = { min: 0, max: 1 }
+
+/**
+ * Production never sleeps: `min` is 1, so there is no cold start and no
+ * launcher in front of it. That is the whole difference, and it is also the
+ * first thing in this factory that costs money while nobody is looking at it.
+ *
+ * `max` is 2 rather than 1 so that a new revision can come up alongside the
+ * old one during a deployment instead of replacing it. Idle cost is unchanged
+ * — Container Apps bills the replicas actually running, and at rest that is
+ * one.
+ */
+const PRODUCTION_SCALE: AppScale = { min: 1, max: 2 }
+
+/**
+ * Creates the preview app, or repoints an existing one at the new image.
+ *
+ * Safe to call repeatedly: the first push to a build branch creates the app,
+ * every later turn updates it. Returns the HTTPS URL.
+ *
+ * Ingress is external with a target port of 8080, matching the Dockerfile.
+ * Azure terminates TLS at the edge and issues the certificate, so nginx never
+ * sees a certificate and there is no DNS to configure. The pull uses a managed
+ * identity either way — no registry credential is stored anywhere.
+ */
+export function deployPreview(config: AzureConfig, prNumber: number, prefix?: string): string {
+  const name = previewAppName(prNumber, prefix)
+  upsertApp(config, name, previewImage(config, prNumber), PREVIEW_SCALE)
+
+  // Applied on both paths, every turn, so that changing the repository
+  // variable converges without anyone having to recreate an app. A cold start
+  // is a nuisance; failing the deployment over one would be worse, so this
+  // warns rather than throws.
+  try {
+    setPreviewCooldown(config, name, previewCooldownSeconds())
+  } catch (error) {
+    console.warn(
+      `::warning::could not set the scale-to-zero cooldown on ${name}, so it keeps ` +
+        `Azure's 300s default: ${(error as Error).message}`,
+    )
+  }
+
+  return appUrl(config, name)
+}
+
+/**
+ * Creates the production app, or repoints it at the image built from `sha`.
+ *
+ * Same environment, same registry, same identity and same Dockerfile as every
+ * preview — see the note at the top of this file. Returns the HTTPS URL, which
+ * is stable across deployments because the app is never deleted.
+ */
+export function deployProduction(config: AzureConfig, sha: string, prefix?: string): string {
+  const name = productionAppName(prefix)
+  upsertApp(config, name, productionImage(config, sha), PRODUCTION_SCALE)
+  return appUrl(config, name)
 }
 
 /**

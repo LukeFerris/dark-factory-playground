@@ -1,0 +1,137 @@
+name: factory production
+
+# Ships a merged card: deploys main to production, then moves the card to Done.
+#
+# This is the half of the loop that did not exist. Before it, a merged pull
+# request landed code on main, `build-teardown.yml` destroyed the preview it
+# had been reviewed on, and nothing replaced it — the factory could design,
+# build and review software but had never shipped any.
+#
+# The order is the point, and it is the same order build-start.yml uses for
+# previews: deploy first, prove the site answers, and only then tell Jira. A
+# card that reads Done before the deployment is live is a card that lies, and
+# a status no human is allowed to set has to be worth trusting.
+#
+# Runs on `pull_request: closed` rather than on `push: main` for two reasons.
+# The card key is on the pull request — in its factory block, and in its
+# `card/<KEY>-` branch name — and recovering it from a bare push means asking
+# the API which PR a commit came from. And the main ruleset forbids pushing to
+# the default branch directly, so every commit that should reach production
+# arrives through a pull request by construction.
+#
+# Holds no Anthropic key: there is no agent in here, only `az` and two API
+# calls.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+# One deployment at a time. Two merges in quick succession would otherwise
+# race on the same Container App and Azure would reject the second with
+# ContainerAppOperationInProgress — which is exactly how the old
+# pull_request-triggered preview failed when it collided with a turn.
+# `cancel-in-progress: false` because the loser of that race is a commit that
+# still has to reach production, not a stale run worth dropping.
+concurrency:
+  group: factory-production
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    # Merged, not merely closed: abandoning a pull request must not ship it or
+    # mark its card Done. `card/` keeps this off the factory's own maintenance
+    # PRs. And production only exists on the Azure backend — the ghcr stub
+    # pushes an image nobody serves, so there would be no site to point a
+    # human at and nothing to justify closing the card.
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'card/') &&
+      vars.FACTORY_PREVIEW_BACKEND == 'azure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      deployments: write
+      id-token: write
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      # The merge commit on main, not the PR head. Production serves the
+      # default branch, and on a squash merge the head commit is not on the
+      # default branch at all.
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Federated credentials — no Azure secret is stored in this repository.
+      # A pull_request event presents the subject `repo:<slug>:pull_request`,
+      # which infra/azure/identity.tf already provisions for build-teardown,
+      # so this workflow needed no new credential.
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Add the containerapp extension
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      # Builds the merge commit in ACR, deploys it, and blocks until the site
+      # answers. Production has no cold start to spend — it never scales to
+      # zero — so this is purely the check that the container actually serves
+      # before anything downstream claims it does.
+      #
+      # `tee /dev/stderr` keeps the whole log visible while `tail -n 1` takes
+      # the URL, which the CLI prints last and on its own.
+      - name: Deploy production
+        id: deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
+          AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
+          AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
+          AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
+        run: |
+          set -euo pipefail
+          url="$(npm run --silent factory -- production-up "${SHA}" | tee /dev/stderr | tail -n 1)"
+          case "$url" in
+            https://*) ;;
+            *) echo "::error::production-up printed no URL; refusing to close the card"; exit 1 ;;
+          esac
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # Only reached if the deployment above answered. Moving the card is the
+      # last thing that happens, and it is the only thing in the factory that
+      # writes the Done status — the Jira workflow condition restricts that
+      # transition to the bot, so a human dragging the card there is refused
+      # and this is the sole way a card reaches it.
+      - name: Move the card to Done
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- ship "${PR}" --url "${{ steps.deploy.outputs.url }}"

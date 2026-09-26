@@ -1,56 +1,56 @@
 name: factory build setup
 
-# Raises the preview for a build PR and posts the kickoff comment. Split out of
-# build-start.yml because this is the only agent-adjacent job that needs
-# packages: write, deployments: write and an Azure credential, and none of those
-# may be in scope while the agent is running.
+# The manual path for raising a preview. Nothing dispatches this — it is what
+# a human runs when a turn's own preview job failed and the fix is "try the
+# deploy again" rather than "run the turn again". See RUNBOOK.
 #
-# Triggered by the `factory:active` label landing on the PR, and re-triggered by
-# every push to it. Both matter:
+# It used to run on `labeled` and `synchronize`, so the preview was raised by
+# the pull request's own events, after the turn that produced the code had
+# already finished and already told Jira. That is what put a card into "In
+# review" pointing at a container that was still being built, and it is why
+# turn 1's Jira comment could never carry a preview link: `report` ran in the
+# other workflow, minutes earlier.
 #
-#   labeled     — `factory publish` adds factory:active at the end of turn 1.
-#                 It does that with the App token, and events made with an App
-#                 installation token DO start workflow runs (events made with
-#                 GITHUB_TOKEN do not), so the label is a usable trigger.
-#   synchronize — every later turn pushes. Without this the preview would show
-#                 turn 1 forever, which is worse than having no preview.
+# Both triggers are therefore gone. build-start.yml and build-turn.yml each
+# deploy in a second job of their own, before reporting. The invariant that
+# replaces the old one is simpler to hold in your head:
 #
-# workflow_dispatch stays as the manual retry path; see RUNBOOK.
+#     a preview is raised by the turn that produced the code, never by a
+#     pull request event.
 #
-# On `pull_request` the workflow file is read from the base branch, so the agent
-# cannot edit what runs here — but the *code* being checked out and built is the
-# PR's. That is inherent to previewing a branch. The boundary holding it is the
-# same one the rest of the factory rests on: `factory validate` rejects any turn
-# touching .github/, factory/, bootstrap/ or .agent/ before it reaches the
-# branch. No credential minted in this job is ever handed to an agent step.
+# The cost is that a commit pushed to a card branch by hand no longer
+# redeploys on its own. Run this workflow for that, which is the same thing a
+# human would have to do anyway to check it worked.
+#
+# On `workflow_dispatch` the workflow file is read from the default branch and
+# the *code* built is the PR's. That is inherent to previewing a branch. The
+# boundary holding it is the same one the rest of the factory rests on:
+# `factory validate` rejects any turn touching .github/, factory/, bootstrap/
+# or .agent/ before it reaches the branch. No credential minted in this job is
+# ever handed to an agent step.
 
 on:
-  pull_request:
-    types: [labeled, synchronize]
   workflow_dispatch:
     inputs:
       pr:
         description: 'Pull request number'
         required: true
         type: string
+      kickoff:
+        description: 'Also post the kickoff comment (only if turn 1 never did)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: factory-preview-${{ inputs.pr || github.event.pull_request.number }}
+  group: factory-preview-${{ inputs.pr }}
   cancel-in-progress: true
 
 jobs:
   preview:
-    # `labeled` fires for every label, so match the exact one rather than
-    # testing the label set — otherwise adding any unrelated label to an active
-    # PR would re-post the kickoff comment.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'labeled' && github.event.label.name == 'factory:active') ||
-      (github.event.action == 'synchronize' &&
-       contains(github.event.pull_request.labels.*.name, 'factory:active'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -59,20 +59,18 @@ jobs:
       deployments: write
       id-token: write
       # `preview-up` writes the preview URL into the PR's factory block, which
-      # is the only copy that outlives this runner: the kickoff comment below
-      # and every later build turn read it back from there. Editing a body
-      # needs this scope. It was missing while the block was unreadable, so
-      # nothing ever tried.
+      # is the copy that outlives this runner: every later build turn reads it
+      # back from there. Editing a body needs this scope.
       pull-requests: write
     env:
-      PR: ${{ inputs.pr || github.event.pull_request.number }}
+      PR: ${{ inputs.pr }}
     steps:
       - uses: actions/checkout@v4
         with:
           # The PR's head, not the merge commit Actions checks out by default.
           # A preview of a merge commit is a preview of something that exists
           # nowhere and that nobody asked to look at.
-          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
+          ref: refs/pull/${{ inputs.pr }}/head
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -102,15 +100,17 @@ jobs:
 
       - name: Mint App token
         id: app-token
+        if: inputs.kickoff
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_KEY }}
 
-      # GITHUB_TOKEN carries the packages:write and deployments:write scopes
-      # granted above; the App token is what comments as the factory identity.
+      # There is no meta.json on this runner — this workflow is not a turn —
+      # so `preview-up` records the URL on the pull request's factory block
+      # only. That is the copy the next turn reads, which is what makes this a
+      # usable retry: the turn that comes after picks the URL up from there.
       - name: Raise the preview
-        id: preview
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -122,21 +122,16 @@ jobs:
           AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
           AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
           AZURE_PREVIEW_COOLDOWN_SECONDS: ${{ vars.AZURE_PREVIEW_COOLDOWN_SECONDS }}
-          # Wraps the Deployment's "View deployment" link, and nothing else
-          # here: the URL written into the PR's factory block stays raw,
-          # because that is the one the agent curls next turn.
           AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        # This step now waits for the preview to answer before it returns, so
-        # the cold start is spent here rather than in a reviewer's tab — and a
-        # container that never serves fails the job instead of being published
-        # as a working link. Budget is three minutes.
+        # Waits for the preview to answer before returning, so a container
+        # that never serves fails the job instead of being published as a
+        # working link. Budget is three minutes.
         run: npm run --silent factory -- preview-up "${PR}"
 
-      # Once per PR, not once per push. The kickoff comment explains how turns
-      # are granted; repeating it on every turn would bury the conversation it
-      # is asking the human to have.
+      # Off by default. Turn 1 posts the kickoff comment itself, so running
+      # this workflow as a retry would otherwise post a second one.
       - name: Post the kickoff comment
-        if: github.event.action != 'synchronize'
+        if: inputs.kickoff
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}

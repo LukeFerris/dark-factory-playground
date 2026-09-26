@@ -4,12 +4,16 @@ import {
   azRunner,
   azureConfig,
   buildImage,
+  buildProductionImage,
   deletePreviewApp,
   deletePreviewImage,
   deployPreview,
+  deployProduction,
   previewAppName,
   previewCooldownSeconds,
   previewImage,
+  productionAppName,
+  productionImage,
   setPreviewCooldown,
   setRunner,
   type AzureConfig,
@@ -265,6 +269,93 @@ describe('the scale-to-zero cooldown', () => {
     expect(deployPreview(config, 7)).toBe(
       'https://df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io',
     )
+  })
+})
+
+describe('production', () => {
+  it('is one app, named for the estate rather than for a PR', () => {
+    expect(productionAppName()).toBe('df-production')
+    expect(productionAppName('shop')).toBe('shop-production')
+  })
+
+  it('rejects a prefix that would produce an illegal name', () => {
+    expect(() => productionAppName('DF_Factory')).toThrow(/not a legal name/)
+  })
+
+  /**
+   * Tagged by commit, never `latest`. `az containerapp update --image` only
+   * makes a new revision when the reference changes, so pushing new bytes to a
+   * fixed tag would leave the old revision serving — a deployment that appears
+   * to work indefinitely.
+   */
+  it('tags the image with the commit it was built from', () => {
+    expect(productionImage(config, 'a1b2c3d')).toBe(
+      'acmefactory.azurecr.io/dark-factory-playground:main-a1b2c3d',
+    )
+  })
+
+  it('refuses a tag that is not a commit SHA', () => {
+    expect(() => productionImage(config, 'latest')).toThrow(/commit SHA/)
+    expect(() => productionImage(config, '')).toThrow(/commit SHA/)
+  })
+
+  it('builds from the repo root with app/Dockerfile, exactly as a preview does', () => {
+    const calls = stub(() => ({}))
+    expect(buildProductionImage(config, 'a1b2c3d')).toBe(
+      'acmefactory.azurecr.io/dark-factory-playground:main-a1b2c3d',
+    )
+    expect(calls[0]).toEqual([
+      'acr',
+      'build',
+      '--registry',
+      'acmefactory',
+      '--image',
+      'dark-factory-playground:main-a1b2c3d',
+      '--file',
+      'app/Dockerfile',
+      '.',
+    ])
+  })
+
+  /** The one difference that matters: production does not sleep. */
+  it('creates the app with a floor of one replica and no cooldown', () => {
+    const calls = stub((args) =>
+      isFqdnRead(args)
+        ? { stdout: 'df-production.kindsky.westeurope.azurecontainerapps.io\n' }
+        : args[1] === 'show'
+          ? { status: 1, stderr: 'ResourceNotFound' }
+          : {},
+    )
+
+    const url = deployProduction(config, 'a1b2c3d')
+
+    expect(url).toBe('https://df-production.kindsky.westeurope.azurecontainerapps.io')
+    const create = calls.find((c) => c[1] === 'create')
+    expect(create?.[create.indexOf('--min-replicas') + 1]).toBe('1')
+    // Room for a new revision to come up beside the old one during a deploy.
+    expect(create?.[create.indexOf('--max-replicas') + 1]).toBe('2')
+    // The scale-to-zero cooldown is meaningless when the floor is 1, and
+    // setting it would be a needless ARM write on every merge.
+    expect(calls.some((c) => c[0] === 'resource' && c[1] === 'update')).toBe(false)
+  })
+
+  it('updates an existing app rather than trying to create it again', () => {
+    const calls = stub((args) =>
+      isFqdnRead(args) ? { stdout: 'df-production.kindsky.westeurope.azurecontainerapps.io' } : {},
+    )
+
+    deployProduction(config, 'deadbee')
+
+    expect(calls.some((c) => c[1] === 'create')).toBe(false)
+    const update = calls.find((c) => c[1] === 'update')
+    expect(update?.[update.indexOf('--image') + 1]).toBe(
+      'acmefactory.azurecr.io/dark-factory-playground:main-deadbee',
+    )
+  })
+
+  it('throws rather than returning a URL with no host', () => {
+    stub((args) => (isFqdnRead(args) ? { stdout: '\n' } : {}))
+    expect(() => deployProduction(config, 'a1b2c3d')).toThrow(/no ingress FQDN/)
   })
 })
 
