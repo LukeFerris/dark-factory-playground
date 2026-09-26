@@ -68,6 +68,14 @@ picks the card up, one when it puts it down. A Jira status change notifies
 nobody and does not show up in the comment stream, so without the first of those
 a card being worked on for ten minutes reads exactly like a card being ignored.
 
+Two things a card carries are not comments. While a turn runs the card is
+**assigned** to the factory and handed back at the end, so the board view shows
+an avatar on whatever is being worked on right now; assignment notifies nobody,
+which is what makes it cheap enough to do every turn. And where to look — the
+pull request, the preview, and the live URL once it ships — goes on as
+**remote links**, one row each, replaced in place as they change, rather than a
+fresh comment per turn that the reader has to date-sort to use.
+
 ### Comments are the third entrance
 
 Dragging a card is not the only way to start work. Wherever the factory has

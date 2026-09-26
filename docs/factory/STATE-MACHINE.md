@@ -187,7 +187,8 @@ comment, addressed to a reader who is not going to open the branch.
 On the next turn `gather` marks the factory's own comments as *yours, on an
 earlier turn* in `task.md`, and tells the agent which round it is — counted from
 those same comments, so nothing has to store a counter. The start comments are
-excluded from both — see *A turn says when it starts* below.
+excluded from both — see *A turn says when it starts, and who has the card*
+below.
 
 ### What the model is and is not
 
@@ -212,7 +213,7 @@ and unchanged. `build-turn.yml` now has both entrances, and they run the same
 turn; see the header of that file for why the guards on the comment path cannot
 be applied to the dispatch one.
 
-## A turn says when it starts
+## A turn says when it starts, and who has the card
 
 A status change is silent. Jira notifies nobody about one, it does not appear in
 the comment stream, and on a board it is a card that moved one column while
@@ -245,6 +246,47 @@ Three decisions worth recording:
   `task.md`. They are also kept out of the task file on their own merits: they
   are addressed to a human waiting on the card, and "nothing is expected of you
   while this runs" read back by the agent that is running is worse than noise.
+
+### Three channels, because they are read in three places
+
+The comment is the loud one: it notifies watchers and lands in an email. Two
+other things about a running turn want saying, and neither wants that treatment.
+
+**The assignee** is what a board shows. `announce` assigns the card to the bot
+and `report` hands it back, so the avatar column answers "is anything happening
+on this card" from the one view where nobody opens a card at all. Assignment
+notifies nobody, so it costs a watcher nothing.
+
+Whoever held the card is saved first, in a hidden issue property
+(`factory-assignee`), and restored at the end. Two rules keep that from
+misbehaving:
+
+- **A re-run does not overwrite the saved holder.** If the factory already has
+  the card, `claimCard` leaves the property alone. Saving again would record the
+  bot as the previous holder and the card would be handed back to the bot from
+  then on, permanently.
+- **A human who takes the card mid-turn keeps it.** `releaseCard` only acts if
+  the factory is still the assignee. Taking a card is how somebody says "I am
+  dealing with this", and the end of the turn must not quietly undo it.
+
+**The links** — pull request, preview, live — are facts about the card that
+*change*, not events. As comments they accumulate: a four-turn build leaves four
+"Preview:" lines and the reader has to work out which still resolves. They are
+now also remote links, in the card's **Web links** panel, keyed by a fixed
+`globalId` so that posting the same one again replaces the row instead of adding
+to it. One row per thing, always current. `report` writes them at the end of
+every turn, which is the point at which the preview URL is actually known;
+`ship` replaces the preview row with **Live** and deletes the preview one,
+because `build-teardown.yml` destroys that container on the same merge.
+
+The comments keep their links too. A link panel is only read by somebody who has
+already opened the card, and the comment is what arrives in the email.
+
+One live-API detail worth keeping: Jira answers **415** to a `DELETE` with no
+`Content-Type` header, despite the request having no body and the documentation
+not mentioning it. `factory/src/jira.ts` sets the header on every DELETE and
+`progress.test.ts` pins it, because the failure mode is a warning in a log
+nobody reads.
 
 ## How a turn's result maps onto a move
 
@@ -317,8 +359,10 @@ you cannot declare the result shipped.
 
 The Jira bot is a plain licensed user, which on the project's default permission
 scheme is exactly what the factory needs — browse, comment, transition, edit,
-create — and nothing more: *Delete Issues* and *Administer Projects* are granted
-to a project role the bot is not in. Your own Jira credentials stay on your
+create, assign and link — and nothing more: *Delete Issues* and *Administer
+Projects* are granted to a project role the bot is not in. The last two of those
+are what let a turn hold the card while it runs and keep the card's links
+current; both were checked against the live site rather than assumed. Your own Jira credentials stay on your
 machine for `bootstrap/`, which creates the project and its statuses; they are
 never stored in GitHub. `bootstrap/github.sh` refuses to run if `JIRA_BOT_EMAIL`
 is your account, because a factory that comments as you cannot tell your replies

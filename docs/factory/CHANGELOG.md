@@ -71,6 +71,54 @@ was always a description of the common case rather than the rule. `gather` ran
 before the agent already, and `announce` now makes two. Corrected rather than
 worked around, because the security argument is only worth what its accuracy is.
 
+### Two things a card should show that are not comments
+
+Having just added a comment per turn, the obvious next move was to add more of
+them — the preview URL each build turn, "still working" for a long one. That is
+the wrong shape twice over. A URL that changes every turn posted as a comment
+accumulates one copy per turn, and the reader has to work out which one still
+resolves; and the card's *status* was never the problem, so the board view stays
+exactly as uninformative as it was.
+
+Jira has a channel for each, and neither is a comment:
+
+- **Remote links.** Identity is issue + `globalId`, so a `POST` with the same
+  id replaces the row rather than adding one. Three fixed ids — the pull
+  request, the preview, and the live URL once it ships — written by `report`
+  on every path it takes, including the one where the card does not move.
+  `ship` writes Live and deletes the preview, which by then points at a
+  container that has been torn down.
+- **The assignee.** The bot takes the card in `announce` and hands it back in
+  `report`, so a card being worked on carries an avatar in the column where
+  nobody opens cards. Assignment notifies nobody, which makes it right for
+  "in progress" and wrong for anything a person has to read — hence the start
+  comment stays.
+
+Two rules the assignee dance has to obey, both pinned by tests:
+
+- A re-run of `announce` finds the factory already holding the card and does
+  **not** save again. Saving would record the factory as the previous holder,
+  and `report` would then hand the card back to the bot — permanently, and for
+  every turn after.
+- `report` checks the card is still the factory's before handing it back. A
+  person taking a card mid-turn is them saying "I am dealing with this", and
+  the end of the turn must not undo it.
+
+Who had the card is kept in an issue property (`factory-assignee`), not in
+memory, because the two halves run in different jobs on different runners. A
+card left assigned to the bot is what a crashed turn looks like; the RUNBOOK
+says what to do about it, which is mostly nothing.
+
+None of this can fail a turn — every call warns and continues, the same rule
+`announce` follows.
+
+**Jira answers `415 Unsupported Media Type` to a `DELETE` with no
+`Content-Type`**, despite the request having no body and the documentation not
+mentioning it. Found by calling it. Without the header the preview link on a
+shipped card is never removed and nothing fails loudly enough to notice, so
+`call()` now sets the header on every DELETE and a test pins it — otherwise it
+reads like a redundant header somebody would helpfully delete.
+
 ## 2026-09-25
 
 ### The factory ships

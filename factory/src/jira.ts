@@ -3,6 +3,15 @@ import type { AdfDoc } from './adf.ts'
 
 /** Thrown for a 401/403 from Jira, so the CLI can exit 2 rather than 1. */
 export class JiraAuthError extends Error {}
+/**
+ * Thrown for a 404.
+ *
+ * Its own class because absence is routine for some of what the factory asks
+ * for — an issue property no card has ever had, a link it is removing for the
+ * second time — and "it is not there" should be distinguishable from "Jira
+ * broke" without reading the message.
+ */
+export class JiraNotFoundError extends Error {}
 /** Thrown when a named transition is not available from the card's current status. */
 export class JiraTransitionError extends Error {}
 
@@ -30,12 +39,18 @@ async function call(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
+  // DELETE carries no body and still has to declare a content type: Jira answers
+  // 415 Unsupported Media Type without one. Found by calling it, not by reading
+  // the docs, which say nothing about it — so this is load-bearing and pinned by
+  // a test rather than left to look like a redundant header.
+  const declaresType = body !== undefined || method === 'DELETE'
+
   const response = await fetch(`${cfg.base}${path}`, {
     method,
     headers: {
       Authorization: authHeader(cfg),
       Accept: 'application/json',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(declaresType ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
@@ -48,7 +63,8 @@ async function call(
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Jira ${method} ${path} failed: ${response.status} ${detail.slice(0, 500)}`)
+    const message = `Jira ${method} ${path} failed: ${response.status} ${detail.slice(0, 500)}`
+    throw response.status === 404 ? new JiraNotFoundError(message) : new Error(message)
   }
   if (response.status === 204) return null
   const raw = await response.text()
@@ -232,8 +248,92 @@ export async function setIssueProperty(
   )
 }
 
+/**
+ * Reads a named issue property back, or null if the card has never had one.
+ *
+ * Triage gets its marks for free on the search that finds the cards, so this is
+ * for the one-card case — `announce` remembering who held a card before it took
+ * it. A 404 here is the normal state of most cards and not an error.
+ */
+export async function getIssueProperty(
+  cfg: JiraConfig,
+  key: string,
+  property: string,
+): Promise<unknown> {
+  try {
+    const raw = (await call(
+      cfg,
+      'GET',
+      `/rest/api/3/issue/${encodeURIComponent(key)}/properties/${encodeURIComponent(property)}`,
+    )) as { value?: unknown } | null
+    return raw?.value ?? null
+  } catch (error) {
+    if (error instanceof JiraNotFoundError) return null
+    throw error
+  }
+}
+
 export async function addComment(cfg: JiraConfig, key: string, body: AdfDoc): Promise<void> {
   await call(cfg, 'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body })
+}
+
+/**
+ * Puts a link in the card's **Web links** panel, replacing the one that was
+ * there before.
+ *
+ * Keyed by `globalId`: Jira treats issue + globalId as the identity of a remote
+ * link, so posting the same id twice updates the row rather than adding a
+ * second. That is the whole reason this exists. A URL that changes — the
+ * preview, which is rebuilt every build turn — accumulates one copy per turn in
+ * the comment stream, and the reader has to work out which is current. As a
+ * link there is exactly one row and it is always the live one.
+ *
+ * Deliberately no icon. An icon is a URL on somebody else's CDN rendered inside
+ * the card, and a generic one costs nothing.
+ */
+export async function setRemoteLink(
+  cfg: JiraConfig,
+  key: string,
+  link: { globalId: string; title: string; url: string },
+): Promise<void> {
+  await call(cfg, 'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/remotelink`, {
+    globalId: link.globalId,
+    object: { url: link.url, title: link.title },
+  })
+}
+
+/** Removes the link with this `globalId`, if the card has one. */
+export async function deleteRemoteLink(
+  cfg: JiraConfig,
+  key: string,
+  globalId: string,
+): Promise<void> {
+  await call(
+    cfg,
+    'DELETE',
+    `/rest/api/3/issue/${encodeURIComponent(key)}/remotelink?globalId=${encodeURIComponent(globalId)}`,
+  )
+}
+
+/** The account id currently assigned to a card, or '' if nobody is. */
+export async function assigneeOf(cfg: JiraConfig, key: string): Promise<string> {
+  const issue = await getIssue(cfg, key)
+  const assignee = issue.fields['assignee'] as { accountId?: string } | null | undefined
+  return assignee?.accountId ?? ''
+}
+
+/**
+ * Assigns a card, or unassigns it when `accountId` is ''.
+ *
+ * Assignment is not a comment. It shows as an avatar on the board and a line in
+ * the card's history, and it notifies nobody — which makes it the right shape
+ * for "this is being worked on right now" and the wrong shape for anything a
+ * person needs to read.
+ */
+export async function assign(cfg: JiraConfig, key: string, accountId: string): Promise<void> {
+  await call(cfg, 'PUT', `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
+    accountId: accountId === '' ? null : accountId,
+  })
 }
 
 export interface Transition {
