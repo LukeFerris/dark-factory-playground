@@ -348,6 +348,41 @@ See *The PR is merged but the card is still in review*.
 
 ---
 
+## The card is still assigned to the bot
+
+A turn takes the card while it runs and hands it back in `report`. A run that
+died between the two — a cancelled workflow, a runner that vanished, an agent
+step that crashed the job — leaves the bot holding it. The card's status says
+the same thing: it will still be in *Designing* or *Building*.
+
+Nothing is stuck. Take the card back, or leave it; the next turn's `claimCard`
+finds the factory already assigned and does not overwrite what it saved, so the
+original holder survives however many times this happens.
+
+```bash
+# Who the factory thinks had it before
+curl -s -u "$JIRA_USER:$JIRA_TOKEN" \
+  "$JIRA_BASE/rest/api/3/issue/DF-1/properties/factory-assignee"
+```
+
+A 404 there means the card was unassigned when the turn started, which is the
+normal case and not an error.
+
+If the assignment itself is failing — `::warning::could not assign DF-1 to the
+factory` on every turn — the bot is missing *Assign Issues* or is not an
+*Assignable User* in the project's permission scheme. Check both:
+
+```bash
+curl -s -u "$JIRA_USER:$JIRA_TOKEN" \
+  "$JIRA_BASE/rest/api/3/mypermissions?projectKey=DF&permissions=ASSIGN_ISSUES,ASSIGNABLE_USER,LINK_ISSUES" \
+  | python3 -c 'import json,sys; [print(k, v["havePermission"]) for k,v in json.load(sys.stdin)["permissions"].items()]'
+```
+
+The turn runs either way. Assignment and links are decoration on the work and
+are warned about, never thrown.
+
+---
+
 ## Jira returns 401 or 403
 
 Exit code 2. Atlassian API tokens expire, and the message is the same as for a

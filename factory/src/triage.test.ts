@@ -217,6 +217,38 @@ describe('what triage looks at', () => {
     expect(seen.transitions).toEqual([])
   })
 
+  /**
+   * The factory now comments twice per turn, not once — `announce` at the start
+   * as well as `report` at the end — so the number of its own comments a card
+   * carries has gone up and every one of them must stay invisible here. It is
+   * account ids that decide this, not the wording, which is why a start comment
+   * needs no special case: the check is "did we write it", and we did.
+   *
+   * Reachable in practice: a turn whose `report` comment fails to post still
+   * transitions the card, which lands it in Design review with the factory's
+   * own start comment as the newest thing on it.
+   */
+  it('ignores its own "turn started" ping, which it now leaves on every turn', async () => {
+    const board: Board = {
+      cards: {
+        'DF-3': {
+          status: 'Design review',
+          comments: [
+            { id: '1', authorId: HUMAN, body: 'can you look at the spacing' },
+            { id: '2', authorId: FACTORY, body: 'design turn 2 started' },
+          ],
+        },
+      },
+    }
+    const seen = stub(board)
+    const classify = always(DESIGN)
+
+    expect(await run(classify)).toEqual([])
+    expect(classify.calls).toBe(0)
+    expect(seen.transitions).toEqual([])
+    expect(seen.dispatches).toEqual([])
+  })
+
   // Without the mark, a comment judged "no action" stays the newest comment on
   // the card forever and is re-read on every pass for the life of the card.
   it('ignores a comment it has already considered', async () => {

@@ -10,6 +10,7 @@ import {
 } from './azure.ts'
 import { createDeployment, parseFactoryBlock, prBodyAndBranch, repoSlug } from './github.ts'
 import { cardKeyFromBranch, previewBackend, waitUntilAwake } from './preview.ts'
+import { LINK_IDS, dropLink, syncLinks } from './progress.ts'
 
 /**
  * Production — the other half of the loop.
@@ -160,6 +161,18 @@ export async function ship(options: ShipOptions): Promise<string> {
   await jira.addComment(cfg, key, comment).catch((error: Error) => {
     console.error(`::warning::could not comment on ${key}: ${error.message}`)
   })
+
+  // A shipped card gets two rows: where the software is, and how it got there.
+  // The preview row is removed rather than left — build-teardown.yml deletes
+  // that container on the same merge, so within a minute it is a link to
+  // nothing, and a dead link on a card nobody is watching any more is worse
+  // than no link. `Live` replaces it in the same panel.
+  await syncLinks(cfg, key, [
+    { globalId: LINK_IDS.pr, title: `Pull request #${pr}`, url: prLink },
+    { globalId: LINK_IDS.live, title: 'Live', url },
+  ])
+  await dropLink(cfg, key, LINK_IDS.preview)
+
   await jira.transitionTo(cfg, key, SHIPPED_STATUS)
 
   console.log(`ship: ${key} -> ${SHIPPED_STATUS} (${url})`)

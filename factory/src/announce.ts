@@ -2,6 +2,7 @@ import { prUrl, runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import * as jira from './jira.ts'
 import { readMeta, type Meta } from './meta.ts'
+import { claimCard, syncLinks, turnLinks } from './progress.ts'
 
 /**
  * The comment that says a turn has started.
@@ -86,24 +87,34 @@ export interface AnnounceOptions {
 }
 
 /**
- * Posts the start comment for the turn described by `.agent/in/meta.json`.
+ * Opens the turn described by `.agent/in/meta.json` on the card: comment,
+ * assignee, links.
  *
  * Runs straight after `gather`, which is the first step that knows which card
  * and which turn this is. Earlier would mean guessing the turn number; later
  * would mean announcing a turn that has already half happened.
+ *
+ * Three channels, because they are read in three different places: the comment
+ * by whoever is watching the ticket, the assignee by whoever is looking at the
+ * board, and the links by whoever has opened the card and wants the preview.
+ * `report` closes all three at the other end.
  */
 export async function announce(options: AnnounceOptions = {}): Promise<void> {
   const meta = readMeta()
   const comment = startComment(meta, runUrl())
+  const links = turnLinks(meta)
 
   if (options.dryRun === true) {
     console.log(`announce --dry-run: would comment on ${meta.key}:`)
     console.log(JSON.stringify(comment, null, 2))
+    console.log(`announce --dry-run: would take ${meta.key} and link ${links.length} thing(s).`)
     return
   }
 
+  const cfg = jira.configFromEnv()
+
   try {
-    await jira.addComment(jira.configFromEnv(), meta.key, comment)
+    await jira.addComment(cfg, meta.key, comment)
     console.log(`announce: told ${meta.key} that ${meta.stage} turn ${meta.turn} has started.`)
   } catch (error) {
     // Warn, never throw. The turn is already running; failing it here would
@@ -111,4 +122,7 @@ export async function announce(options: AnnounceOptions = {}): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`::warning::could not announce the start of the turn on ${meta.key}: ${message}`)
   }
+
+  await claimCard(cfg, meta.key)
+  await syncLinks(cfg, meta.key, links)
 }

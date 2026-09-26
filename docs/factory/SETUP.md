@@ -110,8 +110,11 @@ stores them in GitHub.
    token for it the same way → `JIRA_BOT_EMAIL` and `JIRA_BOT_TOKEN`.
 
 A plain licensed user gets exactly what the factory needs from the project's
-default permission scheme — browse, comment, transition, edit, create — and
-nothing more. *Delete Issues* and *Administer Projects* belong to a project role
+default permission scheme — browse, comment, transition, edit, create, assign
+and link — and nothing more. A turn assigns the card to itself while it runs and
+puts the pull request and preview on as remote links, both of which that scheme
+already allows; neither can fail a turn if it does not. *Delete Issues* and
+*Administer Projects* belong to a project role
 it is not in, so the factory cannot remove a card or reconfigure the project
 even if a turn goes badly wrong. Do not "fix" that by adding it to the
 Administrators role.

@@ -5,6 +5,7 @@ import * as jira from './jira.ts'
 import { launcherFor } from './launcher.ts'
 import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
+import { releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
 
 /**
@@ -151,6 +152,18 @@ export async function report(options: ReportOptions): Promise<void> {
   }
 
   await jira.addComment(cfg, meta.key, comment)
+
+  // The other end of what `announce` opened. Done before the transition so the
+  // card arrives in its new column already handed back and already pointing at
+  // the right preview — and done on every path below, including the one where
+  // the card does not move at all, because the turn is over either way and the
+  // factory is no longer the one holding it.
+  //
+  // `meta.preview_url` is set by now on a build turn; at `announce` time it was
+  // usually still null, so this is the call that actually puts the preview on
+  // the card. Posting the same globalId twice updates the row.
+  await syncLinks(cfg, meta.key, turnLinks(meta))
+  await releaseCard(cfg, meta.key)
 
   const target = targetStatus(options.stage, result)
   if (target === null) {
