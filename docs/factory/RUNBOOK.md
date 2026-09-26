@@ -130,8 +130,17 @@ belong to `FACTORY_APP_ID`, or the App is not installed on this repository.
 The poller moves a card to *Designing* / *Building* **before** dispatching, so
 that a failed dispatch leaves the card visibly claimed rather than handing it to
 two agents on the next poll. Both entrances do this — the status sweep and
-comment triage — so a card can arrive here from either. If a card sits in
-*Designing* with no run:
+comment triage — so a card can arrive here from either.
+
+**Read the card before the logs.** A dispatched turn comments *design turn N
+started* within a few seconds of the run beginning. A card in *Designing* with
+no such comment was claimed and never dispatched, which is this section. A card
+that has one, and nothing since, has a run that started and is either still
+going or died — that is [Reading a failure](#reading-a-failure), and the comment
+links the run. The comment is best-effort, so its absence is evidence rather
+than proof; the Actions tab settles it.
+
+If a card sits in *Designing* with no run:
 
 ```bash
 gh workflow run design.yml -f key=DF-1 --repo "$GH_OWNER/$GH_REPO"

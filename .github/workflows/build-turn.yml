@@ -150,6 +150,16 @@ jobs:
           echo "preview=$(jq -r '.preview_url // empty' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
           echo "turn=$(jq -r '.turn' .agent/in/meta.json)" >> "$GITHUB_OUTPUT"
 
+      # Straight after gather, which is the step that derives the turn number.
+      # A turn granted by a comment on the pull request is invisible from Jira
+      # until this lands — the card does not even change status for it.
+      - name: Say the turn has started
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- announce
+
       # Pinned deliberately. The flag surface is version-coupled — see the
       # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
       # release change how a turn behaves with nobody watching.

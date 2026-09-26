@@ -155,6 +155,8 @@ Three things make this affordable and quiet:
   means *the newest comment is not ours*, which is only answerable if the
   factory is a distinct author. Every turn ends with `report()` posting a
   comment, so a card the factory has put down carries its own words as its last.
+  Since turns also announce themselves (below), a card the factory has *picked
+  up* does too — which is the safe direction for triage to be wrong in.
 - **A comment is read once.** The id of the last comment triage considered is
   kept on the card as a hidden issue property, `factory-triage`. Without it, a
   comment judged `none` would stay the newest comment forever and be re-read on
@@ -184,7 +186,8 @@ comment, addressed to a reader who is not going to open the branch.
 
 On the next turn `gather` marks the factory's own comments as *yours, on an
 earlier turn* in `task.md`, and tells the agent which round it is — counted from
-those same comments, so nothing has to store a counter.
+those same comments, so nothing has to store a counter. The start comments are
+excluded from both — see *A turn says when it starts* below.
 
 ### What the model is and is not
 
@@ -208,6 +211,40 @@ without going through Jira or the classifier — that path is older than triage
 and unchanged. `build-turn.yml` now has both entrances, and they run the same
 turn; see the header of that file for why the guards on the comment path cannot
 be applied to the dispatch one.
+
+## A turn says when it starts
+
+A status change is silent. Jira notifies nobody about one, it does not appear in
+the comment stream, and on a board it is a card that moved one column while
+nobody was looking. So a card claimed by the poller used to say nothing at all
+from the moment it was claimed until `report` ran — which is the whole duration
+of the turn, and is indistinguishable from the factory having ignored it.
+
+Every turn now brackets itself. `factory announce` posts a short comment —
+*design turn 2 started*, one sentence on what the turn is about to do, and links
+to the Actions run and the pull request if there is one. `report` posts the
+other end.
+
+Three decisions worth recording:
+
+- **It runs in the dispatched workflow, not the poller.** Straight after
+  `gather`, which is the first step that knows which turn this is. The poller
+  knows the card but not the turn number, and cannot link a run that has not
+  started. This is also why a build turn granted by a PR comment gets one: from
+  Jira, that turn is otherwise entirely invisible — the card does not even
+  change status for it.
+- **It cannot fail the turn.** A failed `addComment` is a `::warning::` and the
+  turn carries on. A progress ping that can break the work it is reporting on is
+  worse than no progress ping.
+- **It is excluded from everything that counts comments.** `gather` derives a
+  design card's round number by counting the factory's own comments on it, so a
+  second factory comment per turn would have made every design round count
+  double — turn 1, then 3, then 5 — and told the agent it had asked questions it
+  never asked. `isStartComment` in `factory/src/announce.ts` recognises them by
+  their first line, and `gather` drops them before both counting and writing
+  `task.md`. They are also kept out of the task file on their own merits: they
+  are addressed to a human waiting on the card, and "nothing is expected of you
+  while this runs" read back by the agent that is running is worse than noise.
 
 ## How a turn's result maps onto a move
 

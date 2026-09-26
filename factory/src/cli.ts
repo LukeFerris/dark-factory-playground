@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { Command } from 'commander'
 import { REPO_ROOT, loadDotEnv, required } from './env.ts'
 import * as jira from './jira.ts'
+import { announce } from './announce.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
 import { triagePass } from './triage.ts'
@@ -141,6 +142,17 @@ program
       cardSummary: (issue.fields['summary'] as string) ?? meta.key,
       dryRun: opts.dryRun,
     })
+  })
+
+// The bookends of a turn. `announce` says it has started, `report` says what
+// it did — and between them the card would otherwise be silent for however
+// long the agent takes, because a status change notifies nobody.
+program
+  .command('announce')
+  .description('Comment on the card to say this turn has started.')
+  .option('--dry-run', 'Print the comment without posting', false)
+  .action(async (opts: { dryRun: boolean }) => {
+    await announce({ dryRun: opts.dryRun })
   })
 
 program

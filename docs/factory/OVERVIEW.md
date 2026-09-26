@@ -23,15 +23,15 @@ machinery that makes the loop run.
                     └──────┬───────┘          └────────┬────────┘
                            │                           │ dispatch
                            │                           ▼
-    ┌──────────────────────┴───────────────────────────────────────┐
-    │  one turn                                                    │
-    │                                                              │
-    │  gather ──▶ prepare-branch ──▶ AGENT ──▶ validate ──▶ publish │
-    │    │                            │           │          │     │
-    │  .agent/in                 .agent/out    scope      draft PR │
-    │  task.md                   result.json   check      as the   │
-    │  meta.json                 transcript               App      │
-    └──────────────────────────────────────────────────────────────┘
+    ┌──────────────────────┴─────────────────────────────────────────────────────┐
+    │  one turn                                                                  │
+    │                                                                            │
+    │  gather ──▶ announce ──▶ prepare-branch ──▶ AGENT ──▶ validate ──▶ publish │
+    │    │          │                               │         │            │     │
+    │  .agent/in  card says                     .agent/out   scope    draft PR   │
+    │  task.md    it has                        result.json  check    as the     │
+    │  meta.json  started                       transcript            App        │
+    └────────────────────────────────────────────────────────────────────────────┘
                            │
                            ▼
                     ┌──────────────┐
@@ -62,6 +62,11 @@ Two stages and an ending, one card:
    then moves the card to *Done*. That last transition is restricted to the
    factory's own account in Jira, so *Done* means the software is live rather
    than that somebody tidied the board.
+
+Every turn in there brackets itself with a comment on the card: one when it
+picks the card up, one when it puts it down. A Jira status change notifies
+nobody and does not show up in the comment stream, so without the first of those
+a card being worked on for ten minutes reads exactly like a card being ignored.
 
 ### Comments are the third entrance
 
