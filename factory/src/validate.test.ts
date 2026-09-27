@@ -12,6 +12,8 @@ function result(over: Partial<Result> = {}): Result {
     acceptance_criteria: [
       { criterion: 'The heading greets the name you typed.', steps: ['Type "Ada". It reads "Hello, Ada".'] },
     ],
+    out_of_scope: [],
+    answers: [],
     artifacts: [],
     questions: [],
     assumptions: [],

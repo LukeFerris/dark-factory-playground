@@ -101,6 +101,17 @@ This repeats until you return a turn with no questions, so there is never a
 reason to park one and carry on. A `ready_for_review` design is a design with
 nothing outstanding in it.
 
+Write each question so the person answering can answer it without opening the
+code. Say what you would do either way and what it costs them, and where a
+question is really a worry rather than a decision, **say how serious it is in
+words** — serious, moderate, minor — rather than leaving them to guess from
+your tone.
+
+| | Example |
+|---|---|
+| ✅ | `Should a deal without a close date sort first or last? Minor either way, but it changes what the top of the list shows.` |
+| ❌ | `Confirm the sort predicate for the nullable closeDate field.` |
+
 Record every assumption you did make in `assumptions[]`, one per entry, phrased
 so a reviewer can disagree with it: "Assumed the name field is optional because
 the acceptance criteria only describe the empty case."
@@ -110,9 +121,21 @@ paths.
 
 ## What lands on the Jira card
 
-Three fields in `result.json` become the comment a human reads on the card.
+Five fields in `result.json` become the comment a human reads on the card.
 Write them for that reader — someone who has not opened the PR and may not
 open it.
+
+Their whole view of this card is the comment. They have no repository, no
+terminal and no branch, so write in the words a user of the app would use:
+**no file paths, no branch names, no component or function names, no jargon.**
+Describe what somebody sees and does. **Never name a person** — not a
+colleague, not a handle, not the author of a comment you are answering; say
+"the reviewer" or "whoever asked".
+
+The comment is always the same shape, in this order, so the reader learns one
+shape and can skim it: what you decided, why, what was asked and answered, what
+has to be true, how to check it, what is not in it, and what to do next. You
+write the first five; the pipeline adds the last.
 
 ### `summary`
 
@@ -124,6 +147,31 @@ you filled in, and not a restatement of the card.
 One or two lines of background: why this shape rather than another, and where
 the detail lives (`docs/design/<KEY>/design.md`). Skip it if the summary
 already says everything — an empty `context` is omitted from the comment.
+
+### `answers`
+
+What you were asked on the card, and what you did about it. One entry per
+question that has been answered since your last turn:
+
+```json
+"answers": [
+  {
+    "question": "Should a deal without a close date sort first or last?",
+    "answer": "Last, as you said — undated deals go to the bottom of the list."
+  }
+]
+```
+
+**Derive every answer; never invent one.** The `question` is the question as it
+was asked, so the reader recognises their own words. The `answer` is what they
+said and what you did with it. If a reply did not actually settle a question,
+that question stays in `questions[]` — do not write an answer that reads as
+though it did.
+
+Empty on your first turn, and empty when nothing was answered since your last
+one. This is the first thing the reader looks for: they replied, and they want
+to know it landed. A card where someone answers a question and the next comment
+never mentions it reads as though nobody listened.
 
 ### `acceptance_criteria`
 
@@ -204,8 +252,33 @@ genuinely cannot write them, that is a `question`, not a vague criterion.
 criterion that has no steps, is rejected by validation.** The design document is
 not enough on its own.
 
+### `out_of_scope`
+
+What a reviewer might reasonably expect from this card and will not get. One
+plain sentence each:
+
+```json
+"out_of_scope": [
+  "Editing a deal after it is saved — this card only covers adding one.",
+  "Deals are not kept when you reload; that is a separate card."
+]
+```
+
+The counterpart to `acceptance_criteria`: that list says what to check, this one
+says what not to go looking for. You know these on the way past — you decided
+each one — and a reviewer does not. Without it their first finding is usually
+something that was never in scope, and establishing that costs a round trip.
+
+Include a limit anyone would notice from the app, and anything you deliberately
+deferred. Leave it empty rather than padding it; "does not cure cancer" is
+noise, and noise here is read as evasion.
+
 ## Ground rules
 
+- **Do not write the sign-off yourself.** The comment ends with what the reader
+  should do now — move the card on, or reply — and the pipeline adds it from
+  the status you chose and the board it is running against. A sign-off of your
+  own lands underneath it, and the two disagree the moment either changes.
 - Never invent a credential, an API key, a URL, or an endpoint. If the design
   needs one you do not have, that is a `question`.
 - Never echo the contents of environment variables, `.env`, or anything under

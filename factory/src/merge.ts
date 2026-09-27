@@ -439,6 +439,10 @@ export function mergeQuestionResult(
       `then undone, so the branch is exactly as it was — but it cannot be merged to main ` +
       `until this is settled. Answer here and the build agent will pick it up.`,
     acceptance_criteria: [],
+    // A merge escalation asks rather than delivers: there is nothing it left
+    // out, and nothing it was told before it started.
+    out_of_scope: [],
+    answers: [],
     artifacts: [],
     questions,
     assumptions: result?.notes ?? [],

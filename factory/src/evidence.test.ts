@@ -30,6 +30,8 @@ function result(over: Partial<Result> = {}): Result {
     summary: 'Built the greeting.',
     context: '',
     acceptance_criteria: CRITERIA,
+    out_of_scope: [],
+    answers: [],
     artifacts: [],
     questions: [],
     assumptions: [],
