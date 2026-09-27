@@ -20,18 +20,31 @@ name: factory poller
 #
 # Latency does NOT come from the cron. Five minutes is GitHub's floor for
 # `schedule:`, and scheduled runs are often much later than that under load. So
-# one run polls repeatedly on a short interval for the length of a window, and
-# the cron exists only to start a fresh run when the last one ends. The setup —
-# checkout, npm ci, minting the token — costs far more than a pass does, so
-# passes within a run are close to free.
+# one run polls repeatedly on a short interval for the length of a window. The
+# setup — checkout, npm ci, minting the token — costs far more than a pass does,
+# so passes within a run are close to free.
+#
+# **The run hands over to the next one itself.** This used to be the cron's job,
+# on the assumption that `*/5` meant a fresh run was always due within five
+# minutes of the last one ending. It does not. Measured over two days on this
+# repository, scheduled starts came 1.4 to 5 hours apart, so a 50-minute window
+# left the factory unattended about 80% of the time and a card filed into the
+# gap simply sat there. The last thing a full window does now is dispatch the
+# next run, which the concurrency group below queues behind this one; the cron
+# is the safety net that restarts the chain if a run dies before reaching that
+# line, not the thing providing coverage.
+#
+# That keeps a runner up more or less continuously. It is free here because the
+# repository is public; on a private one it would bill every minute of it.
 #
 # Both knobs are repository variables, overridable per dispatch:
 #   FACTORY_POLL_INTERVAL_SECONDS  seconds between passes      (default 30)
 #   FACTORY_POLL_WINDOW_SECONDS    how long a run keeps going  (default 270)
 #
-# A window just under the cron interval means a run finishes before the next is
-# due. Set the window to 0 for a single pass — the old behaviour, and the right
-# setting if you do not want a runner up more or less continuously.
+# The window is clamped to 3000s below and cannot be raised past it by setting
+# the variable — the App token is minted once per run and lasts an hour. Set the
+# window to 0 for a single pass with no hand-over: the old behaviour, and the
+# right setting if you do not want a runner up continuously.
 
 on:
   schedule:
@@ -100,7 +113,10 @@ jobs:
           case "$POLL_INTERVAL" in ''|*[!0-9]*) POLL_INTERVAL=30 ;; esac
           case "$POLL_WINDOW"   in ''|*[!0-9]*) POLL_WINDOW=270 ;; esac
           if (( POLL_INTERVAL < 5 )); then POLL_INTERVAL=5; fi
-          if (( POLL_WINDOW > 3000 )); then POLL_WINDOW=3000; fi
+          if (( POLL_WINDOW > 3000 )); then
+            echo "::warning::window of ${POLL_WINDOW}s exceeds the App token's life; clamped to 3000s. Coverage between runs comes from the hand-over at the end of this step, not from a longer window."
+            POLL_WINDOW=3000
+          fi
 
           # Every card in the status is waiting for us, so the whole column is
           # dispatched. Triage, below, is the other shape: there the status
@@ -155,11 +171,28 @@ jobs:
               echo "::warning::the triage pass failed; the next one will pick up the same comments"
             echo "::endgroup::"
 
-            # Stop when the next pass would finish after the window, so a run
-            # ends before the cron is due to start the next one.
+            # Stop when the next pass would run past the window. The token is
+            # the real deadline; see the clamp above.
             if (( $(date +%s) + POLL_INTERVAL >= deadline )); then
               echo "window closed after $pass pass(es)"
               break
             fi
             sleep "$POLL_INTERVAL"
           done
+
+          # Hand over to the next run. This is deliberately the last statement
+          # of the step and deliberately not a step of its own with
+          # `if: always()`: it must run when a window completes and must not run
+          # when the loop died. A poller that re-dispatches itself after a
+          # failure it is going to hit again immediately is a loop that files a
+          # run every few seconds; one that stays down is picked up by the cron.
+          #
+          # A window of 0 is a single pass on purpose, so it does not hand over.
+          #
+          # A failed dispatch is a warning rather than an error: the run did its
+          # whole job, and the cron covers a dropped hand-over.
+          if (( POLL_WINDOW > 0 )); then
+            echo "handing over to the next run"
+            gh workflow run poller.yml || \
+              echo "::warning::could not dispatch the next poller run; the cron will restart the chain"
+          fi
