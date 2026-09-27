@@ -1,0 +1,70 @@
+factory/src/publish.ts
+  s_6735740180f350::t_35d3bef5e1b483 48-53
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_a541c669b0c533 12-56
+factory/src/schema.ts
+  s_6735740180f350::t_f51da099a11c85 238-268
+  s_6735740180f350::t_ad78fedb03e90e 54-72
+  s_6735740180f350::t_c3330ebabd2f24 90-101
+factory/src/report.ts
+  s_6735740180f350::t_1d0a27ad00a6d6 67-79
+  s_6735740180f350::t_87e4a0e1624d06 174-176,178-181
+  s_6735740180f350::t_bb639381fe01cd 198-241
+  s_6735740180f350::t_2cdd5ac79e758c 143-149
+  s_6735740180f350::t_1b84dbb40ac61b 177,182
+.agent/design.md
+  s_6735740180f350::t_e34add74e8ac3c 278-281
+  s_6735740180f350::t_e27f71174940d5 124,128-138
+  s_6735740180f350::t_79001babc75eb0 151-175
+  s_6735740180f350::t_a071145cd9c36c 104-114
+  s_6735740180f350::t_69a7965b06a657 255-275
+  s_6735740180f350::t_bd36d4e414fcad 139
+.agent/build.md
+  s_6735740180f350::t_3e36cc1e06d205 160-188
+  s_6735740180f350::t_6bb1b2c4fb2eb9 126,129-140,145-152
+  s_6735740180f350::t_c9ca12eec2beaf 262-287
+  s_6735740180f350::t_63bf45b2d71562 109-119
+  s_6735740180f350::t_107bf3040fabd3 338-342
+  s_6735740180f350::t_920509c88a5259 153
+app/e2e/pipeline.spec.ts
+  s_6735740180f350::t_bc856a251537d6 6,11,15-27,34-41,43
+  s_6735740180f350::t_cbbc57e0472262 30-33
+  s_6735740180f350::t_3e1bba49770494 42
+factory/src/publish.test.ts
+  s_6735740180f350::t_8f5fab4ffd342c 1-57
+factory/src/report.test.ts
+  s_6735740180f350::t_7728497bf36ba4 223-225
+  s_6735740180f350::t_988c18c9934bcd 207-222,226-285
+  s_6735740180f350::t_1e2cfdc54f7c02 25-26
+  s_6735740180f350::t_987a7b13081d9d 88-90,93-98,106-114
+factory/src/manuals.test.ts
+  s_6735740180f350::t_f5761087192e36 162-176
+  s_6735740180f350::t_51e8fb6a0561f0 112-127,129-151
+  s_6735740180f350::t_37056294d33bd8 128
+factory/src/validate.ts
+  s_6735740180f350::t_e47ffb999a1dcb 152-155
+factory/src/merge.ts
+  s_6735740180f350::t_af73812d6cdf12 442-445
+.agent/result.schema.json
+  s_6735740180f350::t_5735ec4b2fcf79 61-93
+factory/src/evidence.test.ts
+  s_6735740180f350::t_8f09928ec8379d 33-34
+factory/src/validate.test.ts
+  s_6735740180f350::t_8f09928ec8379d 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72ec58a43076d4c9476f55967375887c49f1da85",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
