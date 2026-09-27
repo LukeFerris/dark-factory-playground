@@ -1,0 +1,12 @@
+/*
+ * The background goes on `body` so it propagates to the canvas and paints the
+ * whole viewport — including the default body margin and the area below the
+ * content. On `#root` or `main` it would leave a white frame instead.
+ *
+ * The two declarations are one contrast decision, not two: #000000 on #93c5fd
+ * is roughly 11.6:1, so the text stays as readable as it renders today.
+ */
+body {
+  background-color: #93c5fd;
+  color: #000000;
+}
