@@ -383,6 +383,30 @@ are warned about, never thrown.
 
 ---
 
+## A step failed with a Jira 404 on the wrong card key
+
+```
+Jira GET /rest/api/3/issue/DF-1 failed: 404 {"errorMessages":["Issue does not exist …
+```
+
+— on a turn that `gather` and `announce` had already handled correctly, for a
+different card. Read the *Gather the card* step: if it says
+`gather: DF-7 stage=build turn=1` and a later step names another key, the
+turn's identity was rewritten between the two.
+
+`.agent/in/meta.json` is the only thing carrying that identity from step to
+step. Anything running in the checkout can overwrite it, and doing so is not an
+error — the turn keeps going and fails later somewhere that looks unrelated.
+This is what `FACTORY_AGENT_DIR` and `vitest.setup.ts` exist to prevent for the
+test suite; a build agent writing the file directly would do the same thing.
+
+Nothing is corrupted outside the run. The branch was never pushed, so the turn's
+work is only in the uploaded transcript. Fix the cause, then re-dispatch the
+turn — the card is still in *Designing* or *Building* and still assigned to the
+bot, which is the state described above.
+
+---
+
 ## Jira returns 401 or 403
 
 Exit code 2. Atlassian API tokens expire, and the message is the same as for a
