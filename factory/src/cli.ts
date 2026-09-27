@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Command } from 'commander'
 import { REPO_ROOT, loadDotEnv, required } from './env.ts'
@@ -23,8 +24,9 @@ import { publish } from './publish.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
+import { EVIDENCE_DIR, SLIDES_PATH, buildSlides } from './evidence.ts'
 import { RESULT_PATH, readMeta, turnBase, updateMeta, writeFileEnsuringDir } from './meta.ts'
-import { Stage, toJsonSchema } from './schema.ts'
+import { ResultSchema, Stage, toJsonSchema } from './schema.ts'
 
 loadDotEnv()
 
@@ -242,6 +244,42 @@ program
       cardSummary: (issue.fields['summary'] as string) ?? meta.key,
       dryRun: opts.dryRun,
     })
+  })
+
+program
+  .command('evidence-slides')
+  .description("Build the captioned walkthrough video from a capture run's screenshots.")
+  .option('--dir <path>', 'Where the screenshots are', EVIDENCE_DIR)
+  .option('--out <path>', 'Where the video goes', SLIDES_PATH)
+  .action((opts: { dir: string; out: string }) => {
+    // Every path out of here is exit 0, deliberately. A card that is finished
+    // must reach a human whether or not a video could be made of it, so the
+    // worst this command does is say why there isn't one and let `report` go
+    // on without it.
+    if (!existsSync(RESULT_PATH)) {
+      console.log('evidence-slides: skipped — the turn wrote no result')
+      return
+    }
+    const parsed = ResultSchema.safeParse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
+    if (!parsed.success) {
+      console.log('evidence-slides: skipped — the result does not parse')
+      return
+    }
+
+    const outcome = buildSlides({ result: parsed.data, dir: opts.dir, out: opts.out })
+    if (outcome.missing.length > 0) {
+      console.log(`evidence-slides: no screenshot for step(s) ${outcome.missing.join(', ')}`)
+    }
+    if (outcome.orphans.length > 0) {
+      console.log(
+        `::warning::evidence-slides: dropped screenshot(s) for step(s) ${outcome.orphans.join(', ')}, which the card does not list`,
+      )
+    }
+    console.log(
+      outcome.ok
+        ? `evidence-slides: ${outcome.slides} slide(s) → ${outcome.video}`
+        : `evidence-slides: no video — ${outcome.reason}`,
+    )
   })
 
 // The bookends of a turn. `announce` says it has started, `report` says what

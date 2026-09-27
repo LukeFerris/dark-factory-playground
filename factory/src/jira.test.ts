@@ -1,3 +1,6 @@
+import { rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
@@ -89,6 +92,52 @@ describe('auth failures', () => {
       http.post(`${BASE}/rest/api/3/search/jql`, () => new HttpResponse(null, { status: 401 })),
     )
     await expect(jira.search(cfg, 'project = DF')).rejects.toBeInstanceOf(jira.JiraAuthError)
+  })
+})
+
+describe('addAttachment', () => {
+  const file = join(tmpdir(), 'jira-attach-test.mp4')
+  beforeAll(() => writeFileSync(file, 'not really a video'))
+  afterAll(() => rmSync(file, { force: true }))
+
+  // Without this header Jira answers 403 as XSRF protection, which is
+  // indistinguishable from bad credentials at the call site.
+  it('sends the no-check token and the file as multipart', async () => {
+    let token: string | null = null
+    let filename: string | null = null
+    server.use(
+      http.post(`${BASE}/rest/api/3/issue/DF-1/attachments`, async ({ request }) => {
+        token = request.headers.get('X-Atlassian-Token')
+        const form = await request.formData()
+        filename = (form.get('file') as File).name
+        return HttpResponse.json([{ id: '10001', filename, mimeType: 'video/mp4', size: 18 }])
+      }),
+    )
+
+    const attached = await jira.addAttachment(cfg, 'DF-1', file, 'video/mp4')
+
+    expect(token).toBe('no-check')
+    expect(filename).toBe('jira-attach-test.mp4')
+    expect(attached.id).toBe('10001')
+  })
+
+  it('raises JiraAuthError on 403 rather than a bare failure', async () => {
+    server.use(
+      http.post(
+        `${BASE}/rest/api/3/issue/DF-1/attachments`,
+        () => new HttpResponse(null, { status: 403 }),
+      ),
+    )
+    await expect(jira.addAttachment(cfg, 'DF-1', file)).rejects.toBeInstanceOf(jira.JiraAuthError)
+  })
+
+  // Jira answers with a list, one entry per part. An empty one would otherwise
+  // sail through and be embedded as `undefined`.
+  it('refuses an empty answer rather than returning nothing useful', async () => {
+    server.use(
+      http.post(`${BASE}/rest/api/3/issue/DF-1/attachments`, () => HttpResponse.json([])),
+    )
+    await expect(jira.addAttachment(cfg, 'DF-1', file)).rejects.toThrow(/silently/)
   })
 })
 

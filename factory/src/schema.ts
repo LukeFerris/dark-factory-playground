@@ -97,6 +97,10 @@ export const ALLOWED_PATHS: Record<Stage, readonly string[]> = {
   build: [
     'app/src/**',
     'app/public/**',
+    // The walkthrough the reviewer is handed is written here, by the same turn
+    // that writes the feature: a build agent that changes what the app does
+    // changes the spec that proves it, or the evidence stops matching the card.
+    'app/e2e/**',
     'app/index.html',
     'app/package.json',
     'package-lock.json',
@@ -116,6 +120,11 @@ export const ALWAYS_DENIED: readonly string[] = [
   'app/tsconfig.json',
   'app/eslint.config.js',
   'app/vite.config.ts',
+  // The agent writes the walkthrough but not the terms it is captured under.
+  // Viewport, base URL and whether screenshots are taken at all decide what
+  // the evidence shows, so they are the reviewer's guarantee, not the agent's
+  // to relax when a step will not go green.
+  'app/playwright.config.ts',
   'factory/tsconfig.json',
 ]
 

@@ -68,6 +68,14 @@ jobs:
 
       - run: npm ci
 
+      # The agent is told to run the walkthrough before it finishes a turn, and
+      # `npm run e2e` cannot do that without a browser. Installed here rather
+      # than left to the agent: `npx playwright install` is not on its
+      # allow-list, and a turn whose evidence step fails for want of a download
+      # would look like the app is broken.
+      - name: Install the browser
+        run: npx --workspace @factory/app playwright install --with-deps chromium
+
       - name: Gather the card
         env:
           JIRA_BASE: ${{ vars.JIRA_BASE }}
@@ -138,7 +146,7 @@ jobs:
           mkdir -p .agent/out
           claude -p "$(cat .agent/build.md)" \
             --model "${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}" \
-            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
+            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
             --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
             --strict-mcp-config \
             --max-budget-usd "${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}" \
@@ -309,6 +317,51 @@ jobs:
           AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
         run: npm run --silent factory -- preview-up "${PR}"
 
+      # Here, and not in the turn job, because this is the first moment a
+      # preview of *this* turn's code exists: the agent's PREVIEW_URL comes
+      # from `gather` and is the previous turn's, empty on turn 1. Evidence
+      # taken there would show the wrong app.
+      #
+      # continue-on-error throughout. A finished card has to reach a reviewer
+      # whether or not a browser could be installed, so the worst these three
+      # steps do is leave the comment without pictures.
+      - name: Install the browser and ffmpeg
+        id: evidence-tools
+        if: env.DEPLOYABLE == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npx --workspace @factory/app playwright install --with-deps chromium
+          # Debian's build has drawtext, which the slide captions need and
+          # which is a build option rather than a given.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Walk the card in a browser
+        if: env.DEPLOYABLE == 'true' && steps.evidence-tools.outcome == 'success'
+        continue-on-error: true
+        env:
+          FACTORY_UAT_EVIDENCE: ${{ github.workspace }}/.agent/out/evidence
+        run: |
+          set -euo pipefail
+          # Whatever the artifact carried, the evidence on the card has to be
+          # this turn's.
+          rm -rf "$FACTORY_UAT_EVIDENCE"
+          # `preview-up` wrote the URL back into the meta.json restored above;
+          # it is not a step output.
+          FACTORY_E2E_BASE_URL="$(jq -r '.preview_url // empty' .agent/in/meta.json)"
+          if [ -z "$FACTORY_E2E_BASE_URL" ]; then
+            echo "::warning::No preview URL, so the walkthrough was not recorded."
+            exit 0
+          fi
+          export FACTORY_E2E_BASE_URL
+          npm run e2e --workspace @factory/app
+
+      - name: Build the walkthrough
+        if: env.DEPLOYABLE == 'true' && steps.evidence-tools.outcome == 'success'
+        continue-on-error: true
+        run: npm run --silent factory -- evidence-slides
+
       # Once per PR. This is turn 1, so there is no "has it been posted
       # already" question to ask — build-turn.yml never posts a kickoff.
       - name: Post the kickoff comment
@@ -323,6 +376,18 @@ jobs:
       # answered or failed the job above, so "In review" means there is
       # something to review. A rejected turn arrives here with DEPLOYABLE
       # false and still gets its comment and its move to Blocked on engineer.
+      # The card is where the evidence is meant to land. This is the copy that
+      # survives an attach that did not, and the one to look at when a
+      # screenshot shows something nobody expected.
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ env.PR }}-${{ github.run_id }}
+          path: .agent/out/evidence/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Report
         if: always()
         env:

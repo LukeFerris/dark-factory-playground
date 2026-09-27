@@ -142,6 +142,51 @@ describe('buildComment', () => {
     expect(build).toContain('With the app open in a browser')
   })
 
+  // A reviewer holding the video beside the comment has to be able to find
+  // step 3 in it. Per-criterion numbering restarting at 1 gives them two step
+  // 1s and no step 3 at all.
+  it('numbers the steps straight through the card, across criteria', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null)
+    const numbered = doc.content.filter((n) => n.type === 'orderedList')
+    expect((numbered[0]?.['attrs'] as { order: number }).order).toBe(1)
+    expect((numbered[1]?.['attrs'] as { order: number }).order).toBe(3)
+  })
+
+  it('marks only the steps the walkthrough actually shows', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, {
+      video: 'att-1',
+      proved: [1, 3],
+    })
+    const numbered = doc.content.filter((n) => n.type === 'orderedList')
+    const items = (numbered[0]?.['content'] as unknown[]).map(textOf)
+    expect(items[0]).toContain('(in the walkthrough)')
+    expect(items[1]).not.toContain('(in the walkthrough)')
+    expect(textOf(numbered[1])).toContain('(in the walkthrough)')
+  })
+
+  it('embeds the walkthrough by the attachment id Jira gave back', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, {
+      video: 'att-1',
+      proved: [1],
+    })
+    const media = doc.content.filter((n) => n.type === 'mediaSingle')
+    expect(media).toHaveLength(1)
+    const inner = (media[0]?.['content'] as Array<Record<string, unknown>>)[0]
+    expect(inner?.['type']).toBe('media')
+    expect((inner?.['attrs'] as { id: string }).id).toBe('att-1')
+  })
+
+  // Evidence is an enrichment. Without it the comment is the comment it always
+  // was, and nothing in it promises a video that is not there.
+  it('says nothing about a walkthrough when there is none', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, {
+      video: null,
+      proved: [1, 2, 3],
+    })
+    expect(doc.content.filter((n) => n.type === 'mediaSingle')).toHaveLength(0)
+    expect(textOf(doc)).not.toContain('walkthrough')
+  })
+
   it('produces a valid ADF doc envelope', () => {
     const doc = buildComment('design', result(), null, null, null)
     expect(doc.type).toBe('doc')

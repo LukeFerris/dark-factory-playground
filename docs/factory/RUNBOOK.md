@@ -576,6 +576,54 @@ every card in *Blocked on architect* stays there silently. See
 
 ---
 
+## The card has no walkthrough, or the wrong steps are marked
+
+**None of this fails a run, by design.** Evidence is an enrichment of the
+hand-off, so every step that produces it is `continue-on-error` and the card
+reaches its reviewer either way. A missing video is therefore never the reason
+a card is stuck — look for the cause in the comment, not here.
+
+Read the `preview` job of the build run. Three steps, in order:
+
+```bash
+gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log \
+  | grep -A 20 "Walk the card in a browser"
+```
+
+**"No preview URL, so the walkthrough was not recorded."** The capture runs
+against the preview, so no preview means no evidence. That is the preview
+problem below, not an evidence problem.
+
+**The spec failed.** The walkthrough is `app/e2e/`, run against the live
+preview — so a red step here means the card does not do what its steps say it
+does, on the deployed app. That is a finding, not a flake. Open the preview and
+take the step yourself before assuming the spec is wrong.
+
+**`evidence-slides: no video — this ffmpeg was built without drawtext`.**
+The captions need a freetype build. The workflow installs ffmpeg from apt,
+which has one; a runner image that already carries a slimmer build would shadow
+it.
+
+**`evidence-slides: dropped screenshot(s) for step(s) N`.** The spec captured a
+step number the card does not list — the agent renumbered `acceptance_criteria`
+without renumbering `uatStep`, or the other way round. The comment and the
+video disagree about what step N is, so treat both as suspect and re-run the
+turn. This is the one warning here worth acting on immediately.
+
+**Steps marked "(in the walkthrough)" that the video does not show.** Should be
+impossible: the marks are derived from the screenshots that were attached, not
+from what the spec attempted. If you see it, the numbering contract has broken
+— same cause as above.
+
+The screenshots are also uploaded as an artifact, which is the copy to read
+when Jira took none of them:
+
+```bash
+gh run download <run-id> --repo "$GH_OWNER/$GH_REPO" --name "evidence-<pr>-<run-id>"
+```
+
+---
+
 ## The preview is missing
 
 First: which backend?
