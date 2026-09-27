@@ -1,0 +1,32 @@
+factory/vitest.setup.ts
+  s_6735740180f350::t_ce25ffaaa7674c 1-26
+factory/vitest.config.ts
+  s_6735740180f350::t_a710467b3a90ba 8-11
+factory/src/meta.ts
+  s_6735740180f350::t_7d3fa8b64a1d7a 37-56
+factory/src/validate.test.ts
+  s_6735740180f350::t_c2d7ca8a331469 2
+  s_6735740180f350::t_8a8fc9e260548a 165-169
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_ac2d2196ae95cc 10-47
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_431f68a6a9fd46 386-409
+factory/src/meta.test.ts
+  s_6735740180f350::t_a9de3244120ae4 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0802311b7541dee794e29c551b83cc251d15433a",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
