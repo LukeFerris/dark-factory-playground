@@ -1,12 +1,251 @@
 /*
  * The background goes on `body` so it propagates to the canvas and paints the
- * whole viewport — including the default body margin and the area below the
- * content. On `#root` or `main` it would leave a white frame instead.
+ * whole viewport — including the area below the content. On `#root` or `main`
+ * it would leave a white frame instead.
  *
- * The two declarations are one contrast decision, not two: #000000 on #93c5fd
- * is roughly 11.6:1, so the text stays as readable as it renders today.
+ * The page and text colours are one contrast decision: #1c1c1a on #f7f7f5 (and
+ * on the white cards) is above 15:1, and white on the navy accent above 10:1.
  */
+:root {
+  --page: #f7f7f5;
+  --surface: #ffffff;
+  --border: #e4e4e0;
+  --text: #1c1c1a;
+  --muted: #5c5c57;
+  --accent: #1e3a5f;
+  --error: #b42318;
+  --radius: 8px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.4;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
-  background-color: #93c5fd;
-  color: #000000;
+  margin: 0;
+  background-color: #f7f7f5;
+  color: #1c1c1a;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+
+.summary {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Add deal form */
+
+.add-deal {
+  margin: 28px 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.add-deal__title {
+  margin: 0 0 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.add-deal__fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field--narrow {
+  flex-basis: 120px;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.field input {
+  padding: 8px 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.field__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--error);
+}
+
+.button {
+  align-self: flex-start;
+  margin-top: 23px;
+  padding: 9px 18px;
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #152b47;
+}
+
+/* Pipeline board: columns keep their width and the board scrolls sideways on narrow screens. */
+
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.column__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 2px;
+  padding-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--border);
+}
+
+.column__count {
+  min-width: 24px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.column__empty {
+  margin: 0;
+  padding: 16px;
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.deal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgb(28 28 26 / 4%);
+}
+
+.deal__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.deal__company {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.deal__size {
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.deal__sector,
+.deal__owner {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.deal__stage-label {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.deal__stage {
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: inherit;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }

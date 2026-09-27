@@ -10,10 +10,10 @@ function source(file: string): string {
 }
 
 describe('index.css', () => {
-  it('pins the blue background and the black text it was chosen against', () => {
+  it('pins the off-white background and the near-black text it was chosen against', () => {
     const css = source('./index.css')
-    expect(css).toMatch(/body\s*\{[^}]*background-color:\s*#93c5fd\s*;/)
-    expect(css).toMatch(/body\s*\{[^}]*color:\s*#000000\s*;/)
+    expect(css).toMatch(/body\s*\{[^}]*background-color:\s*#f7f7f5\s*;/)
+    expect(css).toMatch(/body\s*\{[^}]*color:\s*#1c1c1a\s*;/)
   })
 
   it('is imported by the app entry point', () => {
