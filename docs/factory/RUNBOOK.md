@@ -72,6 +72,49 @@ can change how a turn behaves:
 gh variable set FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" --body 2.1.230
 ```
 
+**The model is pinned too, and the two move together.** `FACTORY_AGENT_MODEL`
+sets the model for all four agents — design, both build turns, and the conflict
+resolver in `.github/actions/merge-main`. It defaults to `claude-opus-5-5`.
+Triage is the exception and is deliberately not covered by it: see
+`FACTORY_TRIAGE_MODEL` below.
+
+```bash
+gh variable get FACTORY_AGENT_MODEL --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
+  || grep -m1 -- --model .github/workflows/design.yml
+```
+
+The coupling runs one way and it is not obvious: the API rejects a model the
+installed CLI is too old for, so raising the model without raising the version
+fails every turn at its first API call, with
+
+```
+API Error: 400 Claude Code 2.1.224 does not support this model;
+version 2.1.280 or newer is required.
+```
+
+Nothing catches that before a card is already mid-turn — the agent step exits
+non-zero and the turn reports as a failure with no diff. So set them in one go,
+newest version first, and confirm the pair works before trusting it:
+
+```bash
+gh variable set FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" --body 2.1.281
+gh variable set FACTORY_AGENT_MODEL   --repo "$GH_OWNER/$GH_REPO" --body claude-opus-5-5
+```
+
+To check a pair without spending a card on it, install that exact version into a
+throwaway prefix and ask it for one word:
+
+```bash
+npm i --prefix /tmp/clitest "@anthropic-ai/claude-code@<version>"
+/tmp/clitest/node_modules/.bin/claude -p "Reply with the single word: ok" \
+  --model <model> --output-format json | jq '{is_error, models: (.modelUsage | keys)}'
+```
+
+`is_error: false` and the model you asked for in `modelUsage` means the pair is
+good. `modelUsage` is also how you audit what a real turn used after the fact —
+it is in every `transcript.json` artifact, and it is the only honest answer to
+"which model built this", since the flag is what was *requested*.
+
 ---
 
 ## Nothing happens at all
