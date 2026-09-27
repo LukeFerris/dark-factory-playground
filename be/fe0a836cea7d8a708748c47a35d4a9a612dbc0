@@ -1,0 +1,27 @@
+docs/factory/RUNBOOK.md
+  s_6735740180f350::t_4aa2e8af5f6141 131-157
+.github/workflows/poller.yml
+  s_6735740180f350::t_c57ea322b42285 174-175,182-191,194-198
+  s_6735740180f350::t_434edecb62f983 116,118-119
+  s_6735740180f350::t_b41b0fe8f90ae5 192-193
+  s_6735740180f350::t_8df7448bf61188 117
+  s_6735740180f350::t_cab40c1b74a4c4 23-38,44-47
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_6df3d8c8bf0692 12-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "befe0a836cea7d8a708748c47a35d4a9a612dbc0",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
