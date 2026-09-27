@@ -9,6 +9,53 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-27
 
+### A build turn now proves its card in a browser, and shows its working
+
+Ported from `sanagnoscvc/ai-sdlc`, which solved this for an interactive
+workflow. None of the mechanism there transfers — it is a Claude Code plugin
+built on human gates, worktrees and MCP, and the factory runs unattended `claude
+-p` in Actions. What ports is the idea: **the end-to-end spec is the
+walkthrough**, written once and run twice.
+
+A build turn already wrote `acceptance_criteria`, each criterion paired with the
+browser steps that prove it, and a reviewer took those steps by hand. Now the
+same steps are also `app/e2e/`, and after the preview is raised the pipeline
+runs them against it, screenshots each step, and builds a captioned video that
+goes on the card beside the words.
+
+Three things were not obvious:
+
+**The evidence has to be taken in the `preview` job, not the `turn` job.** The
+agent's `PREVIEW_URL` comes from `gather` and is the *previous* turn's preview —
+empty on turn 1. A capture run in the agent's job would photograph the wrong
+app, convincingly.
+
+**The comment had to start numbering steps straight through the card.** Each
+criterion's steps were their own list restarting at 1, so a card with three
+criteria had three step 1s. The video labels its slides "Step N of M" across the
+whole card, and a reviewer holding the two together needs those to be the same
+N. `orderedList` now takes a starting number.
+
+**`ffmpeg`'s `drawtext` filter is a build option, not a given.** Homebrew's
+bottle ships without libfreetype; Debian's package has it. An ffmpeg that cannot
+draw text fails one slide at a time deep inside a filter graph, so the
+capability is now probed up front and reported as the one thing it is. The
+workflow installs ffmpeg from apt for the same reason.
+
+Captions go through `textfile=` with `expansion=none`. A step reading
+`The total reads £45m — 20% up` contains three characters ffmpeg's own expander
+acts on, and the video must say exactly what the card says.
+
+**Nothing in this path can fail a turn.** Every step is `continue-on-error`,
+every failure inside the builder is a returned reason rather than a throw, and
+`report` attaches inside a `try`. A hand-off that cannot happen because the
+evidence would not render is strictly worse than a hand-off with no evidence.
+
+The agent may now write `app/e2e/**` but not `app/playwright.config.ts`:
+viewport, base URL and whether screenshots are taken at all are the terms the
+evidence is produced under, and those are the reviewer's guarantee rather than
+the agent's to relax when a step will not go green.
+
 ### The poller covered about a fifth of the day, and the knob to fix it did nothing
 
 A card filed into *Ready for design* sat there untouched. The workflow was

@@ -1,12 +1,28 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { prUrl, runUrl } from './env.ts'
 import * as adf from './adf.ts'
+import { EVIDENCE_DIR, SLIDES_PATH, capturedSteps } from './evidence.ts'
 import * as jira from './jira.ts'
 import { launcherFor } from './launcher.ts'
 import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
 import { releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
+
+export interface Evidence {
+  /** The attachment id of the walkthrough video, when one was made. */
+  video: string | null
+  /**
+   * Step numbers whose evidence is **on the card**.
+   *
+   * Not "was captured": a screenshot the pipeline took and then failed to
+   * attach proves nothing to the reviewer reading the comment, and a step
+   * marked as evidenced when the card holds no evidence for it is worse than
+   * an unmarked one.
+   */
+  proved: number[]
+}
 
 /**
  * Builds the Jira comment for a finished turn.
@@ -27,6 +43,7 @@ export function buildComment(
   prUrl: string | null,
   previewUrl: string | null,
   run: string | null,
+  evidence: Evidence = { video: null, proved: [] },
 ): adf.AdfDoc {
   const blocks: adf.AdfNode[] = []
 
@@ -71,9 +88,42 @@ export function buildComment(
         ),
       ),
     )
+    const marker =
+      evidence.video !== null ? ' (in the walkthrough)' : ' (screenshot attached)'
+    if (evidence.proved.length > 0) {
+      blocks.push(
+        adf.paragraph(
+          adf.text(
+            evidence.video !== null
+              ? 'The walkthrough below was recorded against this preview. Steps marked ' +
+                  '"(in the walkthrough)" are the ones it shows; the rest are yours to take.'
+              : 'Screenshots of the marked steps are attached to this card, numbered to ' +
+                  'match. The rest are yours to take.',
+          ),
+        ),
+      )
+      if (evidence.video !== null) blocks.push(adf.mediaSingle(evidence.video))
+    }
+
+    // One run of numbers across the whole card, so step 7 in the video is step
+    // 7 here. `n` is the same counter `flattenSteps` uses, and the screenshots
+    // are named from it.
+    const proved = new Set(evidence.proved)
+    let n = 1
     for (const c of result.acceptance_criteria) {
       blocks.push(adf.paragraph(adf.strong(c.criterion)))
-      blocks.push(adf.orderedList(c.steps.map((s) => [adf.text(s)])))
+      const start = n
+      blocks.push(
+        adf.orderedList(
+          c.steps.map((s) => {
+            const inline = [adf.text(s)]
+            if (proved.has(n)) inline.push(adf.text(marker))
+            n += 1
+            return inline
+          }),
+          start,
+        ),
+      )
     }
   }
 
@@ -122,6 +172,63 @@ export interface ReportOptions {
   dryRun?: boolean
 }
 
+/**
+ * Puts whatever the capture run left onto the card: a screenshot per step it
+ * could drive, and the walkthrough video built from them.
+ *
+ * Both, rather than one or the other. The video is the thing a reviewer
+ * watches; the screenshots are the thing they can open, zoom and link to when
+ * something in it looks wrong — and the one that still works in a Jira that
+ * will not play the video.
+ *
+ * Nothing in here throws. A card that is finished has to reach a reviewer
+ * whether or not its evidence went up: losing the evidence costs them a few
+ * minutes in the preview, losing the comment costs them the hand-off.
+ */
+async function attachEvidence(
+  cfg: jira.JiraConfig,
+  key: string,
+  dryRun: boolean,
+): Promise<{ evidence: Evidence; evidenceNote: string }> {
+  const captured = capturedSteps(EVIDENCE_DIR)
+  const video = existsSync(SLIDES_PATH)
+
+  if (captured.length === 0) {
+    return { evidence: { video: null, proved: [] }, evidenceNote: 'nothing was captured' }
+  }
+  if (dryRun) {
+    return {
+      evidence: { video: video ? 'dry-run' : null, proved: captured },
+      evidenceNote: `would attach ${captured.length} screenshot(s)${video ? ' and the walkthrough' : ''}`,
+    }
+  }
+
+  const proved: number[] = []
+  for (const n of captured) {
+    const shot = resolve(EVIDENCE_DIR, `step-${String(n).padStart(2, '0')}.png`)
+    try {
+      await jira.addAttachment(cfg, key, shot, 'image/png')
+      proved.push(n)
+    } catch (error) {
+      console.error(`report: could not attach step ${n}: ${(error as Error).message}`)
+    }
+  }
+
+  let id: string | null = null
+  if (video) {
+    try {
+      id = (await jira.addAttachment(cfg, key, SLIDES_PATH, 'video/mp4')).id
+    } catch (error) {
+      console.error(`report: could not attach the walkthrough: ${(error as Error).message}`)
+    }
+  }
+
+  return {
+    evidence: { video: id, proved },
+    evidenceNote: `attached ${proved.length}/${captured.length} screenshot(s)${id === null ? '' : ' and the walkthrough'}`,
+  }
+}
+
 /** Posts the card comment and applies the status transition for this result. */
 export async function report(options: ReportOptions): Promise<void> {
   const meta = readMeta()
@@ -134,6 +241,12 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
+  const { evidence, evidenceNote } = await attachEvidence(
+    cfg,
+    meta.key,
+    options.dryRun === true,
+  )
+
   // Through the launcher: the Jira comment is read by a person, who may open
   // it days later, long after the app has scaled back to zero. meta.preview_url
   // itself stays raw — that is the agent's copy.
@@ -143,15 +256,18 @@ export async function report(options: ReportOptions): Promise<void> {
     pr,
     launcherFor(meta.preview_url),
     runUrl(),
+    evidence,
   )
 
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))
+    console.log(`report --dry-run: ${evidenceNote}`)
     console.log(`report --dry-run: would move ${meta.key} to ${targetStatus(options.stage, result)}`)
     return
   }
 
   await jira.addComment(cfg, meta.key, comment)
+  console.log(`report: evidence — ${evidenceNote}`)
 
   // The other end of what `announce` opened. Done before the transition so the
   // card arrives in its new column already handed back and already pointing at

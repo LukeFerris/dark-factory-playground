@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { required } from './env.ts'
 import type { AdfDoc } from './adf.ts'
 
@@ -275,6 +277,63 @@ export async function getIssueProperty(
 
 export async function addComment(cfg: JiraConfig, key: string, body: AdfDoc): Promise<void> {
   await call(cfg, 'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body })
+}
+
+/** What Jira gives back for a file it has taken: enough to embed it. */
+export interface JiraAttachment {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+}
+
+/**
+ * Puts a file on the card.
+ *
+ * Not through `call`, because this endpoint is unlike every other one Jira
+ * offers: the body is multipart rather than JSON, and it requires
+ * `X-Atlassian-Token: no-check` — without it Jira answers 403 as XSRF
+ * protection, which reads exactly like bad credentials and is not.
+ *
+ * The file is read into memory whole. The only thing sent here is a
+ * walkthrough video the factory just made, capped well below Jira's own limit
+ * before it gets this far.
+ */
+export async function addAttachment(
+  cfg: JiraConfig,
+  key: string,
+  filePath: string,
+  contentType = 'application/octet-stream',
+): Promise<JiraAttachment> {
+  const path = `/rest/api/3/issue/${encodeURIComponent(key)}/attachments`
+  const form = new FormData()
+  form.append('file', new Blob([readFileSync(filePath)], { type: contentType }), basename(filePath))
+
+  const response = await fetch(`${cfg.base}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(cfg),
+      Accept: 'application/json',
+      'X-Atlassian-Token': 'no-check',
+    },
+    body: form,
+  })
+
+  if (response.status === 401 || response.status === 403) {
+    throw new JiraAuthError(
+      `Jira rejected the credentials (${response.status}) attaching to ${key}. ` +
+        `Check JIRA_USER and JIRA_TOKEN, and that attachments are enabled on the project.`,
+    )
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Jira attach to ${key} failed: ${response.status} ${detail.slice(0, 500)}`)
+  }
+
+  // The endpoint answers with a list, one entry per part sent. One was sent.
+  const [attachment] = (await response.json()) as JiraAttachment[]
+  if (attachment === undefined) throw new Error(`Jira accepted the attachment to ${key} silently`)
+  return attachment
 }
 
 /**

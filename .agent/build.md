@@ -45,6 +45,7 @@ You may create or edit files under:
 
 - `app/src/**`
 - `app/public/**`
+- `app/e2e/**`
 - `app/index.html`
 - `app/package.json`
 - `package-lock.json`
@@ -53,9 +54,14 @@ You may create or edit files under:
 
 Nothing else. The pipeline validates your diff against exactly this list and
 rejects the turn if it finds anything outside it. You may not touch `.agent/`,
-`.github/`, `factory/`, `bootstrap/`, the root `package.json`, any `tsconfig`, or
-`app/eslint.config.js` — not to fix a failing build, not to add an exception, not
-to leave a note.
+`.github/`, `factory/`, `bootstrap/`, the root `package.json`, any `tsconfig`,
+`app/eslint.config.js`, or `app/playwright.config.ts` — not to fix a failing
+build, not to add an exception, not to leave a note.
+
+`app/playwright.config.ts` is denied even though `app/e2e/**` is yours. It sets
+the viewport, the base URL and whether screenshots are taken at all — the terms
+the evidence is produced under, which is the reviewer's guarantee rather than
+yours to relax when a step will not go green.
 
 This matters most when something fails. If the typecheck rejects your code, fix
 the code. Do not widen a type to `any` (lint forbids it), do not add an
@@ -70,6 +76,7 @@ You may run, and only run:
 - `npm run lint`
 - `npm run typecheck`
 - `npm test`
+- `npm run e2e`
 - `npm run build`
 - `npm run preview`
 - `curl` (against the preview URL in `meta.json`, to check the built app responds)
@@ -79,8 +86,8 @@ fail. To add a dependency, edit `app/package.json` and say so in `summary` and i
 the build log — the pipeline regenerates `package-lock.json` for you when it
 publishes. Keep new dependencies rare and justify each one.
 
-Before you finish any turn, run lint, typecheck, test and build, in that order.
-Report what you ran and what it said. Do not claim a turn is
+Before you finish any turn, run lint, typecheck, test, e2e and build, in that
+order. Report what you ran and what it said. Do not claim a turn is
 `ready_for_review` on code you have not seen pass.
 
 ## Choosing a status
@@ -190,6 +197,54 @@ turn is `continue` or `blocked`, and you say which criterion and why.
 **A `ready_for_review` turn with an empty `acceptance_criteria`, or with a
 criterion that has no steps, is rejected by validation.** A `continue` turn does
 not need them, though carrying the working ones forward helps the next reviewer.
+
+## The walkthrough
+
+Your steps are also a Playwright spec. After the preview is raised, the pipeline
+runs `app/e2e/` against it, screenshots each step, and builds a captioned video
+that goes on the card beside the words you wrote. The reviewer watches the card
+being proved before they open anything.
+
+That only works if the two say the same thing, so **write the spec in the same
+turn as the steps, from the same steps.**
+
+**Step numbers run straight through the card, from 1, across every criterion.**
+If the first criterion has two steps, the second criterion's first step is step
+3. The numbering is the only thing tying a screenshot to a line in the comment.
+
+Wrap each step in `uatStep`, whose second argument is that number:
+
+```ts
+import { expect, test } from '@playwright/test'
+import { uatStep } from './uat'
+
+test('the greeting names whoever you typed', async ({ page }) => {
+  await page.goto('/')
+
+  await uatStep(page, 1, async () => {
+    await page.getByLabel('Your name').fill('Ada')
+  })
+
+  await uatStep(page, 2, async () => {
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hello, Ada')
+  })
+})
+```
+
+**End every step with the assertion that the step has landed, inside the
+`uatStep` body.** Playwright's assertions retry until they pass, so the
+assertion *is* the wait, and the screenshot is taken after it. Never
+`waitForTimeout` to let something settle and never wait on network idle — both
+produce a screenshot of whatever happened to be on screen at that moment.
+
+Prefer `getByRole`, `getByLabel` and `getByText` over CSS selectors, for the
+same reason steps name what is on screen rather than a component.
+
+A step you cannot drive in a browser simply has no `uatStep` — the comment
+tells the reviewer to take that one themselves, which is the honest outcome. Do
+not invent a step to fill a gap in the numbering, and do not renumber to close
+one. **Missing evidence is never a reason to hold a finished card**, and it is
+never a reason to weaken an assertion until it goes green.
 
 ## Ground rules
 

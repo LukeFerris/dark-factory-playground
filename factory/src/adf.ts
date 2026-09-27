@@ -58,15 +58,41 @@ export function bulletList(items: AdfNode[][]): AdfNode {
  * Used for the steps that prove a criterion: they are taken in order, so a
  * reviewer following them needs to know which comes first. The criteria
  * themselves are bulleted — they are true together, not in sequence.
+ *
+ * `start` exists so several lists can share one run of numbers. The walkthrough
+ * numbers its steps straight through the card, and a reviewer holding the video
+ * beside the comment has to be able to find step 7 in it — which they cannot if
+ * every criterion restarts at 1.
  */
-export function orderedList(items: AdfNode[][]): AdfNode {
+export function orderedList(items: AdfNode[][], start = 1): AdfNode {
   return {
     type: 'orderedList',
-    attrs: { order: 1 },
+    attrs: { order: start },
     content: items.map((inline) => ({
       type: 'listItem',
       content: [paragraph(...inline)],
     })),
+  }
+}
+
+/**
+ * An attachment on the card, shown inline in the comment.
+ *
+ * `collection` is empty and `id` is the attachment id Jira gave back when it
+ * took the file: within a comment on the issue the file is attached to, that
+ * is enough for the renderer to find it. The width and height are the slide
+ * canvas — the media node carries no intrinsic size for a video, and without
+ * them the player renders in a box of Jira's choosing.
+ *
+ * A reader whose Jira cannot play it still has the file in the card's
+ * Attachments panel, which is why this is an enrichment of the comment and
+ * never the only place the evidence lives.
+ */
+export function mediaSingle(id: string, width = 1280, height = 980): AdfNode {
+  return {
+    type: 'mediaSingle',
+    attrs: { layout: 'center', width: 100 },
+    content: [{ type: 'media', attrs: { type: 'file', id, collection: '', width, height } }],
   }
 }
 

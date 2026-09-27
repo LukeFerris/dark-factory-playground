@@ -29,4 +29,11 @@ export default tseslint.config(
     files: ['*.config.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
+  {
+    // The end-to-end suite runs in Node too: it drives a browser rather than
+    // living in one, so `process` and `__dirname` are in scope and `document`
+    // is not.
+    files: ['e2e/**/*.ts'],
+    languageOptions: { globals: globals.node },
+  },
 )

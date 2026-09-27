@@ -15,6 +15,11 @@ secrets/
 # Preview stub scratch.
 .preview/
 
+# Playwright's own scratch: traces, per-test videos, failure artifacts. The
+# evidence a run is kept for goes to .agent/out/evidence/, which is ignored
+# above and travels as a workflow artifact instead.
+app/e2e/.results/
+
 .DS_Store
 *.log
 
