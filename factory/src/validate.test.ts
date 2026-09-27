@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { checkScope, contractProblems, matchesGlob } from './validate.ts'
 import { META_PATH, turnBase, writeFileEnsuringDir } from './meta.ts'
 import type { Result } from './schema.ts'
@@ -162,12 +162,11 @@ describe('checkScope — build stage', () => {
  * touched.
  */
 describe('turnBase', () => {
-  const saved = existsSync(META_PATH) ? readFileSync(META_PATH, 'utf8') : null
-
-  afterEach(() => {
-    if (saved === null) rmSync(META_PATH, { force: true })
-    else writeFileEnsuringDir(META_PATH, saved)
-  })
+  // No save-and-restore: `vitest.setup.ts` puts META_PATH in a temp directory,
+  // so there is nothing here worth preserving. That dance used to be the only
+  // thing standing between the suite and a running turn's meta.json, and it
+  // only worked because this file remembered to do it.
+  afterEach(() => rmSync(META_PATH, { force: true }))
 
   function meta(base_sha: string): void {
     writeFileEnsuringDir(META_PATH, JSON.stringify({ key: 'DF-1', base_sha }))

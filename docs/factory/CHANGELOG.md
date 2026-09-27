@@ -7,6 +7,44 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-27
+
+### The test suite was overwriting the running turn
+
+**Found by the first end-to-end card, DF-7, failing.** `publish` and `report`
+both asked Jira for **DF-1** — a card that does not exist — on a turn that
+`gather` and `announce` had correctly identified as DF-7 four minutes earlier.
+
+`gather` writes the turn's identity to `.agent/in/meta.json` and every later
+step reads it. A build agent is allowed `Bash(npm test:*)`, and it runs in the
+same checkout as the turn it belongs to. `gather.test.ts` — added two days ago,
+to pin the design-round count against the new start comment — drives the real
+`gather` against a stubbed Jira, so it writes the real `meta.json`, with the
+fixture's key. Any build agent that runs the test suite therefore rewrites its
+own turn's identity, mid-turn.
+
+Nothing failed at the point of corruption. Overwriting a JSON file is not an
+error, `validate` passed, and the first sign of trouble was a 404 from Jira two
+steps later — with a card key nobody could see the origin of. It had also been
+happening locally for two days: `.agent/in/meta.json` on my machine said DF-1
+every time I ran the suite, which read as debris rather than as evidence.
+
+**Done:** `FACTORY_AGENT_DIR` overrides where `.agent` lives, and
+`factory/vitest.setup.ts` points it at a fresh temp directory before any test
+file's imports resolve it. The repository's own `.agent` is now unreachable from
+the suite. Production is unchanged — no workflow sets the variable.
+
+Per-test tidying up was the alternative and is not good enough: `validate.test.ts`
+already saved and restored `meta.json` around its cases, which is precisely why
+it was not the file that caused this. That only works for as long as every
+future test remembers, and it still leaves the file wrong while the suite runs.
+The save-and-restore is deleted along with the need for it.
+
+`meta.test.ts` pins the guard itself — that no agent path resolves inside the
+repository — because nothing else in the suite goes red if the `setupFiles`
+line is tidied out of the vitest config. Checked by removing it: the guard
+fails, and only the guard.
+
 ## 2026-09-26
 
 ### A card now says when work starts on it

@@ -34,8 +34,26 @@ export interface Meta {
   preview_url: string | null
 }
 
-export const AGENT_IN = resolve(REPO_ROOT, '.agent/in')
-export const AGENT_OUT = resolve(REPO_ROOT, '.agent/out')
+/**
+ * Where the turn's scratch files live. `.agent` in the repository, unless
+ * `FACTORY_AGENT_DIR` says otherwise.
+ *
+ * The override exists for one reason, and it is not convenience. A build agent
+ * is allowed to run `npm test`, in the same checkout as the turn it is part
+ * of — so any test that exercises the real `gather` writes over the real
+ * `meta.json`, and `publish` then reads a card key from a fixture. It is not a
+ * hypothetical: it happened on DF-7, where `publish` and `report` both went
+ * looking for DF-1 and got a 404 from Jira. Nothing failed at the point of
+ * corruption, because overwriting a JSON file is not an error.
+ *
+ * The test suite therefore points this somewhere disposable (`vitest.setup.ts`)
+ * and cannot reach a live turn's state at all. Read once at import: the
+ * directory a process uses must not change under it mid-turn.
+ */
+const AGENT_DIR = process.env['FACTORY_AGENT_DIR'] ?? resolve(REPO_ROOT, '.agent')
+
+export const AGENT_IN = resolve(AGENT_DIR, 'in')
+export const AGENT_OUT = resolve(AGENT_DIR, 'out')
 export const META_PATH = resolve(AGENT_IN, 'meta.json')
 export const TASK_PATH = resolve(AGENT_IN, 'task.md')
 export const RESULT_PATH = resolve(AGENT_OUT, 'result.json')
