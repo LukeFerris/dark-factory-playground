@@ -142,6 +142,12 @@ repository, one of three words back — and `SECURITY.md` says why the
 distinction matters. The model is `claude-haiku-4-5-20251001` unless you set the
 optional `FACTORY_TRIAGE_MODEL` repository variable.
 
+The agents themselves run on `claude-opus-5-5`, set by `FACTORY_AGENT_MODEL`.
+You do not need to set it to get started — the default is in the workflows. If
+you do change it, change `FACTORY_AGENT_VERSION` with it: the API refuses a
+model the installed CLI is too old for, and the failure lands mid-turn rather
+than at setup. `RUNBOOK.md` has the pair, and a one-line way to test it.
+
 ---
 
 ## Run the bootstrap

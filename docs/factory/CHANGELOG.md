@@ -9,6 +9,52 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-27
 
+### The model the agents ran on was never chosen, only inherited
+
+Nothing in the factory passed `--model`. All four agents — design, both build
+turns, and the conflict resolver — ran on whatever the pinned CLI happened to
+default to. It was Opus 5, which was the right answer, arrived at by accident.
+
+The install pin was doing the work, and the comment above it says why that is
+not enough:
+
+> Pinned deliberately. The flag surface is version-coupled … so an unpinned
+> install lets a CLI release change how a turn behaves with nobody watching.
+
+The same argument applies to the model, and the model is the larger lever. The
+pin held it still only as a side effect; bumping `FACTORY_AGENT_VERSION` for an
+unrelated reason could have moved every agent onto a different model, with
+nothing in the diff to say so.
+
+**Done:** `--model "${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}"` on all
+four invocations, and `agent-model` added to the `merge-main` action's inputs.
+
+**The version had to move with it, and that is a trap worth naming.** Opus 5.5
+was published on 2026-09-21, after the CLI the factory pinned. Setting the model
+alone does not fail at install or at parse — it fails at the first API call of a
+turn that is already underway:
+
+```
+API Error: 400 Claude Code 2.1.224 does not support this model;
+version 2.1.280 or newer is required.
+```
+
+So `FACTORY_AGENT_VERSION` goes to `2.1.281` in the same change, and the two
+defaults now carry a comment saying they move as a pair. `2.1.281` was checked
+against the model directly, and the six flags the factory passes — `--model`,
+`--allowedTools`, `--disallowedTools`, `--strict-mcp-config`, `--max-budget-usd`,
+`--output-format` — all still exist in it; the help diff against `2.1.224` is
+confined to `--agents`, `--bg` and `--bare`, none of which the factory uses.
+
+**Triage is deliberately left out.** `FACTORY_TRIAGE_MODEL` stays on Haiku 4.5.
+It is a three-way classification of a comment, not a turn, and it runs on every
+poll.
+
+**`modelUsage` in each `transcript.json` is the record of what actually ran.**
+The flag is a request; the transcript is the answer. Every transcript also shows
+a few tokens of Haiku 4.5 alongside the main model — that is CLI housekeeping,
+not the agent.
+
 ### Build turns never merged main, and cards in review went stale in silence
 
 Two halves of the same problem, found while adding the first half.

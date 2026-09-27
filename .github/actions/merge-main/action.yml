@@ -58,7 +58,13 @@ inputs:
   agent-version:
     description: Pinned @anthropic-ai/claude-code version
     required: false
-    default: 2.1.224
+    default: 2.1.281
+  agent-model:
+    description: >
+      Pinned model. Moves with agent-version, not independently: the API
+      refuses a model the installed CLI is too old for.
+    required: false
+    default: claude-opus-5-5
   budget-usd:
     description: Spend ceiling for one conflict resolution
     required: false
@@ -103,6 +109,7 @@ runs:
         set -euo pipefail
         mkdir -p .agent/out
         claude -p "$(cat .agent/merge.md)" \
+          --model "${{ inputs.agent-model }}" \
           --allowedTools "Read,Glob,Grep,Write,Edit,Bash(git show:*),Bash(git log:*),Bash(git diff:*)" \
           --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
           --strict-mcp-config \
