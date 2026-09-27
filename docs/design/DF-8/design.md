@@ -1,10 +1,5 @@
 # DF-8 — Replace hello world with a simple CRM for a PE fund
 
-> **Draft, turn 1.** This design is built on the recommended option for each
-> question asked on the card. The card is held at *Blocked on architect* until
-> those are answered, and the next turn rewrites whichever sections the answers
-> change. The build stage does not start from this draft.
-
 ## Context
 
 [DF-8](https://jira.local/browse/DF-8) asks for the placeholder "Hello, world"
@@ -19,6 +14,14 @@ card's intent: one screen where a deal team can see its pipeline at a glance,
 add a new opportunity, and move a deal forward or mark it passed. "Simple"
 limits scope to that screen; "beautiful" means a deliberate, calm visual design
 instead of browser defaults and a flat blue page.
+
+Scope questions were asked on the card; the reply was that this is a proof of
+concept, not a production application, and the architect should pick whatever
+keeps it simplest. The decisions taken on that basis: deal pipeline only (no
+contacts or LP records); data saved in the browser, seeded with sample deals;
+users can add deals and move them between stages, but not edit or delete them;
+DF-7's blue page is replaced by a neutral palette and the app is called "Deal
+Pipeline"; deal sizes are in pounds, in millions.
 
 ## Current state
 
@@ -58,7 +61,7 @@ pipeline**.
 | `company` | string | yes | Trimmed; blank is rejected |
 | `sector` | string | no | Free text, e.g. "Healthcare" |
 | `stage` | one of the stages below | yes | New deals start at "Sourcing" |
-| `size` | number, in £m | no | Shown as "£45m"; must be a positive number if given |
+| `size` | number, in £m | no | Shown as "£45m" (decimals allowed, shown without trailing zeros, e.g. "£12.5m"); must be a positive number if given; a card with no size shows no size |
 | `owner` | string | no | Free text name of the partner or associate |
 
 Stages, in order: **Sourcing**, **Screening**, **Due diligence**,
@@ -72,7 +75,9 @@ alongside "Closed", not a delete, so the record is kept.
    Closed and not Passed, and the total sums `size` over active deals.
 2. An "Add deal" form: fields "Company", "Sector", "Deal size (£m)", "Owner", and
    an "Add deal" button. On submit with a blank company it shows "Enter a
-   company name" beneath that field and adds nothing. On a successful add the
+   company name" beneath that field and adds nothing. If "Deal size (£m)" is
+   filled in but is not a number above 0, it shows "Enter a size above 0"
+   beneath that field and adds nothing. On a successful add the
    form clears and focus returns to "Company".
 3. The pipeline board: one column per stage, each headed by the stage name and
    a count. Each deal is a card showing company, sector, size and owner, plus a
@@ -81,7 +86,8 @@ alongside "Closed", not a delete, so the record is kept.
 
 **Persistence.** Deals are kept in `localStorage` under the key
 `df-crm.deals.v1`. On first load (key absent) the board is seeded with six
-fictional sample deals so it does not open empty. If the stored value cannot be
+fictional sample deals, one in each stage, each with a sector, size and owner,
+so it does not open empty. If the stored value cannot be
 parsed, the app falls back to the seed data rather than crashing.
 
 **Look.** Replace the DF-7 blue with a neutral light palette: off-white page
@@ -101,7 +107,7 @@ router, because there is one screen. No new dependencies.
 | --- | --- |
 | `app/src/components/Hello.tsx` | Deleted |
 | `app/src/components/Hello.test.tsx` | Deleted |
-| `app/src/hooks/useGreeting.ts` | Deleted |
+| `app/src/hooks/useGreeting.ts` | Deleted (the `hooks/` directory is left empty and goes with it) |
 | `app/src/crm/types.ts` | New. `Deal` type, `STAGES` constant, `Stage` type |
 | `app/src/crm/seed.ts` | New. The six sample deals |
 | `app/src/crm/useDeals.ts` | New. Hook owning the deals array: load from storage (seed on absent or corrupt), `addDeal`, `moveDeal`, save on change |
@@ -131,7 +137,7 @@ router, because there is one screen. No new dependencies.
 
 ## Accessibility and UX notes
 
-- Every form field has a visible `<label>`. The company error is linked with
+- Every form field has a visible `<label>`. Each field error (company and size) is linked with
   `aria-describedby` and the field gets `aria-invalid="true"`; the message sits
   in an element with `role="alert"` so it is announced.
 - After a successful add, focus returns to "Company" and a polite live region
@@ -203,6 +209,13 @@ router, because there is one screen. No new dependencies.
 3. The message "Enter a company name" appears beneath "Company" and no new card
    appears.
 
+#### A deal cannot be added with a size of zero or less
+
+1. Type "Zero Co" into "Company" and "0" into "Deal size (£m)".
+2. Press "Add deal".
+3. The message "Enter a size above 0" appears beneath "Deal size (£m)" and no
+   card for "Zero Co" appears.
+
 #### A deal can be moved to another stage
 
 1. On the "Acme Logistics" card, change "Stage" to "Due diligence".
@@ -234,7 +247,8 @@ router, because there is one screen. No new dependencies.
   target deal's stage; every change is written back to storage.
 - **`AddDealForm` (component):** blank and whitespace-only company shows "Enter a
   company name", marks the field invalid and does not call `addDeal`; a
-  non-positive or non-numeric size is rejected; a valid submit calls `addDeal`
+  non-positive or non-numeric size shows "Enter a size above 0" and does not
+  call `addDeal`; a blank size is allowed; a valid submit calls `addDeal`
   with the parsed values, clears the fields and returns focus to "Company".
 - **`PipelineBoard` (component):** renders six stage headings in order with
   counts; places each deal under its stage; an empty stage shows "No deals";
