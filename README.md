@@ -21,8 +21,8 @@ Then follow **[docs/factory/SETUP.md](docs/factory/SETUP.md)**.
 | --- | --- |
 | `app/` | The example React 19 + TypeScript + Vite app |
 | `factory/` | `@factory/cli` — every step of a turn, as subcommands |
-| `.agent/` | The agent boundary: the two manuals, and the result contract |
-| `.github/workflows/` | The poller, design, build start/setup/turn/teardown, and production |
+| `.agent/` | The agent boundary: the three manuals, and the result contract |
+| `.github/workflows/` | The poller, design, build start/setup/turn/teardown, refresh, and production |
 | `bootstrap/` | Scripts that configure GitHub and Jira from nothing |
 | `infra/azure/` | Terraform for the optional Azure preview and production estate |
 | `docs/` | How it works, how to run it, and why it is built this way |

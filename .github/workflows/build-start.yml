@@ -93,6 +93,20 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
 
+      # Turn one usually cuts the branch fresh from main, in which case this is a
+      # no-op. It is not skipped on that assumption: a card can reach build a
+      # second time, and by then the branch is however old the card is.
+      - name: Bring the branch up to main
+        uses: ./.github/actions/merge-main
+        with:
+          key: ${{ inputs.key }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          jira-base: ${{ vars.JIRA_BASE }}
+          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
+          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
+          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}
+          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
+
       # Pinned deliberately. The flag surface is version-coupled — see the
       # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
       # release change how a turn behaves with nobody watching.

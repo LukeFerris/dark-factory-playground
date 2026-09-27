@@ -6,13 +6,24 @@ import { announce } from './announce.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
 import { triagePass } from './triage.ts'
+import { currentBranch } from './git.ts'
 import { findPrForCard } from './github.ts'
+import {
+  abortMerge,
+  attemptMerge,
+  finishMerge,
+  mergeQuestionResult,
+  readMergeResult,
+  readMergeState,
+  recordMerge,
+} from './merge.ts'
+import { refresh, refreshTargets } from './refresh.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
-import { readMeta, turnBase, writeFileEnsuringDir } from './meta.ts'
+import { RESULT_PATH, readMeta, turnBase, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import { Stage, toJsonSchema } from './schema.ts'
 
 loadDotEnv()
@@ -20,8 +31,9 @@ loadDotEnv()
 /**
  * Exit codes are part of the contract with the workflows:
  *   0 ok · 1 unexpected · 2 Jira auth · 3 no such transition · 4 validation failed
+ *   5 the merge from main could not be resolved
  */
-const EXIT = { OK: 0, ERROR: 1, AUTH: 2, TRANSITION: 3, VALIDATION: 4 } as const
+const EXIT = { OK: 0, ERROR: 1, AUTH: 2, TRANSITION: 3, VALIDATION: 4, MERGE: 5 } as const
 
 const program = new Command()
 program
@@ -106,8 +118,96 @@ program
   .action(async (key: string) => {
     const issue = await jira.getIssue(jira.configFromEnv(), key)
     const summary = (issue.fields['summary'] as string) ?? key
-    const branch = prepareBranch(key, summary)
-    console.log(branch)
+    console.log(prepareBranch(key, summary))
+  })
+
+// The merge, in three subcommands rather than one, because the middle of it runs
+// an agent: `merge-begin` leaves a conflicted merge in the index and describes it
+// in .agent/in/merge.json, the agent resolves it in a step holding nothing but an
+// Anthropic key, and `merge-finish` decides whether what came back is a commit or
+// a question for the card. `.github/actions/merge-main` is the three of them in
+// order and is the only thing that should be calling them.
+
+program
+  .command('merge-begin')
+  .description('Start merging origin/main into the checked-out card branch.')
+  .argument('<key>', 'Issue key')
+  .action(async (key: string) => {
+    const issue = await jira.getIssue(jira.configFromEnv(), key)
+    const summary = (issue.fields['summary'] as string) ?? key
+    recordMerge(attemptMerge(currentBranch()), key, summary)
+  })
+
+program
+  .command('merge-finish')
+  .description('Commit a resolved merge, or report the conflict on the card and stop the turn.')
+  .action(() => {
+    const state = readMergeState()
+    if (state.state === 'up-to-date' || state.state === 'merged') {
+      console.log(`merge-finish: nothing to finish (${state.state}).`)
+      return
+    }
+
+    // A refused merge never reached an agent — attemptMerge aborted it on the
+    // spot — so there is no result to read and nothing to check. It goes
+    // straight to the same question on the card.
+    const result = state.state === 'refused' ? null : readMergeResult()
+    const outcome =
+      result === null
+        ? { ok: false, problems: [`The conflict is in ${state.denied.join(', ')}.`], sha: null }
+        : finishMerge(state, result)
+
+    if (outcome.ok) {
+      updateMeta({ base_sha: outcome.sha as string })
+      console.log(`merge-finish: merged as ${(outcome.sha as string).slice(0, 12)}.`)
+      return
+    }
+
+    abortMerge()
+    // Hand the failure to `report`, which already knows how to put a question
+    // on a card and move it to Blocked on engineer. Exiting non-zero skips the
+    // build agent; the workflow's report step runs regardless and reads this.
+    writeFileEnsuringDir(
+      RESULT_PATH,
+      `${JSON.stringify(mergeQuestionResult(state, outcome.problems, result), null, 2)}\n`,
+    )
+    console.error('merge-finish: the merge from main was not resolved.')
+    for (const problem of outcome.problems) console.error(`  - ${problem}`)
+    process.exit(EXIT.MERGE)
+  })
+
+// The fan-out that keeps the review queue from going stale. `refresh-plan`
+// names the cards, one `refresh` runs per card on its own runner.
+program
+  .command('refresh-plan')
+  .description('Print, as JSON, every card in "In review" whose branch may need main merging in.')
+  .option('--exclude <keys>', 'Comma-separated keys to leave alone, e.g. the card that just merged', '')
+  .action(async (opts: { exclude: string }) => {
+    const exclude = opts.exclude
+      .split(',')
+      .map((k) => k.trim().toUpperCase())
+      .filter((k) => k !== '')
+    const targets = await refreshTargets(jira.configFromEnv(), required('JIRA_PROJECT_KEY'), exclude)
+    console.log(JSON.stringify(targets))
+  })
+
+program
+  .command('refresh')
+  .description("Merge main into one in-review card's branch, or hand it to the build agent.")
+  .argument('<key>', 'Issue key')
+  .requiredOption('--because-pr <number>', 'The pull request whose merge set this off', (v) =>
+    Number.parseInt(v, 10),
+  )
+  .requiredOption('--because-title <title>', 'That pull request\'s title')
+  .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
+  .action(async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
+    const outcome = await refresh({
+      key,
+      because: { number: opts.becausePr, title: opts.becauseTitle },
+      cfg: jira.configFromEnv(),
+      dryRun: opts.dryRun,
+    })
+    console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
   })
 
 program

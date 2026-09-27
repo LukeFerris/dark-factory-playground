@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { REPO_ROOT } from './env.ts'
+import { optional, REPO_ROOT } from './env.ts'
 
 export function git(args: string[], allowFailure = false): string {
   const result = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
@@ -25,6 +25,22 @@ export function gitSucceeds(args: string[]): boolean {
 
 export function currentBranch(): string {
   return git(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+}
+
+/**
+ * Gives this checkout the factory's git identity.
+ *
+ * Any command that writes a commit needs one, and three of them do: `publish`
+ * commits the turn's output, `prepare-branch` commits a merge from main, and
+ * `merge-finish` commits a resolved one. They all have to agree — a commit
+ * authored by "runner" is a commit no reviewer can attribute — so the spelling
+ * of the address lives here rather than three times over.
+ */
+export function identifyAsBot(): string {
+  const login = optional('FACTORY_BOT_LOGIN', 'factory[bot]')
+  git(['config', 'user.name', login])
+  git(['config', 'user.email', `${login.replace(/\[bot\]$/, '')}[bot]@users.noreply.github.com`])
+  return login
 }
 
 export function headSha(): string {
