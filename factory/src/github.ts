@@ -87,7 +87,7 @@ export function findPrForBranch(branch: string): PullRequest | null {
  * trailing hyphen is load-bearing — without it `DF-3` would also match
  * `card/DF-30-…`.
  */
-export function findPrForCard(key: string): PullRequest | null {
+export function findPrForCard(key: string): (PullRequest & { headRefName: string }) | null {
   const out = ghJson<Array<PullRequest & { headRefName: string }>>([
     'pr',
     'list',

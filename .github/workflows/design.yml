@@ -65,6 +65,22 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
 
+      # A design turn writes only under docs/design/<card>/ and docs/adr/, so a
+      # conflict here is close to unimaginable. It gets the same treatment as a
+      # build turn anyway, because the reason to merge is not the card's own
+      # files: it is that .agent/design.md and the factory code being run are
+      # whatever this branch last saw.
+      - name: Bring the branch up to main
+        uses: ./.github/actions/merge-main
+        with:
+          key: ${{ inputs.key }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          jira-base: ${{ vars.JIRA_BASE }}
+          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
+          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
+          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.224' }}
+          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
+
       # Pinned deliberately. The flag surface is version-coupled — see the
       # CHANGELOG entry for --max-turns — so an unpinned install lets a CLI
       # release change how a turn behaves with nobody watching.

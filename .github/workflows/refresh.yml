@@ -1,0 +1,208 @@
+name: factory refresh cards in review
+
+# Every merge to main invalidates every card still in review.
+#
+# Not "possibly". The branch on each of those pull requests was written against
+# a main that no longer exists, so the diff a reviewer is looking at, the preview
+# they clicked, and the mergeability GitHub is showing them are all statements
+# about the past. The conflict is still there; the only question is whether it
+# surfaces now, in a job nobody is waiting on, or at the merge button at half
+# past five.
+#
+# So: one planning job that asks Jira which cards are in review, then one job per
+# card. `fail-fast: false` because these are unrelated branches — DF-5 conflicting
+# is not a reason to leave DF-6 stale — and a per-card concurrency group so this
+# cannot race a build turn already running on the same branch.
+#
+# What each leg does is in factory/src/refresh.ts. The short version: nothing if
+# the branch already had main, a push and a comment if it merges and the checks
+# still pass, and back to Building for the build agent if either fails. No agent
+# runs here — the one that resolves conflicts lives in the build turn this hands
+# to, which is also the only place its output can be reviewed.
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The merged pull request to fan out from
+        required: true
+      title:
+        description: What that pull request did, in a few words
+        required: true
+
+permissions:
+  contents: read
+
+# Repository-wide, not per-card: two merges to main in quick succession would
+# otherwise fan out over the same branches at once, and the second fan-out's view
+# of main is the one worth having. `cancel-in-progress` is on for the same
+# reason — a half-finished refresh against a superseded main is work to throw
+# away, and every leg is safe to interrupt (nothing is pushed until the checks
+# have passed).
+concurrency:
+  group: factory-refresh
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    # Merges of anything other than a card branch are ignored — a factory PR
+    # touching the machinery does not put every card back through the mill.
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.merged == true &&
+        startsWith(github.event.pull_request.head.ref, 'card/')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      cards: ${{ steps.plan.outputs.cards }}
+      count: ${{ steps.plan.outputs.count }}
+      pr: ${{ steps.trigger.outputs.number }}
+      title: ${{ steps.trigger.outputs.title }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # The card that just merged is not in review any more, but Jira may not
+      # have caught up — `publish` moves it and the merge can beat the move. It
+      # is excluded by key rather than trusted to have moved.
+      #
+      # Every one of these arrives through `env:` and not through `${{ }}` in the
+      # script body. A pull request title is attacker-controlled text — anyone who
+      # can open a PR writes it — and interpolating it into a shell line runs it.
+      # The title also reaches a second script, in the `card` job below, by way of
+      # GITHUB_OUTPUT — where a newline in it would end the `title=` line and let
+      # the rest be read as another output. It is flattened to one line, which is
+      # all it is ever used as: a clause in a sentence on a Jira card.
+      - name: Read the merged pull request
+        id: trigger
+        env:
+          EVENT: ${{ github.event_name }}
+          DISPATCH_PR: ${{ inputs.pr }}
+          DISPATCH_TITLE: ${{ inputs.title }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          EVENT_TITLE: ${{ github.event.pull_request.title }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            number="$DISPATCH_PR"
+            title="$DISPATCH_TITLE"
+            head=""
+          else
+            number="$EVENT_PR"
+            title="$EVENT_TITLE"
+            head="$EVENT_HEAD"
+          fi
+          key="$(printf '%s' "$head" | sed -n 's#^card/\([A-Z][A-Z0-9]*-[0-9]\+\).*#\1#p')"
+          title="$(printf '%s' "$title" | tr '\r\n' '  ')"
+          {
+            echo "number=${number}"
+            echo "key=${key}"
+            echo "title=${title}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Find the cards in review
+        id: plan
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY }}
+          EXCLUDE: ${{ steps.trigger.outputs.key }}
+        run: |
+          set -euo pipefail
+          cards="$(npm run --silent factory -- refresh-plan --exclude "$EXCLUDE")"
+          echo "cards=${cards}" >> "$GITHUB_OUTPUT"
+          echo "count=$(printf '%s' "$cards" | jq 'length')" >> "$GITHUB_OUTPUT"
+          printf '%s' "$cards" | jq -r '.[] | "will refresh \(.key) on \(.branch)"'
+
+  # One runner per card. The matrix is empty when nothing is in review, and an
+  # empty matrix skips the job rather than failing it — hence the `count` guard,
+  # which keeps the run green and legible instead of silently skipped.
+  card:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.cards) }}
+    # The same group build-start.yml uses, so a first build turn and a refresh
+    # cannot both be working the card at once. It does NOT cover build-turn.yml,
+    # which groups on `factory-build-turn-<key or PR number>` and cannot be
+    # unified with this one — the comment path into it knows the PR number and not
+    # the key. What that leaves is a refresh racing a later turn, on separate
+    # runners with separate checkouts, and the loser's push is rejected as
+    # non-fast-forward. Noisy, recoverable, and not silent, which is the part
+    # that matters.
+    concurrency:
+      group: factory-build-${{ matrix.key }}
+      cancel-in-progress: false
+    steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # The card's own branch, whole. `fetch-depth: 0` because a merge needs the
+      # history on both sides; `persist-credentials: false` because the push, if
+      # there is one, goes out over the App token set below rather than over the
+      # default GITHUB_TOKEN, which the ruleset on main does not let near a
+      # protected branch and which would not attribute the commit to the bot.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # No ANTHROPIC_API_KEY anywhere in this job. It merges, runs the checks and
+      # either pushes or hands the card to a build turn; every judgement call it
+      # meets is one it declines to make.
+      - name: Bring the card up to main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          KEY: ${{ matrix.key }}
+          BECAUSE_PR: ${{ needs.plan.outputs.pr }}
+          # Through env, not `${{ }}`, for the reason given in the plan job: this
+          # is a pull request title and whoever opened it wrote it.
+          BECAUSE_TITLE: ${{ needs.plan.outputs.title }}
+        run: |
+          set -euo pipefail
+          git remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run --silent factory -- refresh "$KEY" \
+            --because-pr "$BECAUSE_PR" \
+            --because-title "$BECAUSE_TITLE"

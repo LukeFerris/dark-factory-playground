@@ -1,0 +1,120 @@
+name: Bring the card branch up to main
+description: >-
+  Merges origin/main into the checked-out card branch, resolving conflicts with
+  an agent where it can and stopping the turn with a question on the card where
+  it cannot.
+
+# Why this is an action and not steps in each workflow.
+#
+# Two workflows start a build turn — build-start.yml for turn one and
+# build-turn.yml for every turn a human grants afterwards — and both of them
+# have to do this, for the same reason and in the same order. build-turn.yml in
+# particular did not merge main at all until this existed: it checked the pull
+# request branch out and ran the agent, so a card given three turns over a week
+# built every one of them against the main it was cut from.
+#
+# The order below is the whole content of this action, and every step in it is
+# placed against a specific way of getting it wrong:
+#
+#   merge-begin   attempts the merge and writes .agent/in/merge.json. A clean
+#                 merge commits here and the rest is skipped. A conflict is left
+#                 sitting in the index, uncommitted, which is what makes it
+#                 recoverable — `git merge --abort` puts it all back.
+#   the agent     runs only on the conflicted path, holding ANTHROPIC_API_KEY
+#                 and nothing else. Not the App token, not the Jira token: this
+#                 is the one step in the sequence whose behaviour is influenced
+#                 by the contents of the files it is reading, and those files
+#                 are a diff between two branches.
+#   merge-finish  checks the agent stayed inside the conflict and left no
+#                 markers, then writes the commit. It exits 5 if not, which
+#                 fails the job — and the calling workflow's `report` step, which
+#                 runs anyway, finds a `question` result waiting for it and puts
+#                 the conflict on the card as something to answer.
+#   npm ci        because the merge may have brought a new lockfile across, and
+#                 the node_modules from before it now describes a combination
+#                 that will never exist again.
+#
+# There is no `continue-on-error` on the agent step, because composite actions
+# do not support it. `|| echo` does the same job: an agent that crashes or runs
+# out of budget writes no result file, and merge-finish reads a missing result
+# as "did not resolve it", which is the only safe reading.
+
+inputs:
+  key:
+    description: Jira issue key, e.g. DF-4
+    required: true
+  anthropic-api-key:
+    description: The only credential the resolving agent is given
+    required: true
+  jira-base:
+    description: Jira site base URL
+    required: true
+  jira-user:
+    description: Jira bot account email
+    required: true
+  jira-token:
+    description: Jira bot API token
+    required: true
+  agent-version:
+    description: Pinned @anthropic-ai/claude-code version
+    required: false
+    default: 2.1.224
+  budget-usd:
+    description: Spend ceiling for one conflict resolution
+    required: false
+    default: '5'
+
+outputs:
+  state:
+    description: up-to-date | merged | conflicted | refused
+    value: ${{ steps.begin.outputs.state }}
+
+runs:
+  using: composite
+  steps:
+    - name: Merge main into the branch
+      id: begin
+      shell: bash
+      env:
+        KEY: ${{ inputs.key }}
+        JIRA_BASE: ${{ inputs.jira-base }}
+        JIRA_USER: ${{ inputs.jira-user }}
+        JIRA_TOKEN: ${{ inputs.jira-token }}
+      run: |
+        set -euo pipefail
+        npm run --silent factory -- merge-begin "$KEY"
+        echo "state=$(jq -r .state .agent/in/merge.json)" >> "$GITHUB_OUTPUT"
+
+    - name: Install the agent
+      if: steps.begin.outputs.state == 'conflicted'
+      shell: bash
+      run: npm i -g "@anthropic-ai/claude-code@${{ inputs.agent-version }}"
+
+    # Read-only git only. `git show`, `git log` and `git diff` let it see either
+    # side of a conflict whole rather than in hunks; nothing here can commit,
+    # check out, reset or push, so the worst it can do is edit files that
+    # merge-finish is about to inspect.
+    - name: Resolve the conflict
+      if: steps.begin.outputs.state == 'conflicted'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        set -euo pipefail
+        mkdir -p .agent/out
+        claude -p "$(cat .agent/merge.md)" \
+          --allowedTools "Read,Glob,Grep,Write,Edit,Bash(git show:*),Bash(git log:*),Bash(git diff:*)" \
+          --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
+          --strict-mcp-config \
+          --max-budget-usd "${{ inputs.budget-usd }}" \
+          --output-format json > .agent/out/merge-transcript.json \
+          || echo "::warning::the resolving agent exited non-zero; merge-finish will treat that as unresolved"
+
+    - name: Commit the merge
+      shell: bash
+      run: npm run --silent factory -- merge-finish
+
+    - name: Reinstall dependencies the merge may have changed
+      if: steps.begin.outputs.state == 'merged' || steps.begin.outputs.state == 'conflicted'
+      shell: bash
+      run: npm ci

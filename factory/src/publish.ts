@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { optional, REPO_ROOT } from './env.ts'
-import { git } from './git.ts'
+import { REPO_ROOT } from './env.ts'
+import { git, identifyAsBot } from './git.ts'
 import {
   addLabel,
   createDraftPr,
@@ -87,8 +87,6 @@ export interface PublishOptions {
 export function publish(options: PublishOptions): PullRequest | null {
   const meta = readMeta()
   const result = readResult()
-  const botLogin = optional('FACTORY_BOT_LOGIN', 'factory[bot]')
-  const botEmail = `${botLogin.replace(/\[bot\]$/, '')}[bot]@users.noreply.github.com`
 
   if (options.stage === 'build') {
     // Regenerate the lockfile in case the agent added a dependency. It cannot
@@ -103,8 +101,7 @@ export function publish(options: PublishOptions): PullRequest | null {
     }
   }
 
-  git(['config', 'user.name', botLogin])
-  git(['config', 'user.email', botEmail])
+  identifyAsBot()
 
   for (const pattern of ALLOWED_PATHS[options.stage]) {
     git(['add', '--', pattern], true)

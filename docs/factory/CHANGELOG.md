@@ -9,6 +9,67 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-27
 
+### Build turns never merged main, and cards in review went stale in silence
+
+Two halves of the same problem, found while adding the first half.
+
+**`build-turn.yml` did not merge main at all.** It checks out the pull request's
+branch and runs the agent; it never called `prepare-branch`, which was the only
+place the merge lived. So a card granted three turns over a week built all three
+against whatever main looked like on the day the branch was cut — running that
+day's manual, judged by that day's validator. `build-start.yml` got it right by
+accident, because it cuts the branch fresh.
+
+**And a card sitting in "In review" is waiting on a person, which takes days.**
+Other cards merge in the meantime. The reviewer is then looking at a diff against
+a main that no longer exists, a preview of a world two merges old, and a green
+tick from CI that ran before either. The conflict is already there; the only
+question is whether it surfaces in a job nobody is waiting on or at the merge
+button at half past five.
+
+**Done, and the two halves share a primitive** — `factory/src/merge.ts`:
+
+- Every turn — design, build turn one, and every build turn after — now runs
+  `.github/actions/merge-main` immediately after checkout. `prepare-branch` no
+  longer merges; it checks the branch out and stops.
+- A conflict is handed to an agent on `.agent/merge.md` rather than failing the
+  turn. Most conflicts on a card branch are two cards editing the same handful of
+  lines, which is a judgement an agent can make.
+- The ones it cannot make become a question on the card, through the existing
+  `question` result and `report --stage build`. So it gets the same comment shape,
+  the same links, the same release of the assignee — and answering it starts a
+  build turn through the ordinary triage path, with no new machinery.
+- `refresh.yml` runs on every merge of a `card/*` branch: one job per card still
+  in review, in parallel, each merging main into its branch. Clean and still
+  green, it pushes and comments. Otherwise the card goes back to **Building** and
+  the build agent gets it, because that is where the agent that can resolve it
+  lives.
+
+**A clean merge that then fails the checks counts as a conflict.** Two cards can
+touch different files, merge without a murmur and still contradict each other —
+one renames what the other calls. Git has no opinion about that at all, so the
+fan-out runs `npm ci && lint && typecheck && test && build` on the merged tree
+and treats red as "needs support". Without it the fan-out would confidently push
+branches that do not build.
+
+**Three things the merge got wrong in the first draft, worth writing down:**
+
+- `base_sha` is load-bearing and the merge moves it. `validate` diffs the turn
+  against it; leave it at the pre-merge commit and everything main did is
+  attributed to the agent, and the turn is rejected for editing `factory/` it
+  never touched. `recordMerge` owns that rule now, in one place.
+- The scope check for the resolving agent is just `git diff --name-only ⊆ the
+  conflicted paths`. It works because of how git stages a conflicted merge:
+  everything that merged cleanly is already *in* the index, so it does not show
+  up, and unmerged entries always do. Anything else listed is a file the agent
+  edited on its own initiative.
+- A conflict in `.agent/`, `.github/` or `factory/` is refused outright rather
+  than handed to an agent — the resolution it wrote would be the code running the
+  next step. That is the old `mergeMainInto` safety argument, kept.
+
+The fan-out has no agent in it. A clean merge needs judgement from nobody, and
+spending a model per card per merge would be the expensive way to do nothing.
+
 ### The test suite was overwriting the running turn
 
 **Found by the first end-to-end card, DF-7, failing.** `publish` and `report`

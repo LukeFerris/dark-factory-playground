@@ -26,11 +26,11 @@ machinery that makes the loop run.
     ┌──────────────────────┴─────────────────────────────────────────────────────┐
     │  one turn                                                                  │
     │                                                                            │
-    │  gather ──▶ announce ──▶ prepare-branch ──▶ AGENT ──▶ validate ──▶ publish │
-    │    │          │                               │         │            │     │
-    │  .agent/in  card says                     .agent/out   scope    draft PR   │
-    │  task.md    it has                        result.json  check    as the     │
-    │  meta.json  started                       transcript            App        │
+    │  gather ─▶ announce ─▶ prepare ─▶ merge ─▶ AGENT ─▶ validate ─▶ publish    │
+    │    │        │                      │        │          │         │         │
+    │  .agent/in card says            conflicts .agent/out   scope   draft PR    │
+    │  task.md   it has               go to an  result.json  check   as the      │
+    │  meta.json started              agent too transcript           App         │
     └────────────────────────────────────────────────────────────────────────────┘
                            │
                            ▼
@@ -90,14 +90,39 @@ mind is a sentence on the ticket rather than a status the commenter has to work
 out for themselves. `docs/factory/STATE-MACHINE.md` has the details, including
 why a comment on a card in *In review* can legitimately start a *design* turn.
 
+### Nothing is allowed to go stale
+
+Two rules, both about the fact that `main` moves while a card is in flight.
+
+**Every turn merges main into the branch before the agent runs.** Not only for
+the card's own sake: the manual the agent is about to be prompted with and the
+validator about to judge it are both files in that branch, so a branch a week
+behind runs a week-old prompt against a week-old validator, and a fix to either
+silently misses every card in flight.
+
+**Every merge to main fans out over every card still in review.** One job per
+card, in parallel. A card in review is waiting on a person, and a person takes
+days; by the time they look, the diff, the preview and the green tick are all
+statements about a world that has ended. If the branch takes main cleanly and the
+checks still pass, it is pushed and the card is told — including that the push
+has dismissed any approval that was on it. If not, the card goes back to
+*Building* and the build agent works it through.
+
+A conflict is not, on its own, a reason to interrupt a person. An agent tries
+first, under a manual of its own (`.agent/merge.md`) and confined to the files
+git marked conflicted. Only a genuine disagreement about what the software should
+do comes back as a question — and then it names the file and offers the options,
+rather than saying "merge conflict".
+
 ## The pieces
 
 | Where | What it is |
 | --- | --- |
 | `app/` | The example React 19 + TypeScript app the factory writes features into |
 | `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
-| `.agent/` | The agent boundary: the two manuals, and the in/out directories |
-| `.github/workflows/` | Seven workflows: the poller, design, build start/setup/turn/teardown, and production |
+| `.agent/` | The agent boundary: the three manuals, and the in/out directories |
+| `.github/workflows/` | Eight workflows: the poller, design, build start/setup/turn/teardown, refresh, and production |
+| `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts |
 | `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
 | `docs/design/<KEY>/` | One directory per card: the design, and the build log |
 
@@ -113,6 +138,12 @@ Three independent layers, each of which would have to fail:
    cannot edit its own manual, its own workflow, or its own validator.
 3. **The branch rulesets.** The App can push to `card/*` and nowhere else. It
    cannot push to `main`, approve a pull request, or merge.
+
+The merge agent gets a fourth. It may edit only the paths git itself marked
+conflicted, it holds read-only git and no other command, and it cannot commit —
+`factory merge-finish` checks its work and writes the commit. A conflict inside
+`.agent/`, `.github/` or `factory/` never reaches it: the resolution it wrote
+would be the code running the next step.
 
 And one that is not a technical control at all: **a human grants every build
 turn.** There is no auto-continue. A confused agent costs one turn.

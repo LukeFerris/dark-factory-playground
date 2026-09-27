@@ -184,6 +184,77 @@ and the committed `.agent/result.schema.json` disagree. Never add anything under
 
 ---
 
+## A card moved itself from "In review" back to "Building"
+
+Working as intended, and the comment on the card says why. Something merged to
+main, `refresh.yml` fanned out over every card still in review, and this one
+could not take the new main on its own.
+
+Two things cause it, and the comment distinguishes them:
+
+- **git conflicted.** Named files, two cards editing the same lines.
+- **it merged cleanly and then went red.** `npm run <script> fails on the
+  result` — two cards that are individually correct and jointly not, usually one
+  renaming what the other calls. Git has no opinion about this, which is why the
+  fan-out runs the full check set rather than trusting a clean merge.
+
+Either way nothing was pushed: the branch on the pull request is exactly as the
+reviewer left it. The dispatched build turn merges again, with an agent on the
+conflict, and the card comes back to *In review* by itself. **Do nothing** unless
+it does not.
+
+If it does not come back, the build turn asked a question and the card is at
+*Blocked on engineer* with a specific conflict on it — answer the comment and
+triage starts the next turn. That is the ordinary loop, not an incident.
+
+---
+
+## A merge from main is stuck on a card
+
+The card is at *Blocked on engineer* with a question naming the conflicted files.
+It means the same thing at every entrance — a build turn's merge step or the
+fan-out's — and it has two shapes.
+
+**"…which is factory machinery no agent may edit."** The conflict is in
+`.agent/`, `.github/`, `factory/` or a tooling config. No agent was run and none
+will be: the resolution would be the code running the next step. Merge it by hand:
+
+```
+git fetch origin
+git switch card/<KEY>-<slug>
+git merge origin/main         # resolve, commit
+git push
+```
+
+**"Main has moved on and this branch cannot take it unaided."** An agent read the
+conflict and declined to guess, because the two sides disagree about what the
+software should do rather than about how to write it. The question on the card
+names the file and usually offers the options. **Answer it on the card.** Triage
+reads the reply on the next poll and starts a build turn, which merges again with
+your answer in the conversation. Do not resolve it by hand unless you want to —
+answering is the shorter path and leaves the reasoning on the ticket.
+
+Either way the branch is untouched. `merge-begin` leaves a conflicted merge in
+the index, uncommitted, and `merge-finish` aborts it before writing the question.
+
+To see what the agent was given and what it said, download the run's artifact:
+`.agent/in/merge-task.md` is the brief, `.agent/in/merge.json` the state,
+`.agent/out/merge-result.json` its answer and `merge-transcript.json` its working.
+
+---
+
+## A refresh pushed to a branch and lost its approval
+
+Expected, and the comment says so. The ruleset on `main` has
+`dismiss_stale_reviews_on_push`, so any push to a card branch — including the
+factory bringing main into it — dismisses the approval that was on the pull
+request. There is no way to push the merge and keep the approval.
+
+Re-approve. The diff you approved is not the diff that would have merged, which
+is the whole reason the fan-out exists.
+
+---
+
 ## A build turn will not start from a comment
 
 `build-turn.yml` has two entrances and they fail differently. A comment on the
