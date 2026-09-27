@@ -9,6 +9,56 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-27
 
+### The poller covered about a fifth of the day, and the knob to fix it did nothing
+
+A card filed into *Ready for design* sat there untouched. The workflow was
+enabled, every run had succeeded, and the cron was `*/5 * * * *` — so nothing
+looked wrong anywhere you would normally look.
+
+Two faults, stacked:
+
+**GitHub does not honour `*/5` here.** Five minutes is the floor you may ask
+for, not a promise. Measured across two days, scheduled starts came 1.4 to 5
+hours apart:
+
+```
+start 13:05:45Z  ran 50.2 min
+start 07:11:43Z  ran 50.1 min   then DEAD for 303.9 min
+start 01:46:06Z  ran 50.0 min   then DEAD for 275.6 min
+start 23:33:32Z  ran 49.8 min   then DEAD for  82.8 min
+```
+
+**And every run lived exactly 50 minutes, not the 5h50m configured.**
+`FACTORY_POLL_WINDOW_SECONDS` was 21000. `poller.yml` clamps the window to 3000,
+silently. The variable had been raised two days earlier to close these very
+gaps and had never had any effect — it read 21000 and ran 3000.
+
+The clamp itself is correct, and its comment always said why: the App token is
+minted once per run and lasts an hour. Which means the window can *never* be the
+answer. Roughly 50 minutes of attention in every 2.5–6 hours: about 20% of the
+day, with the rest unattended.
+
+**Done — the run hands over to the next one itself.** The last statement of a
+completed window is `gh workflow run poller.yml`. The existing
+`concurrency: {group: factory-poller, cancel-in-progress: false}` queues it
+behind the current run, so the next starts as this one ends and coverage is
+continuous. The cron stops being the mechanism and becomes the safety net.
+
+Three details that are deliberate:
+
+- **The hand-over is the last line of the polling step, not a step with
+  `if: always()`.** A poller that re-dispatches after a failure it will hit again
+  immediately is a poller that files a run every few seconds. If the loop dies,
+  the chain stays down and the cron restarts it.
+- **A window of 0 still means one pass and no hand-over**, which is the setting
+  for not wanting a runner up continuously.
+- **The clamp now logs a warning when it bites.** A silent clamp is what made
+  this invisible for two days.
+
+The repository variable is back to 3000, so what you read is what runs. This
+keeps a runner up more or less continuously; it is free because the repository
+is public, and on a private one it would bill every minute.
+
 ### The model the agents ran on was never chosen, only inherited
 
 Nothing in the factory passed `--model`. All four agents — design, both build

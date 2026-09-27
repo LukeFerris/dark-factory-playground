@@ -128,6 +128,33 @@ gh workflow enable poller.yml --repo "$GH_OWNER/$GH_REPO"
 gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"   # start a run now
 ```
 
+**The chain has broken and the cron has not caught up yet.** Coverage comes from
+each run dispatching the next as its last act, not from the cron — so the
+question is not "is the workflow enabled" but "is there a gap". A run that dies
+before it hands over leaves one, and the cron closes it whenever GitHub gets
+round to the schedule, which on this repository has been anywhere from 1.4 to 5
+hours.
+
+```bash
+gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 10 \
+  --json createdAt,updatedAt,event,conclusion
+```
+
+Runs should abut: each `updatedAt` within a minute or so of the next
+`createdAt`. A long hole between them, or a run whose conclusion is not
+`success`, is the thing to explain. Just start one — it will re-establish the
+chain on its own:
+
+```bash
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
+```
+
+**Do not try to fix a gap by raising the window.** `FACTORY_POLL_WINDOW_SECONDS`
+is clamped to 3000s in `poller.yml`, because the App token is minted once per
+run and lasts an hour. Setting it higher does nothing but log a warning; it was
+set to 21000 for two days and had no effect at all, which is exactly how the
+80%-unattended gap went unnoticed.
+
 **The workflows are not registered.** They only exist once they are on the
 default branch. `smoke.sh` checks this.
 
