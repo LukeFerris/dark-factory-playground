@@ -149,6 +149,10 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
     // and then strayed outside its paths, they are still the clearest
     // statement of what it was trying to do.
     acceptance_criteria: result?.acceptance_criteria ?? [],
+    out_of_scope: result?.out_of_scope ?? [],
+    // Kept for the same reason: somebody answered a question on the card, and a
+    // turn being rejected is no reason for their reply to go unacknowledged.
+    answers: result?.answers ?? [],
     artifacts: result?.artifacts ?? [],
     questions: result?.questions ?? [],
     assumptions: result?.assumptions ?? [],

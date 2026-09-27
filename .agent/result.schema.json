@@ -58,6 +58,39 @@
       },
       "description": "The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review."
     },
+    "out_of_scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader's terms. Leave empty rather than padding it."
+    },
+    "answers": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "answer"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The question as it was asked on the card, so the reader recognises it."
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the human said and what this turn did about it. Taken from their reply, never invented."
+          }
+        }
+      },
+      "description": "Questions answered on the card since the last turn. Empty on a first turn, and empty when nothing was answered."
+    },
     "artifacts": {
       "type": "array",
       "items": {

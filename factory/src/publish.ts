@@ -45,6 +45,12 @@ export function prBody(key: string, summary: string, result: Result, previewUrl:
       lines.push(`**${c.criterion}**`, '', ...c.steps.map((s, i) => `${i + 1}. ${s}`), '')
     }
   }
+  // The same question a code reviewer asks, so it gets the same answer as the
+  // card. The steps above are numbered per criterion here rather than straight
+  // through: the PR body has no screenshots to line up with.
+  if (result.out_of_scope.length > 0) {
+    lines.push('### Not in this change', '', ...result.out_of_scope.map((s) => `- ${s}`), '')
+  }
   if (result.assumptions.length > 0) {
     lines.push('### Assumptions', '', ...result.assumptions.map((a) => `- ${a}`), '')
   }

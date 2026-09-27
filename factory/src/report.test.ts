@@ -22,6 +22,8 @@ function result(over: Partial<Result> = {}): Result {
     summary: 'Wrote the design.',
     context: '',
     acceptance_criteria: [],
+    out_of_scope: [],
+    answers: [],
     artifacts: [],
     questions: [],
     assumptions: [],
@@ -83,10 +85,17 @@ describe('buildComment', () => {
     expect(textOf(doc)).toContain('out of scope')
   })
 
-  it('follows the ticket template: Summary, Context, Acceptance criteria, Proving it', () => {
+  // The whole card is one shape, read top to bottom: what happened, what was
+  // asked and answered, what to check, what was left out, and what to do now.
+  it('follows the ticket template, every section in its place', () => {
     const doc = buildComment(
       'design',
-      result({ context: 'Smallest change that satisfies the card.', acceptance_criteria: CRITERIA }),
+      result({
+        context: 'Smallest change that satisfies the card.',
+        acceptance_criteria: CRITERIA,
+        answers: [{ question: 'Which date format?', answer: 'Day-month-year.' }],
+        out_of_scope: ['Editing a deal after it is saved.'],
+      }),
       null,
       null,
       null,
@@ -94,7 +103,15 @@ describe('buildComment', () => {
     const headings = doc.content
       .filter((n) => n.type === 'heading' && (n['attrs'] as { level: number }).level === 4)
       .map(textOf)
-    expect(headings).toEqual(['Summary', 'Context', 'Acceptance criteria', 'Proving it'])
+    expect(headings).toEqual([
+      'Summary',
+      'Context',
+      'Answers to your questions',
+      'Acceptance criteria',
+      'Proving it',
+      'Not in this change',
+      'What happens next',
+    ])
   })
 
   it('omits Context when the agent left it empty', () => {
@@ -185,6 +202,85 @@ describe('buildComment', () => {
     })
     expect(doc.content.filter((n) => n.type === 'mediaSingle')).toHaveLength(0)
     expect(textOf(doc)).not.toContain('walkthrough')
+  })
+
+  // The reader of an answer is the person who wrote the reply it answers, and
+  // they are scanning for their own words rather than reading top to bottom.
+  it('puts the answers above the work they produced', () => {
+    const doc = buildComment(
+      'design',
+      result({
+        acceptance_criteria: CRITERIA,
+        answers: [{ question: 'Which date format?', answer: 'Day-month-year, as you asked.' }],
+      }),
+      null,
+      null,
+      null,
+    )
+    const at = (type: string): number => doc.content.findIndex((n) => n.type === type)
+    const heads = doc.content.filter((n) => n.type === 'heading').map(textOf)
+    expect(heads).toContain('Answers to your questions')
+    // textOf joins sibling nodes with a space, so assert on the two halves.
+    expect(textOf(doc)).toContain('Which date format?')
+    expect(textOf(doc)).toContain('— Day-month-year, as you asked.')
+    expect(at('bulletList')).toBeLessThan(at('orderedList'))
+  })
+
+  it('omits the answers section when nothing was answered', () => {
+    const doc = buildComment('design', result(), null, null, null)
+    expect(textOf(doc)).not.toContain('Answers to your questions')
+  })
+
+  it('lists what was deliberately left out', () => {
+    const doc = buildComment(
+      'build',
+      result({ out_of_scope: ['Editing a deal after it is saved.'] }),
+      null,
+      null,
+      null,
+    )
+    expect(textOf(doc)).toContain('Not in this change')
+    expect(textOf(doc)).toContain('Editing a deal after it is saved.')
+  })
+
+  it('omits "Not in this change" rather than printing an empty heading', () => {
+    expect(textOf(buildComment('build', result(), null, null, null))).not.toContain(
+      'Not in this change',
+    )
+  })
+
+  // The board has no "Ready for deploy": a build is accepted by merging, and
+  // the factory sets Done itself. Telling a reviewer otherwise sends them to
+  // look for a column that does not exist.
+  it('tells a build reviewer to merge, not to drag the card', () => {
+    const text = textOf(buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null))
+    expect(text).toContain('What happens next')
+    expect(text).toContain('approve and merge the pull request')
+    expect(text).not.toContain('Ready for deploy')
+  })
+
+  it('tells a design reviewer which column moves it on', () => {
+    const text = textOf(buildComment('design', result({ acceptance_criteria: CRITERIA }), null, null, null))
+    expect(text).toContain('"Ready for build"')
+  })
+
+  it('asks for a reply on the card when it is waiting on an answer', () => {
+    for (const status of ['blocked', 'question', 'failed'] as const) {
+      const text = textOf(buildComment('build', result({ status, reason: 'x' }), null, null, null))
+      expect(text).toContain('Reply on this card with the answer')
+    }
+  })
+
+  // A continue design turn leaves the card in a status the poller does not
+  // watch, so an invitation to reply there is an invitation into a void.
+  it('says nothing to do when there is nothing the reader can do', () => {
+    const text = textOf(buildComment('design', result({ status: 'continue' }), null, null, null))
+    expect(text).not.toContain('What happens next')
+  })
+
+  it('points a continuing build turn at the pull request', () => {
+    const text = textOf(buildComment('build', result({ status: 'continue' }), null, null, null))
+    expect(text).toContain('Comment on the pull request to grant the next turn')
   })
 
   it('produces a valid ADF doc envelope', () => {

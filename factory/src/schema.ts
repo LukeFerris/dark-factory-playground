@@ -51,6 +51,25 @@ export const CriterionSchema = z.object({
 })
 export type Criterion = z.infer<typeof CriterionSchema>
 
+/**
+ * A question a human answered on the card, and what the turn did about it.
+ *
+ * The answer is *derived* — quoted or paraphrased from the reply, never
+ * invented. It exists because a card where somebody answered a question and the
+ * next comment does not mention it reads as though nobody listened, and the
+ * reviewer has to reconstruct from the diff whether their reply landed at all.
+ *
+ * It is also the cheapest place to catch a misread: an answer restated wrongly
+ * is obvious to the person who wrote the reply, and invisible everywhere else.
+ */
+export const AnswerSchema = z.object({
+  /** The question as it was asked, so the reader recognises their own words. */
+  question: z.string().min(1),
+  /** What the human said, and what the turn did with it. */
+  answer: z.string().min(1),
+})
+export type Answer = z.infer<typeof AnswerSchema>
+
 export const ResultSchema = z.object({
   status: ResultStatus,
   /** One line of "what I did", then optional detail. Required in every case. */
@@ -68,6 +87,18 @@ export const ResultSchema = z.object({
    * read rather than a stack trace.
    */
   acceptance_criteria: z.array(CriterionSchema).default([]),
+  /**
+   * What a reviewer might reasonably expect from this card and will not find.
+   *
+   * The counterpart to `acceptance_criteria`: that list says what to check,
+   * this one says what not to go looking for. Without it the reviewer's first
+   * finding is usually something that was never in scope, which costs a
+   * round-trip to establish — and the agent knows on the way past, at no cost
+   * at all.
+   */
+  out_of_scope: z.array(z.string()).default([]),
+  /** Questions a human answered on the card, and what the turn did about them. */
+  answers: z.array(AnswerSchema).default([]),
   /** Repo-relative paths the turn produced or changed. */
   artifacts: z.array(z.string()).default([]),
   /** Populated when status is `blocked` or `question`. */
@@ -203,6 +234,37 @@ export function toJsonSchema(): unknown {
         },
         description:
           'The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review.',
+      },
+      out_of_scope: {
+        type: 'array',
+        items: { type: 'string' },
+        default: [],
+        description:
+          'What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader\'s terms. Leave empty rather than padding it.',
+      },
+      answers: {
+        type: 'array',
+        default: [],
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['question', 'answer'],
+          properties: {
+            question: {
+              type: 'string',
+              minLength: 1,
+              description: 'The question as it was asked on the card, so the reader recognises it.',
+            },
+            answer: {
+              type: 'string',
+              minLength: 1,
+              description:
+                'What the human said and what this turn did about it. Taken from their reply, never invented.',
+            },
+          },
+        },
+        description:
+          'Questions answered on the card since the last turn. Empty on a first turn, and empty when nothing was answered.',
       },
       artifacts: {
         type: 'array',

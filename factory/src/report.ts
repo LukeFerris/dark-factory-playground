@@ -64,6 +64,19 @@ export function buildComment(
     blocks.push(adf.paragraph(adf.text(result.context.trim())))
   }
 
+  // Before the criteria, not after. Somebody who answered a question on this
+  // card opens the next comment looking for one thing: what was made of their
+  // reply. Burying that under the work makes them read the whole comment to
+  // find out whether they were heard.
+  if (result.answers.length > 0) {
+    blocks.push(adf.heading('Answers to your questions', 4))
+    blocks.push(
+      adf.bulletList(
+        result.answers.map((a) => [adf.strong(a.question), adf.text(` — ${a.answer}`)]),
+      ),
+    )
+  }
+
   if (result.acceptance_criteria.length > 0) {
     // Two sections, not one. The criteria are what a reviewer argues with; the
     // steps are what they do. Collapsing them into a single numbered list —
@@ -127,6 +140,13 @@ export function buildComment(
     }
   }
 
+  // After the steps rather than before them: it answers the question a reviewer
+  // asks once something has not happened, which is the moment they reach it.
+  if (result.out_of_scope.length > 0) {
+    blocks.push(adf.heading('Not in this change', 4))
+    blocks.push(adf.bulletList(result.out_of_scope.map((s) => [adf.text(s)])))
+  }
+
   if (result.questions.length > 0) {
     blocks.push(adf.heading('Questions', 4))
     blocks.push(
@@ -151,6 +171,15 @@ export function buildComment(
     blocks.push(adf.codeBlock(result.reason.trim()))
   }
 
+  // A heading, like every other section. It first went in as a bold-led
+  // paragraph, which is exactly the shape a criterion heading uses — so it read
+  // as one more criterion at the bottom of the list.
+  const next = whatNext(stage, result)
+  if (next !== null) {
+    blocks.push(adf.heading('What happens next', 4))
+    blocks.push(adf.paragraph(adf.text(next)))
+  }
+
   const links: adf.AdfNode[] = []
   if (prUrl !== null && prUrl !== '') links.push(adf.link('Pull request', prUrl))
   if (previewUrl !== null && previewUrl !== '') {
@@ -164,6 +193,50 @@ export function buildComment(
   if (links.length > 0) blocks.push(adf.paragraph(...links))
 
   return adf.doc(...blocks)
+}
+
+/**
+ * The one sentence telling the reader what to do with the card now.
+ *
+ * Generated rather than written by the agent, because it is the same sentence
+ * every time and an agent asked to retype boilerplate eventually retypes it
+ * differently — and the one place a reviewer must not have to interpret is the
+ * instruction for handing the card on.
+ *
+ * It describes *this* board, which is why it does not read like the template it
+ * came from: there is no "move it to Ready for deploy" column here. A build is
+ * accepted by merging the pull request, and *Done* is set by the factory once
+ * the change actually answers in production — so telling a reviewer to drag the
+ * card would be telling them to do something the board will refuse.
+ *
+ * `null` where there is genuinely nothing for the reader to do: a `continue`
+ * design turn leaves the card in a status the comment poller does not watch, so
+ * inviting a reply there would invite one into a void.
+ */
+export function whatNext(stage: Stage, result: Result): string | null {
+  const reply =
+    'Reply on this card with the answer — a comment here is read on the next poll and ' +
+    'starts the next turn from it.'
+
+  switch (result.status) {
+    case 'ready_for_review':
+      return stage === 'design'
+        ? 'If the design looks right, move this card to "Ready for build". If anything is ' +
+            'wrong, reply here with what you would change instead — a comment is read on the ' +
+            'next poll and starts another design turn.'
+        : 'If it all checks out, approve and merge the pull request; the card moves to "Done" ' +
+            'by itself once the change is live. If anything looks off, reply here with what ' +
+            'you saw and at which step, and the next turn starts from your comment.'
+    case 'blocked':
+    case 'question':
+      return reply
+    case 'failed':
+      return reply
+    case 'continue':
+      return stage === 'build'
+        ? 'The card stays where it is. Comment on the pull request to grant the next turn.'
+        : null
+  }
 }
 
 export interface ReportOptions {

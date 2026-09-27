@@ -109,6 +109,46 @@ describe('agent manuals', () => {
       it('says validation rejects a criterion with no steps', () => {
         expect(manual(stage)).toContain('criterion that has no steps, is rejected by')
       })
+
+      // The reader has no repository and no terminal, and is not a colleague
+      // to be named on a ticket. Both halves of that get lost first when the
+      // agent starts writing for the diff instead of for the card.
+      it('demands plain language and forbids naming a person', () => {
+        const flat = unwrapped(stage)
+        expect(flat).toContain('no file paths, no branch names, no component or function names')
+        expect(flat).toContain('**Never name a person**')
+      })
+
+      it('asks what a reviewer should not go looking for', () => {
+        const text = manual(stage)
+        expect(text).toContain('`out_of_scope`')
+        expect(text).toContain('"out_of_scope": [')
+        expect(unwrapped(stage)).toContain('that list says what to check, this one says what not')
+        // An agent that pads this list makes the section worthless.
+        expect(unwrapped(stage)).toContain('Leave it empty rather than padding it')
+      })
+
+      // A reply that goes unacknowledged reads as a reply nobody read, and the
+      // failure mode is an answer the agent invents to look responsive.
+      it('asks for answers to what was asked, derived rather than invented', () => {
+        const text = manual(stage)
+        expect(text).toContain('`answers`')
+        expect(text).toContain('"answers": [')
+        expect(text).toContain('**Derive every answer; never invent one.**')
+        expect(unwrapped(stage)).toContain('do not write an answer that reads as though it did')
+      })
+
+      // whatNext() writes this from the status and the board. An agent writing
+      // its own lands a second, competing instruction underneath it.
+      it('tells the agent the sign-off is not theirs to write', () => {
+        expect(unwrapped(stage)).toContain('**Do not write the sign-off yourself.**')
+      })
+
+      it('asks for the seriousness of a concern in words', () => {
+        expect(unwrapped(stage)).toContain(
+          '**say how serious it is in words** — serious, moderate, minor',
+        )
+      })
     })
   }
 
@@ -118,6 +158,21 @@ describe('agent manuals', () => {
 
   it('tells the design agent it has no shell at all', () => {
     expect(manual('design')).toMatch(/no shell/)
+  })
+
+  // Only the build stage has a "last time": a design turn's reader is seeing
+  // the card's first real comment.
+  it('tells a second build turn to lead with what changed since last time', () => {
+    expect(unwrapped('build')).toContain(
+      '**If this is not the first turn on the card, lead with what changed since the reviewer ' +
+        'last looked.**',
+    )
+  })
+
+  // The preview is the reviewer's only way in, and a sign-in screen they
+  // cannot pass makes every criterion below it unprovable.
+  it('tells the build agent where sign-in details go', () => {
+    expect(unwrapped('build')).toContain('the credentials to try it go here')
   })
 })
 

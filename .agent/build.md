@@ -106,24 +106,85 @@ Turns are granted one at a time by a human comment on the PR. There is no
 auto-continue. Ending a turn on `continue` is normal and cheap; guessing at a
 requirement is not.
 
+Write each question so the person answering can answer it without opening the
+code. Say what you would do either way and what it costs them, and where a
+question is really a worry rather than a decision, **say how serious it is in
+words** — serious, moderate, minor — rather than leaving them to guess from
+your tone.
+
+| | Example |
+|---|---|
+| ✅ | `Should a deal without a close date sort first or last? Minor either way, but it changes what the top of the list shows.` |
+| ❌ | `Confirm the sort predicate for the nullable closeDate field.` |
+
 Record assumptions in `assumptions[]`, one per entry, phrased so a reviewer can
 disagree with them. List changed files in `artifacts[]` as repository-relative
 paths.
 
 ## What lands on the Jira card
 
-Three fields in `result.json` become the comment a human reads on the card, and
+Five fields in `result.json` become the comment a human reads on the card, and
 after a build turn that human is about to open the preview and try it.
+
+Their whole view of this change is the comment and the preview link. They have
+no repository, no terminal and no branch, so write in the words a user of the
+app would use: **no file paths, no branch names, no component or function
+names, no jargon.** Describe what somebody sees and does. **Never name a
+person** — not a colleague, not a handle, not the author of a comment you are
+answering; say "the reviewer" or "whoever asked".
+
+The comment is always the same shape, in this order, so the reader learns one
+shape and can skim it: what now works, what they need to know first, what was
+asked and answered, what has to be true, how to check it, what is not in it,
+and what to do next. You write the first five; the pipeline adds the last.
 
 ### `summary`
 
 Two or three sentences on what now works. Not a diff summary.
+
+Start from what was asked for and say who can now do what, in their terms, then
+what is different, then who else is affected — or that nothing changes for
+anyone else.
+
+**If this is not the first turn on the card, lead with what changed since the
+reviewer last looked.** They already read the previous comment and checked what
+it claimed; repeating it wastes the one thing they give this card. Say what is
+new since then, and leave the rest to the criteria below.
 
 ### `context`
 
 One or two lines: anything a reviewer needs before they start clicking — a
 dependency you added, a case you knowingly left for a later turn, which turn
 this is. Skip it if there is nothing; an empty `context` is omitted.
+
+If the card introduced a way to sign in, the credentials to try it go here, in
+one line: who to sign in as, and the details to use. A reviewer who cannot get
+past the first screen checks nothing at all.
+
+### `answers`
+
+What you were asked on the card or on the pull request, and what you did about
+it. One entry per question that has been answered since your last turn:
+
+```json
+"answers": [
+  {
+    "question": "Should a deal without a close date sort first or last?",
+    "answer": "Last, as you said — undated deals now sit at the bottom of the list."
+  }
+]
+```
+
+**Derive every answer; never invent one.** The `question` is the question as it
+was asked, so the reader recognises their own words. The `answer` is what they
+said and what you did with it. If a reply did not actually settle a question,
+that question stays in `questions[]` — do not write an answer that reads as
+though it did.
+
+Empty on your first turn, and empty when nothing was answered since your last
+one. This is the first thing the reader looks for: they replied, and they want
+to know it landed. A card where someone answers a question and the next comment
+never mentions it reads as though nobody listened.
 
 ### `acceptance_criteria`
 
@@ -198,6 +259,32 @@ turn is `continue` or `blocked`, and you say which criterion and why.
 criterion that has no steps, is rejected by validation.** A `continue` turn does
 not need them, though carrying the working ones forward helps the next reviewer.
 
+### `out_of_scope`
+
+What a reviewer might reasonably expect from this change and will not find. One
+plain sentence each:
+
+```json
+"out_of_scope": [
+  "Editing a deal after it is saved — this card only covers adding one.",
+  "Deals are not kept when you reload; that is a separate card."
+]
+```
+
+The counterpart to `acceptance_criteria`: that list says what to check, this one
+says what not to go looking for. You know these on the way past — you decided
+each one, or the design did — and a reviewer does not. Without it their first
+finding is usually something that was never in scope, and establishing that
+costs a round trip.
+
+Include a limit anyone would notice from the preview, anything the design
+deferred, and anything you left for a later turn. Leave it empty rather than
+padding it; "does not cure cancer" is noise, and noise here is read as evasion.
+
+**A known problem goes here, not left for the reviewer to find.** A turn that
+hides a rough edge buys one comment of approval and spends it the first time
+somebody clicks the wrong thing.
+
 ## The walkthrough
 
 Your steps are also a Playwright spec. After the preview is raised, the pipeline
@@ -248,6 +335,11 @@ never a reason to weaken an assertion until it goes green.
 
 ## Ground rules
 
+- **Do not write the sign-off yourself.** The comment ends with what the reader
+  should do now — merge, reply, or grant another turn — and the pipeline adds
+  it from the status you chose and the board it is running against. A sign-off
+  of your own lands underneath it, and the two disagree the moment either
+  changes.
 - Never invent a credential, an API key, or an endpoint. If you need one you do
   not have, that is `blocked`.
 - Never echo the contents of environment variables, `.env`, or anything under
