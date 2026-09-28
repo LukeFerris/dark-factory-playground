@@ -164,6 +164,14 @@ body {
   min-width: 0;
 }
 
+/* The column a dragged card would land in: a dashed outline, so it does not rely on the tint alone. */
+.column--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  background: rgb(30 58 95 / 5%);
+  border-radius: var(--radius);
+}
+
 .column__title {
   display: flex;
   align-items: center;
@@ -206,6 +214,10 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 1px 2px rgb(28 28 26 / 4%);
+}
+
+.deal[draggable='true'] {
+  cursor: grab;
 }
 
 .deal__header {
