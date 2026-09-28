@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { AGENT_OUT } from './meta.ts'
 import type { Result } from './schema.ts'
 
@@ -27,6 +27,15 @@ import type { Result } from './schema.ts'
 /** Where a capture run writes, and where the video lands beside it. */
 export const EVIDENCE_DIR = resolve(AGENT_OUT, 'evidence')
 export const SLIDES_PATH = resolve(EVIDENCE_DIR, 'uat-slides.mp4')
+
+/**
+ * The name the reviewer looks for in the Attachments panel.
+ *
+ * Derived from the path rather than written out twice: the comment tells them
+ * what the file is called, and a rename that missed the comment would send
+ * them looking for something that is not there.
+ */
+export const SLIDES_FILENAME = basename(SLIDES_PATH)
 
 /** The canvas. Fixed, because the concat demuxer needs every slide identical. */
 const WIDTH = 1280

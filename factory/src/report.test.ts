@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { prUrl } from './env.ts'
-import { buildComment, targetStatus } from './report.ts'
+import { buildComment, fallbackComment, targetStatus } from './report.ts'
 import { STATUS_TRANSITIONS, type Criterion, type Result } from './schema.ts'
 import { slugify, branchName } from './branch.ts'
 
@@ -181,16 +181,28 @@ describe('buildComment', () => {
     expect(textOf(numbered[1])).toContain('(in the walkthrough)')
   })
 
-  it('embeds the walkthrough by the attachment id Jira gave back', () => {
+  // Jira refuses a media node built from an attachment id — see the note at
+  // the top of `adf.ts`. The comment therefore sends the reviewer to the
+  // Attachments panel, and has to name the file they will find there.
+  it('names the walkthrough file rather than trying to embed it', () => {
     const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, {
       video: 'att-1',
       proved: [1],
     })
-    const media = doc.content.filter((n) => n.type === 'mediaSingle')
-    expect(media).toHaveLength(1)
-    const inner = (media[0]?.['content'] as Array<Record<string, unknown>>)[0]
-    expect(inner?.['type']).toBe('media')
-    expect((inner?.['attrs'] as { id: string }).id).toBe('att-1')
+    expect(textOf(doc)).toContain('uat-slides.mp4')
+  })
+
+  // The regression that stranded DF-9 in "Building". Any media node at all is
+  // a 400 from the comment API, and a 400 here used to cost the hand-off.
+  it('puts no media node in the comment at all', () => {
+    const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, {
+      video: 'att-1',
+      proved: [1, 2, 3],
+    })
+    const types = JSON.stringify(doc)
+    expect(types).not.toContain('"mediaSingle"')
+    expect(types).not.toContain('"mediaGroup"')
+    expect(types).not.toContain('"media"')
   })
 
   // Evidence is an enrichment. Without it the comment is the comment it always
@@ -200,8 +212,8 @@ describe('buildComment', () => {
       video: null,
       proved: [1, 2, 3],
     })
-    expect(doc.content.filter((n) => n.type === 'mediaSingle')).toHaveLength(0)
     expect(textOf(doc)).not.toContain('walkthrough')
+    expect(textOf(doc)).not.toContain('uat-slides.mp4')
   })
 
   // The reader of an answer is the person who wrote the reply it answers, and
@@ -356,5 +368,46 @@ describe('branch naming', () => {
   // build turn's tree without anything having to merge it to main first.
   it('names the branch after the card, not the stage', () => {
     expect(branchName('DF-1', 'Type a name')).toBe('card/DF-1-type-a-name')
+  })
+})
+
+/**
+ * The comment of last resort. It runs only after Jira has already refused
+ * something, so what matters is that it cannot be refused for the same class
+ * of reason: no headings, no lists, no marks, no media — paragraphs of text.
+ */
+describe('fallbackComment', () => {
+  const plain = fallbackComment(
+    'build',
+    result({ status: 'ready_for_review', summary: 'Deals can be edited.' }),
+    'https://github.com/o/r/pull/34',
+  )
+
+  it('uses paragraphs of text and nothing else', () => {
+    expect(plain.content.every((n) => n.type === 'paragraph')).toBe(true)
+    const marks = JSON.stringify(plain)
+    expect(marks).not.toContain('"marks"')
+    expect(marks).not.toContain('"heading"')
+    expect(marks).not.toContain('"media"')
+    expect(marks).not.toContain('"bulletList"')
+    expect(marks).not.toContain('"orderedList"')
+  })
+
+  // A reviewer reading this needs to know the shortfall is in the comment and
+  // not in the work, or the sensible reaction is to distrust the turn.
+  it('says the work is unaffected and the evidence is still on the card', () => {
+    const text = textOf(plain)
+    expect(text).toContain('nothing about the work itself has changed')
+    expect(text).toContain('Attachments panel')
+  })
+
+  it('carries the summary and the pull request through', () => {
+    const text = textOf(plain)
+    expect(text).toContain('Deals can be edited.')
+    expect(text).toContain('https://github.com/o/r/pull/34')
+  })
+
+  it('leaves the pull request line out when there is none', () => {
+    expect(textOf(fallbackComment('design', result(), null))).not.toContain('Pull request:')
   })
 })

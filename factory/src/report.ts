@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { prUrl, runUrl } from './env.ts'
 import * as adf from './adf.ts'
-import { EVIDENCE_DIR, SLIDES_PATH, capturedSteps } from './evidence.ts'
+import { EVIDENCE_DIR, SLIDES_FILENAME, SLIDES_PATH, capturedSteps } from './evidence.ts'
 import * as jira from './jira.ts'
 import { launcherFor } from './launcher.ts'
 import { readMeta } from './meta.ts'
@@ -108,14 +108,14 @@ export function buildComment(
         adf.paragraph(
           adf.text(
             evidence.video !== null
-              ? 'The walkthrough below was recorded against this preview. Steps marked ' +
+              ? 'A walkthrough recorded against this preview is attached to this card as ' +
+                  `${SLIDES_FILENAME}, with a screenshot per step beside it. Steps marked ` +
                   '"(in the walkthrough)" are the ones it shows; the rest are yours to take.'
               : 'Screenshots of the marked steps are attached to this card, numbered to ' +
                   'match. The rest are yours to take.',
           ),
         ),
       )
-      if (evidence.video !== null) blocks.push(adf.mediaSingle(evidence.video))
     }
 
     // One run of numbers across the whole card, so step 7 in the video is step
@@ -302,6 +302,33 @@ async function attachEvidence(
   }
 }
 
+/**
+ * What goes on the card when Jira will not take the real comment.
+ *
+ * Text nodes in paragraphs and nothing else — no headings, no lists, no marks,
+ * no media. Every richer feature is a thing the API can reject, and this one
+ * runs precisely when something already has.
+ *
+ * It does not try to reproduce the comment. It says where the turn got to and
+ * where to read the rest, so the reviewer has a thread to pull rather than a
+ * card that went quiet.
+ */
+export function fallbackComment(stage: Stage, result: Result, pr: string | null): adf.AdfDoc {
+  const lines = [
+    `The ${stage} turn finished with status "${result.status}", and Jira would not accept the ` +
+      'full comment for this card. This is the short version; nothing about the work itself ' +
+      'has changed.',
+    result.summary,
+  ]
+  if (pr !== null) lines.push(`Pull request: ${pr}`)
+  const run = runUrl()
+  if (run !== null) lines.push(`The run, whose log says why the comment was refused: ${run}`)
+  lines.push(
+    'Evidence for this turn is in the Attachments panel on this card, whatever is in this comment.',
+  )
+  return adf.doc(...lines.map((line) => adf.paragraph(adf.text(line))))
+}
+
 /** Posts the card comment and applies the status transition for this result. */
 export async function report(options: ReportOptions): Promise<void> {
   const meta = readMeta()
@@ -339,7 +366,27 @@ export async function report(options: ReportOptions): Promise<void> {
     return
   }
 
-  await jira.addComment(cfg, meta.key, comment)
+  // The comment is the best thing the reviewer gets, and it is not worth the
+  // card for. A turn that has done its work, opened its PR and attached its
+  // evidence has to end up in a column somebody is looking at — and until
+  // DF-9 a comment Jira would not take threw here, skipping the hand-back and
+  // the transition both, and left the card in "Building" with the factory
+  // still holding it. Nobody was waiting on that column, so it simply stopped.
+  //
+  // The fallback says less, in the plainest shape the API accepts, and points
+  // at the run whose log has the rest.
+  try {
+    await jira.addComment(cfg, meta.key, comment)
+  } catch (error) {
+    console.error(`report: ${meta.key} would not take the comment: ${(error as Error).message}`)
+    process.exitCode = 3
+    try {
+      await jira.addComment(cfg, meta.key, fallbackComment(options.stage, result, pr))
+      console.error('report: posted the plain-text fallback instead.')
+    } catch (second) {
+      console.error(`report: the fallback failed too: ${(second as Error).message}`)
+    }
+  }
   console.log(`report: evidence — ${evidenceNote}`)
 
   // The other end of what `announce` opened. Done before the transition so the
