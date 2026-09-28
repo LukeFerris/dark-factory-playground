@@ -1,0 +1,40 @@
+factory/src/poller.test.ts
+  s_6735740180f350::t_e8c86ee2a1502e 1-42
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_185089dd50d699 12-56
+docs/factory/STATE-MACHINE.md
+  s_6735740180f350::t_36f053cf2cf570 255-269
+factory/src/triage.ts
+  s_6735740180f350::t_94d271356a60a4 6
+  s_6735740180f350::t_8b0e298a00aa06 344-345,350-354
+  s_6735740180f350::t_b00772212efa6d 388-389
+.github/workflows/poller.yml
+  s_6735740180f350::t_b00772212efa6d 167-168
+  s_6735740180f350::t_82c58cad89d3c3 155-166
+  s_6735740180f350::t_16503e2c3b65b3 141-145
+factory/src/triage.test.ts
+  s_6735740180f350::t_f9554e19c68ed7 55-56
+  s_6735740180f350::t_a9d3541d4653ec 420
+  s_6735740180f350::t_fc760c24e2948a 374-409
+  s_6735740180f350::t_f14683a50dc1dd 67
+  s_6735740180f350::t_3db3d8d20bf76c 137-140,142-160
+factory/src/cli.ts
+  s_6735740180f350::t_117098f46e41ff 106-126
+  s_6735740180f350::t_54ddcd2b67ddc5 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7e5ee08d01089cc9bf08e20af8921ef6d9ef69dd",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
