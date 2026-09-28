@@ -75,4 +75,40 @@ describe('useDeals', () => {
     })
     expect(stored().find((deal) => deal.id === 'seed-2')?.stage).toBe('Closed')
   })
+
+  it('updates only the target deal, keeping its id and stage', () => {
+    const { result } = renderHook(() => useDeals())
+    act(() => {
+      result.current.updateDeal('seed-2', { company: '  Harbour Care ', sector: 'Health', size: 30, owner: 'Ann Wu' })
+    })
+    expect(result.current.deals.find((deal) => deal.id === 'seed-2')).toEqual({
+      id: 'seed-2',
+      company: 'Harbour Care',
+      sector: 'Health',
+      stage: 'Screening',
+      size: 30,
+      owner: 'Ann Wu',
+    })
+    expect(result.current.deals.filter((deal) => deal.id !== 'seed-2')).toEqual(
+      SEED_DEALS.filter((deal) => deal.id !== 'seed-2'),
+    )
+    expect(stored().find((deal) => deal.id === 'seed-2')?.company).toBe('Harbour Care')
+  })
+
+  it('removes the size when updated without one', () => {
+    const { result } = renderHook(() => useDeals())
+    act(() => {
+      result.current.updateDeal('seed-4', { company: 'Kestrel Energy Services', sector: 'Energy', size: undefined, owner: 'Elena Rossi' })
+    })
+    expect(result.current.deals.find((deal) => deal.id === 'seed-4')?.size).toBeUndefined()
+    expect(stored().find((deal) => deal.id === 'seed-4')).not.toHaveProperty('size')
+  })
+
+  it('leaves the list alone for an unknown id', () => {
+    const { result } = renderHook(() => useDeals())
+    act(() => {
+      result.current.updateDeal('nope', { company: 'Ghost', sector: '', owner: '' })
+    })
+    expect(result.current.deals).toEqual(SEED_DEALS)
+  })
 })

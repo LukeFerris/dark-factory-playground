@@ -55,4 +55,50 @@ describe('App', () => {
     render(<App />)
     expect(column('Sourcing').getByRole('article', { name: 'Reload Test Ltd' })).toBeInTheDocument()
   })
+
+  it('edits a deal in place and announces it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Edit Northwind Analytics' }))
+    const form = within(screen.getByRole('form', { name: 'Edit Northwind Analytics' }))
+    await user.clear(form.getByLabelText('Company'))
+    await user.type(form.getByLabelText('Company'), 'Northwind Data')
+    await user.clear(form.getByLabelText('Deal size (£m)'))
+    await user.type(form.getByLabelText('Deal size (£m)'), '55')
+    await user.click(form.getByRole('button', { name: 'Save' }))
+
+    const card = within(column('Sourcing').getByRole('article', { name: 'Northwind Data' }))
+    expect(card.getByText('£55m')).toBeInTheDocument()
+    expect(card.getByText('Software')).toBeInTheDocument()
+    expect(screen.getByText('4 active deals · £225m in pipeline')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Saved changes to Northwind Data')
+  })
+
+  it('keeps the old details when an edit is cancelled', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Edit Harbour Dental Group' }))
+    const form = within(screen.getByRole('form', { name: 'Edit Harbour Dental Group' }))
+    await user.clear(form.getByLabelText('Company'))
+    await user.type(form.getByLabelText('Company'), 'Something Else')
+    await user.click(form.getByRole('button', { name: 'Cancel' }))
+
+    expect(column('Screening').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: 'Something Else' })).not.toBeInTheDocument()
+  })
+
+  it('keeps edits after a reload', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Edit Meridian Foods' }))
+    const form = within(screen.getByRole('form', { name: 'Edit Meridian Foods' }))
+    await user.clear(form.getByLabelText('Sector'))
+    await user.type(form.getByLabelText('Sector'), 'Food & Drink')
+    await user.click(form.getByRole('button', { name: 'Save' }))
+    unmount()
+
+    render(<App />)
+    const card = within(column('Closed').getByRole('article', { name: 'Meridian Foods' }))
+    expect(card.getByText('Food & Drink')).toBeInTheDocument()
+  })
 })
