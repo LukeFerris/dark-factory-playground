@@ -18,6 +18,7 @@ import {
   readMergeState,
   recordMerge,
 } from './merge.ts'
+import { claimCard } from './progress.ts'
 import { refresh, refreshTargets } from './refresh.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
@@ -100,6 +101,27 @@ program
   .action(async (key: string, status: string) => {
     await jira.transitionTo(jira.configFromEnv(), key, status)
     console.log(`${key} -> ${status}`)
+  })
+
+// The other half of a claim. The status says the factory has the card; the
+// avatar says so on the one view where nobody opens it. Both belong to the
+// moment the card is taken, and `announce` — which used to be the only caller
+// of claimCard — does not run until the dispatched workflow has a runner, a
+// checkout and an `npm ci` behind it. Measured on this project, that left the
+// card sitting in Designing or Building with no avatar for 18 to 44 seconds,
+// which reads as a card nobody has picked up. Worse, when the dispatch fails
+// it reads that way forever.
+//
+// Idempotent, so `announce` keeping its own call costs nothing: claimCard
+// returns early when the factory is already the assignee, and so cannot
+// overwrite the record of who had the card before.
+program
+  .command('jira-claim')
+  .description('Assign a card to the factory, remembering who had it.')
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .action(async (key: string) => {
+    await claimCard(jira.configFromEnv(), key)
+    console.log(`${key} claimed`)
   })
 
 program

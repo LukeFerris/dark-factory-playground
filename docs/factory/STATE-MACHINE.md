@@ -252,10 +252,21 @@ Three decisions worth recording:
 The comment is the loud one: it notifies watchers and lands in an email. Two
 other things about a running turn want saying, and neither wants that treatment.
 
-**The assignee** is what a board shows. `announce` assigns the card to the bot
-and `report` hands it back, so the avatar column answers "is anything happening
-on this card" from the one view where nobody opens a card at all. Assignment
-notifies nobody, so it costs a watcher nothing.
+**The assignee** is what a board shows. Whoever takes the card assigns it to the
+bot and `report` hands it back, so the avatar column answers "is anything
+happening on this card" from the one view where nobody opens a card at all.
+Assignment notifies nobody, so it costs a watcher nothing.
+
+**The avatar goes on at the same moment as the status, not when the run
+starts.** The poller and triage each claim the card immediately after moving
+it, in the same pass. This used to be left to `announce`, which does not run
+until the dispatched workflow has a runner, a checkout and an `npm ci` behind
+it — measured on this project, 18 to 44 seconds of a card sitting in *Designing*
+or *Building* with no avatar, looking exactly like a card nobody had picked up.
+When the dispatch failed it looked that way for good. `announce` still calls
+`claimCard`, because a turn started by hand never went past the poller, and
+`claimCard` is idempotent: it returns early when the factory already holds the
+card, so the second call cannot overwrite the record of who held it before.
 
 Whoever held the card is saved first, in a hidden issue property
 (`factory-assignee`), and restored at the end. Two rules keep that from
