@@ -174,6 +174,15 @@ describe('agent manuals', () => {
   it('tells the build agent where sign-in details go', () => {
     expect(unwrapped('build')).toContain('the credentials to try it go here')
   })
+
+  // `walkthrough.test.ts` stops a collision reaching a reviewer, but only the
+  // manual stops the agent writing one in the first place — and being told the
+  // rule is what lets it pick the right fix instead of guessing at a red test.
+  it('tells the build agent there is one numbered walkthrough per card', () => {
+    const flat = unwrapped('build')
+    expect(flat).toContain('**The card has one numbered walkthrough, not one per spec file.**')
+    expect(flat).toContain('never start a fresh count alongside it')
+  })
 })
 
 /**
