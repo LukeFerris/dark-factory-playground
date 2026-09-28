@@ -75,26 +75,25 @@ export function orderedList(items: AdfNode[][], start = 1): AdfNode {
   }
 }
 
-/**
- * An attachment on the card, shown inline in the comment.
+/*
+ * There is deliberately no `media`/`mediaSingle` helper here.
  *
- * `collection` is empty and `id` is the attachment id Jira gave back when it
- * took the file: within a comment on the issue the file is attached to, that
- * is enough for the renderer to find it. The width and height are the slide
- * canvas — the media node carries no intrinsic size for a video, and without
- * them the player renders in a box of Jira's choosing.
+ * Embedding an attachment inline looks like the obvious way to put the
+ * walkthrough in front of the reviewer, and the REST v3 comment API refuses
+ * it: a media node carrying the numeric attachment id comes back
+ * `400 ATTACHMENT_VALIDATION_ERROR`, whatever the surrounding shape. Checked
+ * against the live instance — with and without `collection`, with and without
+ * width and height, inside `mediaSingle` and inside `mediaGroup`, and for a
+ * PNG as well as the video. Omitting `collection` swaps the error for
+ * `INVALID_INPUT`, so the field is required and the id is still refused.
  *
- * A reader whose Jira cannot play it still has the file in the card's
- * Attachments panel, which is why this is an enrichment of the comment and
- * never the only place the evidence lives.
+ * The node wants a Media Services UUID rather than the attachment id, and
+ * nothing in the public API hands one out — `/rest/api/3/attachment/{id}`
+ * returns filename, size, content URL and no media id.
+ *
+ * So the comment names the file and the file lives in the card's Attachments
+ * panel. That was always the fallback; it is now the only path.
  */
-export function mediaSingle(id: string, width = 1280, height = 980): AdfNode {
-  return {
-    type: 'mediaSingle',
-    attrs: { layout: 'center', width: 100 },
-    content: [{ type: 'media', attrs: { type: 'file', id, collection: '', width, height } }],
-  }
-}
 
 export function doc(...content: AdfNode[]): AdfDoc {
   return { type: 'doc', version: 1, content }
