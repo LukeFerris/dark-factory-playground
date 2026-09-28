@@ -9,6 +9,33 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-28
 
+### Every merge to main refreshes the cards in review, not only a card's own
+
+This file's fan-out has said the right thing at the top since it was written:
+
+> Every merge to main invalidates every card still in review. Not "possibly".
+
+And then gated itself on `startsWith(head.ref, 'card/')`, reasoning that a
+factory PR touching the machinery should not put every card back through the
+mill. Both halves of that are wrong. Main is main — a card branch is equally
+stale whichever kind of PR moved it. And a refresh is not the mill: a clean
+merge is a push and a comment, and the build agent is only reached when the
+merge conflicts or the checks fail, which is exactly when somebody should hear
+about it.
+
+DF-9 found it. Three machinery PRs merged while that card sat in review, none
+of them fanned out, and the card was left `BEHIND` with an approval on it and a
+merge button that would not go. The reviewer's reasonable conclusion — that the
+bot was supposed to handle this — was correct; it had been switched off for
+that case.
+
+The gate is now any merged pull request. `refresh-plan --exclude ""` was
+already the path a hand dispatch took, so a trigger with no card key of its own
+needed no new handling.
+
+Pinned by a test that reads the workflow, since nothing else in the suite can
+see a trigger.
+
 ### The walkthrough is named, not embedded — and a refused comment no longer strands the card
 
 DF-9 was the first card to finish a build turn with a video, and it stopped

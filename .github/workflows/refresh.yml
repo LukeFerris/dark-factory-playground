@@ -47,13 +47,23 @@ concurrency:
 
 jobs:
   plan:
-    # Merges of anything other than a card branch are ignored — a factory PR
-    # touching the machinery does not put every card back through the mill.
+    # Any merge to main, not only a card's.
+    #
+    # This used to require `card/` on the head ref, reasoning that a factory PR
+    # touching the machinery should not put every card back through the mill.
+    # That reads well and is wrong twice. It contradicts the first line of this
+    # file — main is main, and a card branch is equally stale whichever kind of
+    # PR moved it. And it mistakes what a refresh does: a clean merge is a push
+    # and a comment, and the mill — the build agent — is only reached when the
+    # merge conflicts or the checks fail, which is precisely when somebody
+    # should be told.
+    #
+    # DF-9 found it. Three machinery PRs merged while that card sat in review,
+    # none of them fanned out, and the card was left BEHIND with an approval on
+    # it and a merge button that would not go.
     if: >-
-      github.event_name == 'workflow_dispatch' || (
-        github.event.pull_request.merged == true &&
-        startsWith(github.event.pull_request.head.ref, 'card/')
-      )
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
