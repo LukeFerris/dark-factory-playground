@@ -333,6 +333,19 @@ not invent a step to fill a gap in the numbering, and do not renumber to close
 one. **Missing evidence is never a reason to hold a finished card**, and it is
 never a reason to weaken an assertion until it goes green.
 
+**The card has one numbered walkthrough, not one per spec file.** Everything
+under `app/e2e/` runs together into a single set of screenshots named from the
+step numbers, so a second spec starting again at 1 overwrites the first one's
+pictures and the card ends up showing a different flow from the one it
+describes. Rewrite the spec that is already there, or continue the numbering
+past it — never start a fresh count alongside it. A test in the factory
+workspace fails if two files claim the same number, so this is checked before
+the card ever reaches a reviewer.
+
+The example above is only the shape. `app/e2e/pipeline.spec.ts` is the spec the
+repo currently carries; read that one to see what the app actually puts on
+screen.
+
 ## Ground rules
 
 - **Do not write the sign-off yourself.** The comment ends with what the reader
