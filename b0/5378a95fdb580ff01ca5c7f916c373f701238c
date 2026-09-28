@@ -1,0 +1,33 @@
+docs/factory/CHANGELOG.md
+  s_6735740180f350::t_67238d6ed18da9 12-56
+factory/src/evidence.ts
+  s_6735740180f350::t_6c6ea7bc98ded0 31-39
+  s_6735740180f350::t_e34136ce15bbd6 4
+factory/src/adf.ts
+  s_6735740180f350::t_13de9177fdde09 78-88,90-92,94-95
+factory/src/report.ts
+  s_6735740180f350::t_8a88da694d4c40 369-389
+  s_6735740180f350::t_f255b9b73e2d18 5
+  s_6735740180f350::t_2bd3f12e35c544 305-331
+  s_6735740180f350::t_c226accfa4786b 111-112
+factory/src/report.test.ts
+  s_6735740180f350::t_3d9c0e0ff79dfa 3
+  s_6735740180f350::t_4bb7a761bc48bc 373-413
+  s_6735740180f350::t_179b0c65d34c6f 184-187,192-205,216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b05378a95fdb580ff01ca5c7f916c373f701238c",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
