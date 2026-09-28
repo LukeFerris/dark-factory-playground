@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
 
@@ -100,5 +100,24 @@ describe('App', () => {
     render(<App />)
     const card = within(column('Closed').getByRole('article', { name: 'Meridian Foods' }))
     expect(card.getByText('Food & Drink')).toBeInTheDocument()
+  })
+
+  it('moves a deal dropped on another column, announces it and keeps it after a reload', () => {
+    // jsdom has no DataTransfer; the handlers only write to it.
+    const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
+    const { unmount } = render(<App />)
+    const passed = screen.getByRole('region', { name: 'Passed' })
+    fireEvent.dragStart(column('Screening').getByRole('article', { name: 'Harbour Dental Group' }), { dataTransfer })
+    fireEvent.dragOver(passed, { dataTransfer })
+    fireEvent.drop(passed, { dataTransfer })
+
+    expect(column('Passed').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+    expect(column('Screening').getByText('No deals')).toBeInTheDocument()
+    expect(screen.getByText('3 active deals · £185m in pipeline')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Moved Harbour Dental Group to Passed')
+    unmount()
+
+    render(<App />)
+    expect(column('Passed').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
   })
 })
