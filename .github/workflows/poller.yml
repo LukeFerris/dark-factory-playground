@@ -138,6 +138,11 @@ jobs:
             # dispatch then fails, the card sits in ${claimed_status} with nothing
             # running — visible, and a human can re-run it. The other order would
             # hand the same card to a second agent on the next poll.
+            #
+            # The move is the claim, in the sense that matters here: it is the
+            # status, and only the status, that stops the next pass picking the
+            # same card up. The assignment below is the same claim said where a
+            # person can see it, and is never allowed to affect either.
             # Deliberately unquoted: jira-search prints one issue key per line and
             # a key never contains whitespace, so word splitting is the iteration.
             # shellcheck disable=SC2086
@@ -146,6 +151,20 @@ jobs:
                 echo "::warning::could not move ${key} to ${claimed_status}; leaving it for the next poll"
                 continue
               fi
+
+              # Take the avatar too, and take it here rather than leaving it to
+              # `announce` inside the dispatched run. A status change and an
+              # assignment are the same event — "the factory has this card" —
+              # and splitting them put 18 to 44 seconds of unassigned Designing
+              # on the board every time, with no end at all when the dispatch
+              # below failed.
+              #
+              # After the transition, not before: the move is the step that can
+              # legitimately fail, and a card left in "Ready for …" wearing the
+              # bot's avatar would be a lie about a card the factory does not
+              # have. This never fails the pass — claimCard warns and returns —
+              # because an avatar is not worth a card.
+              npm run --silent factory -- jira-claim "$key" || true
 
               echo "dispatching ${workflow} for ${key}"
               if ! gh workflow run "$workflow" -f key="$key"; then

@@ -3,6 +3,7 @@ import { optional, required, runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import * as jira from './jira.ts'
 import { dispatchWorkflow } from './github.ts'
+import { claimCard } from './progress.ts'
 
 /**
  * Comment triage.
@@ -340,12 +341,17 @@ async function lastFactoryComment(
 /**
  * Carries out a decision.
  *
- * The order is move, explain, mark, dispatch, and each step is placed so that
- * failing at it leaves the least bad state:
+ * The order is move, claim, explain, mark, dispatch, and each step is placed so
+ * that failing at it leaves the least bad state:
  *
  *   move      first, because it is the step that can legitimately fail — a
  *             status the workflow will not allow. Nothing has happened yet, no
  *             mark is written, and the next pass tries the whole thing again.
+ *   claim     straight after the move, because the status and the avatar are
+ *             the same statement and a card wearing neither looks unclaimed.
+ *             Not before it, or a card the move rejected would be left
+ *             assigned to a factory that does not have it. Warns rather than
+ *             throws, like everything else in progress.ts.
  *   explain   not fatal. The card has already moved and the agent will comment
  *             when its turn ends, so a failed comment costs an explanation,
  *             not the work.
@@ -378,6 +384,8 @@ async function act(
     console.error(`::warning::could not move ${key} to ${route.status}: ${(error as Error).message}`)
     return false
   }
+
+  await claimCard(cfg, key)
 
   await jira
     .addComment(cfg, key, triageComment(decision, route, comment, runUrl()))

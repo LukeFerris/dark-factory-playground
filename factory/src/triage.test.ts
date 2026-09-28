@@ -52,6 +52,8 @@ interface Seen {
   comments: string[]
   transitions: Array<{ key: string; to: string }>
   marks: Array<{ key: string; value: Record<string, unknown> }>
+  /** Assignments, in order. `null` is an unassignment. */
+  assignments: Array<{ key: string; accountId: string | null }>
   dispatches: string[][]
 }
 
@@ -62,6 +64,7 @@ function stub(board: Board): Seen {
     comments: [],
     transitions: [],
     marks: [],
+    assignments: [],
     dispatches: [],
   }
 
@@ -131,11 +134,30 @@ function stub(board: Board): Seen {
       return new HttpResponse(null, { status: 204 })
     }),
 
-    http.put(`${BASE}/rest/api/3/issue/:key/properties/:property`, async ({ params, request }) => {
-      seen.marks.push({
+    // Claiming the card reads the current assignee, which goes through
+    // getIssue. The card is unassigned until `act` takes it.
+    http.get(`${BASE}/rest/api/3/issue/:key`, ({ params }) =>
+      HttpResponse.json({
         key: params['key'] as string,
-        value: (await request.json()) as Record<string, unknown>,
-      })
+        fields: { assignee: null, summary: 'a card' },
+      }),
+    ),
+
+    http.put(`${BASE}/rest/api/3/issue/:key/assignee`, async ({ params, request }) => {
+      const body = (await request.json()) as { accountId: string | null }
+      seen.assignments.push({ key: params['key'] as string, accountId: body.accountId })
+      return new HttpResponse(null, { status: 204 })
+    }),
+
+    // Two different properties are written through this one endpoint — the
+    // triage high-water mark and the record of who held the card before the
+    // factory took it. Keeping them in one list would make every assertion
+    // about marks depend on whether a claim happened.
+    http.put(`${BASE}/rest/api/3/issue/:key/properties/:property`, async ({ params, request }) => {
+      const value = (await request.json()) as Record<string, unknown>
+      if (params['property'] === TRIAGE_PROPERTY) {
+        seen.marks.push({ key: params['key'] as string, value })
+      }
       return new HttpResponse(null, { status: 200 })
     }),
   )
@@ -349,6 +371,42 @@ describe('acting on a decision', () => {
     expect(seen.marks[0]?.value).toMatchObject({ commentId: '2', action: 'none' })
   })
 
+  // The status and the avatar are one statement. Leaving the avatar to
+  // `announce`, inside the run this dispatches, put tens of seconds of
+  // unassigned Designing on the board — and left it that way for good whenever
+  // the dispatch below failed.
+  it('takes the card as well as moving it, so the board shows who has it', async () => {
+    const board = oneNewComment('Blocked on architect')
+    const seen = stub(board)
+
+    await run(always(DESIGN))
+
+    expect(seen.assignments).toEqual([{ key: 'DF-3', accountId: FACTORY }])
+  })
+
+  it('does not take a card it failed to move', async () => {
+    const board = oneNewComment('Blocked on architect')
+    const seen = stub(board)
+    server.use(
+      http.get(`${BASE}/rest/api/3/issue/DF-3/transitions`, () =>
+        HttpResponse.json({ transitions: [{ id: '99', name: 'z', to: { name: 'Done' } }] }),
+      ),
+    )
+
+    await run(always(DESIGN))
+
+    expect(seen.assignments).toEqual([])
+  })
+
+  it('leaves the assignee alone when it decides to do nothing', async () => {
+    const board = oneNewComment('Design review')
+    const seen = stub(board)
+
+    await run(always(NONE))
+
+    expect(seen.assignments).toEqual([])
+  })
+
   it('changes nothing at all on a dry run', async () => {
     const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
@@ -359,6 +417,7 @@ describe('acting on a decision', () => {
     expect(seen.transitions).toEqual([])
     expect(seen.comments).toEqual([])
     expect(seen.marks).toEqual([])
+    expect(seen.assignments).toEqual([])
     expect(seen.dispatches).toEqual([])
   })
 })

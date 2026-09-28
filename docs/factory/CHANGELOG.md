@@ -9,6 +9,51 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-28
 
+### The avatar goes on when the card is taken, not when the runner starts
+
+A card dragged into *Ready for design* was moved to *Designing* within seconds
+and then sat there unassigned for some time, which on a board reads as a card
+nobody has picked up. Measured across the last three cards, from Jira's own
+history: 18s, 19s, 20s, 28s and 44s.
+
+The status and the avatar are one statement — "the factory has this card" — and
+they were being made in two different places. The poller and triage moved the
+card; `claimCard` was only ever called by `announce`, which does not run until
+the dispatched workflow has a runner, a checkout and an `npm ci` behind it. The
+gap was that setup cost. When the dispatch failed outright — the case the
+poller already logs as `was claimed but ... could not be dispatched` — the card
+stayed unassigned for good.
+
+Both entry points now claim the card themselves, through a new `jira-claim`
+subcommand in the poller's shell and a direct `claimCard` call in `triage.act`.
+
+After the move in both, never before. The move is the step that can
+legitimately fail — a status the workflow will not allow — and a card left in
+*Ready for …* wearing the bot's avatar would be a claim on a card the factory
+does not have. It also stays out of the way of the real gate: the status, and
+only the status, is what stops the next pass picking the same card up, so a
+failed assignment is warned about and stepped over.
+
+`announce` keeps its call. A turn started by hand never went past the poller,
+and `claimCard` was already idempotent — it returns early when the factory is
+the assignee, so the second call cannot overwrite the record of who held the
+card before.
+
+### Nothing moves a card back to the Backlog
+
+Worth writing down because it was looked for and is not there. A card dragged
+into *Ready for design* appeared to drop back into the Backlog before surfacing
+in *Designing*. No card in this project has ever transitioned into *Backlog* —
+checked against the full changelog of every card — and the search index the
+board reads agreed with the database 670ms after a transition, so there is no
+stale read to blame either.
+
+What is real is how briefly the card is in *Ready for design*: 11 seconds on
+DF-10, 34 on DF-9. A board view that refreshes on its own schedule will miss a
+column that exists for that long. The fix above removes the other half of what
+made this look like a card bouncing around on its own — there is now an avatar
+on it the whole time.
+
 ### Every merge to main refreshes the cards in review, not only a card's own
 
 This file's fan-out has said the right thing at the top since it was written:
