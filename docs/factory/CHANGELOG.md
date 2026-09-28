@@ -7,6 +7,39 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-28
+
+### Two specs can no longer overwrite each other's walkthrough
+
+Found while checking the factory was ready for its first card under the new
+evidence chain, not by anything going wrong.
+
+Everything under `app/e2e/` runs into one directory, and each `uatStep(page, n,
+…)` names its screenshot from its own number. A build turn that *adds*
+`app/e2e/<newthing>.spec.ts` numbering from 1, alongside the seed spec that
+already numbers 1–4, would have the two overwrite each other — and the card
+would carry a numbered walkthrough whose pictures belong to a different flow.
+That is the worst failure available to this design, because the evidence looks
+complete.
+
+Nothing would have caught it. CI does not run `e2e`, and the agent's own
+`npm run e2e` sets no `FACTORY_UAT_EVIDENCE`, so it writes no files and collides
+with nothing — a guard inside `uatStep` would only fire in the preview job, long
+after the turn that caused it, and Playwright's workers are separate processes
+so module-level bookkeeping would not be reliable either.
+
+Nor can it be found by looking for gaps in the numbering. A step nobody can
+drive in a browser legitimately has no `uatStep` — `build.md` says not to invent
+one to close a gap — so the slide builder cannot tell a collision from a step
+that was never captured. `factory/src/walkthrough.test.ts` therefore reads the
+numbers off the source and fails only on a number claimed by two files: **no
+duplicates, never contiguity**.
+
+`build.md` gains the rule itself, because a red test tells the agent something
+is wrong and not which spec to rewrite. Its example was also still the
+hello-world form DF-8 removed, and is now labelled as illustrative with a
+pointer at the real spec.
+
 ## 2026-09-27
 
 ### The card comment says what was left out, what was answered, and what to do next
