@@ -1,0 +1,23 @@
+factory/src/walkthrough.test.ts
+  s_6735740180f350::t_1520a01d14842c 1-70
+.agent/build.md
+  s_6735740180f350::t_3748b9900bb24d 336-348
+factory/src/manuals.test.ts
+  s_6735740180f350::t_a4a37a8c33ee2e 177-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dc2ff7e27a73ce17e0e84e5606b5533e9dfb44d4",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
