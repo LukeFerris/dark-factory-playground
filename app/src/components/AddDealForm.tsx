@@ -1,22 +1,10 @@
 import { useRef, useState, type FormEvent } from 'react'
 import type { NewDeal } from '../crm/types'
+import { validateDeal, type DealErrors } from '../crm/validateDeal'
 
 export interface AddDealFormProps {
   /** Called with a validated deal; the form clears itself afterwards. */
   onAdd: (deal: NewDeal) => void
-}
-
-interface Errors {
-  company?: string
-  size?: string
-}
-
-/** Blank is allowed; anything else must be a number above 0. */
-function parseSize(value: string): number | undefined | null {
-  const trimmed = value.trim()
-  if (trimmed === '') return undefined
-  const size = Number(trimmed)
-  return Number.isFinite(size) && size > 0 ? size : null
 }
 
 export function AddDealForm({ onAdd }: AddDealFormProps) {
@@ -24,28 +12,22 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
   const [sector, setSector] = useState('')
   const [size, setSize] = useState('')
   const [owner, setOwner] = useState('')
-  const [errors, setErrors] = useState<Errors>({})
+  const [errors, setErrors] = useState<DealErrors>({})
   const companyRef = useRef<HTMLInputElement>(null)
   const sizeRef = useRef<HTMLInputElement>(null)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const parsedSize = parseSize(size)
-    const nextErrors: Errors = {}
-    if (company.trim() === '') nextErrors.company = 'Enter a company name'
-    if (parsedSize === null) nextErrors.size = 'Enter a size above 0'
-    setErrors(nextErrors)
-
-    if (nextErrors.company) {
-      companyRef.current?.focus()
-      return
-    }
-    if (parsedSize === null) {
-      sizeRef.current?.focus()
+    const result = validateDeal({ company, sector, size, owner })
+    if ('errors' in result) {
+      setErrors(result.errors)
+      if (result.errors.company) companyRef.current?.focus()
+      else sizeRef.current?.focus()
       return
     }
 
-    onAdd({ company: company.trim(), sector: sector.trim(), size: parsedSize, owner: owner.trim() })
+    setErrors({})
+    onAdd(result.deal)
     setCompany('')
     setSector('')
     setSize('')

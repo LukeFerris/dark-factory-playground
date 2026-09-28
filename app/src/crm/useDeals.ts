@@ -39,5 +39,13 @@ export function useDeals() {
     setDeals((current) => current.map((deal) => (deal.id === id ? { ...deal, stage } : deal)))
   }, [])
 
-  return { deals, addDeal, moveDeal }
+  const updateDeal = useCallback((id: string, changes: NewDeal) => {
+    setDeals((current) =>
+      current.map((deal) =>
+        deal.id === id ? { id: deal.id, stage: deal.stage, ...changes, company: changes.company.trim() } : deal,
+      ),
+    )
+  }, [])
+
+  return { deals, addDeal, moveDeal, updateDeal }
 }

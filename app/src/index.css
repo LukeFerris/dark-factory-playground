@@ -249,3 +249,60 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+/* A quiet text button: the card is for reading, editing is the exception. */
+.deal__edit {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.deal__edit:hover {
+  text-decoration: underline;
+}
+
+/* Edit form inside a card: fields stack, since a column is too narrow for a row. */
+
+.edit-deal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.edit-deal .field {
+  flex: none;
+}
+
+.edit-deal .field input {
+  width: 100%;
+  min-width: 0;
+}
+
+.edit-deal__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-deal .button {
+  margin-top: 0;
+}
+
+/* One pixel less padding than .button makes up for the border, so the pair line up. */
+.button--secondary {
+  padding: 8px 17px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.button--secondary:hover {
+  background: var(--page);
+}
