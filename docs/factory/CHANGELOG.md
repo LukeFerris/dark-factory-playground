@@ -9,6 +9,51 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-09-28
 
+### The walkthrough is named, not embedded — and a refused comment no longer strands the card
+
+DF-9 was the first card to finish a build turn with a video, and it stopped
+dead in *Building*. The turn had done everything: PR 34 open, preview up, all
+36 screenshots and `uat-slides.mp4` attached. Then:
+
+```
+Jira POST /rest/api/3/issue/DF-9/comment failed: 400
+{"errorMessages":["ATTACHMENT_VALIDATION_ERROR"]}
+```
+
+**The media node cannot work.** `adf.mediaSingle` built a `media` node from the
+numeric attachment id. Jira's REST v3 comment API refuses it — checked against
+the live instance with and without `collection`, with and without width and
+height, in `mediaSingle` and in `mediaGroup`, for a PNG as well as the video.
+Dropping `collection` turns the error into `INVALID_INPUT`, so the field is
+required and the id is still refused. The node wants a Media Services UUID, and
+the public API hands out no such thing: `/rest/api/3/attachment/{id}` returns
+filename, size and a content URL, and no media id. The helper is gone, and the
+note left in its place is the evidence, so nobody adds it back.
+
+The comment now names the file. The reviewer finds it in the Attachments panel,
+which is where the design always said the evidence really lives — the inline
+player was only ever the enrichment.
+
+**The bigger fault was that this cost the hand-off.** `report` posts the
+comment, then syncs links, releases the card and transitions it. A throw on the
+first line skipped all three, so the card sat in *Building*, still assigned to
+the factory, in a column the poller does not watch. Nobody was waiting on it;
+it simply went quiet — which is the one outcome the pipeline is built to avoid,
+and `attachEvidence` already says so in its own docstring: *losing the evidence
+costs them a few minutes in the preview, losing the comment costs them the
+hand-off*. The media node had quietly smuggled the evidence back into the
+comment, where a failure is fatal.
+
+A refused comment is now caught. A plain-text fallback goes up in its place —
+paragraphs and nothing else, since every richer feature is a thing the API can
+reject and this path runs precisely when something already has — and the
+hand-back and transition happen either way. The run still exits non-zero, so it
+is visibly a fault rather than a silent downgrade.
+
+DF-9 itself was finished by hand: the comment its own turn generated was posted
+with the fix applied, and the card moved to *In review*. Evidence was not
+re-attached, as it was already on the card.
+
 ### Two specs can no longer overwrite each other's walkthrough
 
 Found while checking the factory was ready for its first card under the new
