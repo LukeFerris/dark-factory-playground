@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import type * as jira from './jira.ts'
+import { REPO_ROOT } from './env.ts'
 import { ghRunner, setRunner, type Runner } from './github.ts'
 import type { MergeState } from './merge.ts'
 import {
@@ -192,5 +195,26 @@ describe('what the card says when no agent may touch the conflict', () => {
     expect(text).toContain('factory/src/validate.ts')
     expect(text).toContain('Someone needs to merge main into the branch by hand')
     expect(text).not.toContain('going back to Building')
+  })
+})
+
+/**
+ * The trigger lives in YAML, where none of the tests above can see it, and it
+ * is the half that actually decides whether a refresh ever happens. DF-9 sat
+ * in review through three merges to main with an approval on it and a merge
+ * button that would not go, because the fan-out only fired for `card/`
+ * branches.
+ */
+describe('the refresh trigger', () => {
+  const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/refresh.yml'), 'utf8')
+
+  it('fans out on any merge to main, not only a card branch', () => {
+    expect(yaml).not.toContain("startsWith(github.event.pull_request.head.ref, 'card/')")
+    expect(yaml).toContain('github.event.pull_request.merged == true')
+  })
+
+  // The hand-operated way back in when something does not fire on its own.
+  it('can still be dispatched by hand', () => {
+    expect(yaml).toContain("github.event_name == 'workflow_dispatch'")
   })
 })
