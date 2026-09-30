@@ -1,0 +1,31 @@
+app/e2e/pipeline.spec.ts
+  s_6735740180f350::t_35cccef839288e 1,5,15-17,20-23,26-27,30-31,38-66,69-70,72-77,81-82,86-88,92,96-97,101-103,106,108-109,113-116,119,121-125,129-130,133,135,138-139,141-143,147-151,155-156,159,161-164,168-170,173,175-176,180-184,188-190,193,195-196,200-202,205,207-208,212-213
+app/src/App.test.tsx
+  s_6735740180f350::t_4ddcc743aaf7bd 2,104-122
+app/src/components/PipelineBoard.test.tsx
+  s_6735740180f350::t_8a500ed7ff572a 2,14-32,127-239
+app/src/components/PipelineBoard.tsx
+  s_6735740180f350::t_a7c782d680f20b 1,30-68,74-81,90-97,111-112,115,140-147,149-155
+app/src/index.css
+  s_6735740180f350::t_48e08d4846e6e4 167-174,219-222
+docs/design/DF-11/build-log.md
+  s_6735740180f350::t_de3913e210d863 1-17
+docs/design/DF-11/design.md
+  s_6735740180f350::t_f53486db09f925 1-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6f5b3d4c3ecde6e5ca0b5437fe14495341e822b0",
+  "prompts": {},
+  "sessions": {
+    "s_6735740180f350": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c010903c-0984-4e37-afc5-46ad1a9a9844",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Luke Ferris <luke.ferris@cvc.com>"
+    }
+  }
+}
