@@ -7,6 +7,89 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-09-30
+
+### Jira starts the poller; the cron is off
+
+The poller found work by asking, and asking cost money. GitHub's `schedule:`
+floor is five minutes and scheduled runs arrive far later than their slot under
+load — 1.4 to 5 hours apart, measured on this repository — so coverage came from
+a run polling in a loop for a window and then dispatching its own successor.
+That keeps a runner up more or less continuously. Here that is free, because the
+repository is public. On a private repository it bills every minute of it, about
+$345 a month, per repository, to answer a question that is "no" almost every
+time.
+
+That is not a cost problem to be optimised. It is the wrong shape. The factory's
+three sources are all **events** — a card transitioned, a card transitioned, a
+card commented on — and it was polling only because nothing was telling it.
+
+Jira tells it now. Two Automation rules on the project POST to `poller.yml`'s
+`workflows/{id}/dispatches` endpoint, and a run is a single pass: one sweep, then
+exit. Billed minutes now track how much the team uses the board instead of the
+passage of time, and latency drops to about 30 seconds, nearly all of it
+checkout and `npm ci`.
+
+**No logic changed.** The sweep, the claim-before-dispatch ordering, triage —
+all identical. `FACTORY_POLL_WINDOW_SECONDS` defaults to `0`, which was already
+a first-class mode, and the `schedule:` block is commented out. Setup is in the
+new [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
+
+**The sweep is not aimed at the card that fired the rule**, though Automation
+knows which one it was. A full sweep makes a dropped event self-repairing:
+whatever one event missed, the next one picks up. Aiming it would save a second
+and strand anything it failed to deliver.
+
+**The cron is commented out, not deleted**, and `poller.test.ts` now asserts
+that no `schedule:` is active. The push trigger depends on a credential held
+outside this repository, so the fallback wants to be one uncommented line away —
+but an enabled cron *alongside* a working push trigger is a runner on a timer
+nobody asked for, which is the expensive mistake in the other direction.
+
+#### The token, and why `Actions: write` is enough
+
+Automation has to hold a GitHub credential, because GitHub has no unauthenticated
+trigger — no per-workflow URL with a capability token in it, the way GitLab has
+pipeline trigger tokens. Every route in is an authenticated REST call. Automation
+has no secret store and no crypto primitives, so it cannot mint anything either:
+what it holds is what it sends.
+
+So the credential is a fine-grained PAT with **`Actions: write` on one
+repository and nothing else**. It can start, cancel and re-run workflows. It
+cannot push code, read secrets, modify a workflow file or merge anything.
+
+The reason that is sufficient is that the PAT does not give the run its power —
+it only starts the run, and the poller then mints its own App token. A dispatch
+executes the workflow file as it exists on the ref, so changing what a run
+*does* needs `Contents: write` to push a new one. Which is also why this uses
+`workflows/{id}/dispatches` and not `repository_dispatch`: the latter needs
+`Contents: write`, and that is push access.
+
+Stated honestly, the residual risk is that someone holding it can start factory
+runs and cancel them. A spurious design turn burns Anthropic credits and leaves
+a draft PR on a card that was not ready. It is noise with a bill attached, and
+it does not get code merged — CI, the path allowlist in `schema.ts`, and a
+required human approval with an empty `bypass_actors` are all still in the way.
+
+#### What this gives up
+
+A credential held outside the system, with an expiry, and no alarm. When the PAT
+expires the factory goes silent with nothing failing anywhere in GitHub, because
+a dispatch that never arrives files no run. The only evidence is in the Jira rule
+audit log, where nobody is looking.
+
+Three mitigations, none of them complete: a calendar reminder for the expiry; a
+third Automation rule on a 30-minute schedule with a JQL that matches only the
+two *Ready for …* columns, so a quiet board is noticed within half an hour and a
+board with nothing waiting still files no GitHub run at all; and the commented
+`schedule:`.
+
+The proper fix is an Atlassian Forge app — it has encrypted environment
+variables and a Node runtime, so it can hold an App private key and mint a
+one-hour token per call, leaving nothing long-lived in Jira. That is a real app
+with a real toolchain, and this is a playground, so it is written down rather
+than built.
+
 ## 2026-09-28
 
 ### The avatar goes on when the card is taken, not when the runner starts

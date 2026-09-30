@@ -119,41 +119,52 @@ it is in every `transcript.json` artifact, and it is the only honest answer to
 
 ## Nothing happens at all
 
-**The poller is not running.** Scheduled workflows are disabled automatically
-after 60 days of repository inactivity, and silently.
+**The trigger did not arrive.** Jira starts the poller now — the `schedule:` in
+`poller.yml` is commented out — so a silent factory is usually a silent trigger,
+and the evidence for that is on the Jira side, not in GitHub. Start at the rule's
+audit log, then work back along the chain in
+[JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
+
+The most likely single cause is **the dispatch PAT expired**. It fails with no
+error anywhere in GitHub, because a dispatch that never arrives files no run.
+
+Either way, a run started by hand is the immediate unblock and needs nothing
+from Jira:
+
+```bash
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
+```
+
+**The workflow is disabled.** GitHub silently disables *scheduled* workflows
+after 60 days of repository inactivity. That no longer applies once the cron is
+off, but a workflow disabled before the change stays disabled, and
+`workflow_dispatch` will not run on it either.
 
 ```bash
 gh workflow list --repo "$GH_OWNER/$GH_REPO" --all
 gh workflow enable poller.yml --repo "$GH_OWNER/$GH_REPO"
-gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"   # start a run now
 ```
 
-**The chain has broken and the cron has not caught up yet.** Coverage comes from
-each run dispatching the next as its last act, not from the cron — so the
-question is not "is the workflow enabled" but "is there a gap". A run that dies
-before it hands over leaves one, and the cron closes it whenever GitHub gets
-round to the schedule, which on this repository has been anywhere from 1.4 to 5
-hours.
+**A run is now a single pass, so do not look for a chain.** Runs used to abut,
+each dispatching the next as its last act; with `FACTORY_POLL_WINDOW_SECONDS` at
+its default of `0` a run does one sweep and exits, and the gaps between runs are
+supposed to be there. What you are looking for is one run per board event:
 
 ```bash
 gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 10 \
   --json createdAt,updatedAt,event,conclusion
 ```
 
-Runs should abut: each `updatedAt` within a minute or so of the next
-`createdAt`. A long hole between them, or a run whose conclusion is not
-`success`, is the thing to explain. Just start one — it will re-establish the
-chain on its own:
-
-```bash
-gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
-```
+A card that moved with no run alongside it is the thing to explain. A run whose
+conclusion is not `success` is the other.
 
 **Do not try to fix a gap by raising the window.** `FACTORY_POLL_WINDOW_SECONDS`
 is clamped to 3000s in `poller.yml`, because the App token is minted once per
 run and lasts an hour. Setting it higher does nothing but log a warning; it was
-set to 21000 for two days and had no effect at all, which is exactly how the
-80%-unattended gap went unnoticed.
+set to 21000 for two days under the old design and had no effect at all, which
+is exactly how an 80%-unattended gap went unnoticed. Raising it to 3000 *is* the
+supported way back to continuous polling, and needs the `schedule:` block
+uncommented to be any use.
 
 **The workflows are not registered.** They only exist once they are on the
 default branch. `smoke.sh` checks this.

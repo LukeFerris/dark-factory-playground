@@ -156,6 +156,7 @@ what happens when the card text itself is hostile.
 | You want to | Read |
 | --- | --- |
 | Set this up from scratch | `SETUP.md` |
+| Make Jira start the factory | `JIRA-TRIGGERS.md` |
 | Know what each Jira status means | `STATE-MACHINE.md` |
 | Fix a stuck card or a failed turn | `RUNBOOK.md` |
 | Understand the containment argument | `SECURITY.md` |
