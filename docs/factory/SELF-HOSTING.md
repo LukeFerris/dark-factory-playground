@@ -291,7 +291,7 @@ between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 | | Rough shape |
 | --- | --- |
 | Anthropic API | The dominant cost. Capped per step by `--max-budget-usd` |
-| GitHub Actions | Free on public repositories; the poller is 144 short runs/day |
+| GitHub Actions | Free on public repositories; the poller is one short run per board event |
 | GHCR storage | One image per open PR, deleted on close (`ghcr` backend) |
 | Azure Container Apps — previews | Scale to zero; an idle preview bills nothing (`azure` backend) |
 | Azure Container Apps — production | **One replica, always on.** The only thing here that bills while idle |
@@ -300,3 +300,12 @@ between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 
 The poller is the only thing that runs unattended, and it does nothing but one
 JQL query per status unless a card is waiting.
+
+On a private repository that line is the whole cost argument, so it is worth
+saying how it is achieved: the poller does not run on a timer. Jira Automation
+starts it when a card moves or somebody comments
+([JIRA-TRIGGERS.md](JIRA-TRIGGERS.md)), so billed minutes track how much the team
+uses the board rather than the passage of time. Continuous polling — the older
+design, still one uncommented `schedule:` away — costs about $345 a month per
+repository at private-repo rates, and is the right setting again the moment the
+runner is your own.

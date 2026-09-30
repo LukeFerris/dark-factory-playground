@@ -1,9 +1,8 @@
 name: factory poller
 
-# The only thing that starts work. There are no Jira webhooks: this asks Jira
-# which cards are waiting, dispatches the right workflow for each, and
-# immediately moves the card out of the waiting status so the next pass does not
-# pick it up again.
+# The only thing that starts work. This asks Jira which cards are waiting,
+# dispatches the right workflow for each, and immediately moves the card out of
+# the waiting status so the next pass does not pick it up again.
 #
 # Three sources, and the third is a different kind of thing. The two "Ready
 # for …" columns are entered by a human moving a card, and the move is the
@@ -18,37 +17,62 @@ name: factory poller
 # It dispatches with the App token, not GITHUB_TOKEN: a workflow_dispatch made
 # with GITHUB_TOKEN does not start a new workflow run.
 #
-# Latency does NOT come from the cron. Five minutes is GitHub's floor for
-# `schedule:`, and scheduled runs are often much later than that under load. So
-# one run polls repeatedly on a short interval for the length of a window. The
-# setup — checkout, npm ci, minting the token — costs far more than a pass does,
-# so passes within a run are close to free.
+# **Jira decides when this runs.** Two Automation rules on the project — one on
+# "issue transitioned", one on "issue commented" — POST to this workflow's
+# `dispatches` endpoint. See JIRA-TRIGGERS.md for the rules, the token they
+# carry, and why that token's blast radius is smaller than "a GitHub token in
+# Jira" sounds.
 #
-# **The run hands over to the next one itself.** This used to be the cron's job,
-# on the assumption that `*/5` meant a fresh run was always due within five
-# minutes of the last one ending. It does not. Measured over two days on this
-# repository, scheduled starts came 1.4 to 5 hours apart, so a 50-minute window
-# left the factory unattended about 80% of the time and a card filed into the
-# gap simply sat there. The last thing a full window does now is dispatch the
-# next run, which the concurrency group below queues behind this one; the cron
-# is the safety net that restarts the chain if a run dies before reaching that
-# line, not the thing providing coverage.
+# That is why the `schedule:` below is commented out rather than deleted, and
+# why the window now defaults to 0. Both were load-bearing under the old design,
+# and the history matters for anyone thinking about turning them back on.
 #
-# That keeps a runner up more or less continuously. It is free here because the
-# repository is public; on a private one it would bill every minute of it.
+# The cron was never where latency came from. Five minutes is GitHub's floor for
+# `schedule:`, and scheduled runs are routinely much later than that under load:
+# measured over two days on this repository, scheduled starts came 1.4 to 5
+# hours apart, so a 50-minute window left the factory unattended about 80% of
+# the time and a card filed into the gap simply sat there. The fix then was for
+# each run to dispatch the next one as its last act, which kept a runner up more
+# or less continuously. That is free here because the repository is public. On a
+# private one it bills every minute of it — about $345 a month — which is what
+# made it the wrong shape to install anywhere else.
+#
+# A push trigger removes that problem instead of pricing it. A run is now a
+# single pass: it starts because somebody moved a card or wrote a comment, does
+# one sweep, and exits. Nothing is up between events.
+#
+# **The sweep is deliberately not aimed at the card that fired the rule.**
+# Automation knows which issue it was and this workflow ignores it, because a
+# full sweep makes a dropped event self-repairing — whatever one event missed,
+# the next one picks up. A targeted dispatch would be marginally faster and
+# would strand anything it failed to deliver.
+#
+# Restoring the old behaviour is two changes and no code: uncomment the
+# `schedule:` block and set FACTORY_POLL_WINDOW_SECONDS to 3000. That is also
+# the path onto a self-hosted runner, where the minutes stop costing anything
+# and continuous polling becomes the cheapest option again rather than the
+# dearest.
 #
 # Both knobs are repository variables, overridable per dispatch:
 #   FACTORY_POLL_INTERVAL_SECONDS  seconds between passes      (default 30)
-#   FACTORY_POLL_WINDOW_SECONDS    how long a run keeps going  (default 270)
+#   FACTORY_POLL_WINDOW_SECONDS    how long a run keeps going  (default 0)
 #
 # The window is clamped to 3000s below and cannot be raised past it by setting
-# the variable — the App token is minted once per run and lasts an hour. Set the
-# window to 0 for a single pass with no hand-over: the old behaviour, and the
-# right setting if you do not want a runner up continuously.
+# the variable — the App token is minted once per run and lasts an hour. A
+# window of 0 is a single pass with no hand-over, which is the whole point now
+# that Jira provides the coverage.
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
+  # Disabled on purpose: Jira triggers this now. Read the note above before
+  # turning it back on — with the window at its new default of 0, a cron would
+  # buy four passes an hour at GitHub's floor and still bill a minute a tick,
+  # which is worse than the push trigger on both counts.
+  #
+  # Leaving it here rather than deleting it also leaves the fallback one
+  # uncomment away, which matters because the push trigger depends on a token
+  # held outside this repository.
+  # schedule:
+  #   - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       interval_seconds:
@@ -63,6 +87,13 @@ on:
 permissions:
   contents: read
 
+# Under a push trigger this is also the debounce. Moving four cards at once
+# fires four rules, and GitHub holds at most one pending run per group: the
+# second arrival queues and each later one displaces it. So a burst collapses to
+# "the run in flight, plus one more" — and since every run sweeps the whole
+# board rather than one card, the pair of them covers the burst. Not
+# `cancel-in-progress: true`, which would kill a run between the claim and the
+# dispatch and leave a card claimed with nothing running.
 concurrency:
   group: factory-poller
   cancel-in-progress: false
@@ -102,7 +133,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FACTORY_TRIAGE_MODEL: ${{ vars.FACTORY_TRIAGE_MODEL }}
           POLL_INTERVAL: ${{ inputs.interval_seconds || vars.FACTORY_POLL_INTERVAL_SECONDS || '30' }}
-          POLL_WINDOW: ${{ inputs.window_seconds || vars.FACTORY_POLL_WINDOW_SECONDS || '270' }}
+          POLL_WINDOW: ${{ inputs.window_seconds || vars.FACTORY_POLL_WINDOW_SECONDS || '0' }}
         run: |
           set -euo pipefail
 
@@ -111,7 +142,7 @@ jobs:
           # will answer; the App token is minted once and lasts an hour, so a
           # window beyond that would keep polling with a dead token.
           case "$POLL_INTERVAL" in ''|*[!0-9]*) POLL_INTERVAL=30 ;; esac
-          case "$POLL_WINDOW"   in ''|*[!0-9]*) POLL_WINDOW=270 ;; esac
+          case "$POLL_WINDOW"   in ''|*[!0-9]*) POLL_WINDOW=0 ;; esac
           if (( POLL_INTERVAL < 5 )); then POLL_INTERVAL=5; fi
           if (( POLL_WINDOW > 3000 )); then
             echo "::warning::window of ${POLL_WINDOW}s exceeds the App token's life; clamped to 3000s. Coverage between runs comes from the hand-over at the end of this step, not from a longer window."
@@ -199,17 +230,21 @@ jobs:
             sleep "$POLL_INTERVAL"
           done
 
-          # Hand over to the next run. This is deliberately the last statement
-          # of the step and deliberately not a step of its own with
-          # `if: always()`: it must run when a window completes and must not run
-          # when the loop died. A poller that re-dispatches itself after a
-          # failure it is going to hit again immediately is a loop that files a
-          # run every few seconds; one that stays down is picked up by the cron.
+          # Hand over to the next run. Dead code on the default settings — a
+          # window of 0 is a single pass on purpose, so it does not hand over,
+          # and Jira starts the next run instead. It is kept whole because it is
+          # half of the continuous mode, and the other half is one uncommented
+          # `schedule:` away.
           #
-          # A window of 0 is a single pass on purpose, so it does not hand over.
+          # This is deliberately the last statement of the step and deliberately
+          # not a step of its own with `if: always()`: it must run when a window
+          # completes and must not run when the loop died. A poller that
+          # re-dispatches itself after a failure it is going to hit again
+          # immediately is a loop that files a run every few seconds.
           #
           # A failed dispatch is a warning rather than an error: the run did its
-          # whole job, and the cron covers a dropped hand-over.
+          # whole job, and the next Jira event — or the cron, if it is on —
+          # covers a dropped hand-over.
           if (( POLL_WINDOW > 0 )); then
             echo "handing over to the next run"
             gh workflow run poller.yml || \

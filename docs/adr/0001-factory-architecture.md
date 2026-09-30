@@ -99,6 +99,14 @@ this is cheaper than it sounds — but it does mean a runner is busy almost
 continuously while the schedule is enabled. Set the window to 0 for one pass per
 cron tick.
 
+> **Superseded by [0005](0005-jira-starts-the-poller.md).** Two Jira Automation
+> rules now dispatch the poller on transition and on comment, the cron is
+> commented out, and the window defaults to 0. The reasoning above was sound for
+> a public repository, where a continuously busy runner is free; on a private one
+> it is about $345 a month per repository, which is what forced the question.
+> Everything else in this ADR still holds, including claim-before-dispatch,
+> which the push trigger relies on.
+
 ### The result contract is a file, not a parsed transcript
 
 The agent writes `.agent/out/result.json`; `factory validate` parses it with

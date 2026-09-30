@@ -41,6 +41,7 @@ npm run build
 
 - **[Overview](docs/factory/OVERVIEW.md)** — what the factory is and how a turn runs
 - **[Setup](docs/factory/SETUP.md)** — from nothing to a card that builds itself
+- **[Jira triggers](docs/factory/JIRA-TRIGGERS.md)** — how Jira starts a run, and the token that lets it
 - **[State machine](docs/factory/STATE-MACHINE.md)** — the ten statuses, and who moves each
 - **[Runbook](docs/factory/RUNBOOK.md)** — when it does not do what it should
 - **[Security](docs/factory/SECURITY.md)** — the containment argument, and where it stops

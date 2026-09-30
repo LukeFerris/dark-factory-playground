@@ -48,8 +48,8 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 
 1. **Settings → Developer settings → GitHub Apps → New GitHub App.**
 2. Name it `<your-handle>-factory`. Homepage URL can be the repository.
-3. **Uncheck Webhook → Active.** There are no webhooks; the poller does the
-   polling.
+3. **Uncheck Webhook → Active.** Nothing listens for GitHub events; the App
+   exists to be authenticated *as*, not to be called.
 4. Repository permissions — grant exactly these, and nothing else:
 
    | Permission | Access | Used for |
@@ -312,14 +312,14 @@ Two things to know before you do it:
 
 ```bash
 bootstrap/smoke.sh --card
-gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO" -f window_seconds=0
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
 bootstrap/trace.sh
 ```
 
 That files a real card ("greet the user by name"), moves it to *Ready for
-design*, and starts a single poll immediately rather than waiting for the next
-scheduled one — `window_seconds=0` means one pass, so the run ends instead of
-idling for the rest of its window. Within a few minutes you should have a
+design*, and starts a single poll immediately. One pass is the default, so the
+run ends rather than idling for the rest of a window. Within a few minutes you
+should have a
 `card/DF-1-…` branch and a pull request with a design document on it. That
 branch and that PR are the card's for the rest of its life — the build turns
 commit to the same one. The PR is opened as a draft and comes out of draft on
@@ -335,21 +335,29 @@ Watch for the card reaching *Designing* **before** the design run appears. That
 is not a race — the poller claims a card and then dispatches, so a failed
 dispatch leaves it visibly stuck rather than handing it to two agents.
 
-A running poller picks a card up within `FACTORY_POLL_INTERVAL_SECONDS`
-(default 30). The `schedule:` only decides how soon a run starts after the last
-one ended — GitHub's minimum there is five minutes, and it is often slower. Two
-repository variables tune it:
+That `gh workflow run` is how you start a poll by hand, and until you set up the
+Jira triggers it is the only way work gets picked up: `poller.yml` ships with its
+`schedule:` commented out.
+
+**Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Two
+Automation rules on the project call the workflow's dispatch endpoint when a card
+moves or somebody comments, which is what makes the factory autonomous. It takes
+about twenty minutes and one fine-grained PAT.
+
+Two repository variables tune the poll itself, and on the default settings only
+the second one does anything:
 
 ```bash
-gh variable set FACTORY_POLL_INTERVAL_SECONDS --body 30    # seconds between passes
-gh variable set FACTORY_POLL_WINDOW_SECONDS   --body 270   # how long a run polls
+gh variable set FACTORY_POLL_WINDOW_SECONDS   --body 0     # 0 = one pass per trigger
+gh variable set FACTORY_POLL_INTERVAL_SECONDS --body 30    # seconds between passes, above 0
 ```
 
-Leaving the window just under the cron interval keeps a runner busy more or less
-continuously. That is free on a public repository and fine for a playground, but
-it is real compute for something that is idle most of the time. Set the window
-to `0` to go back to one pass per tick, and dispatch the poller by hand when you
-want a card picked up now.
+A window of `0` is one sweep and out, which is the right shape when something
+else decides the timing. The alternative — a window of 3000 plus the `schedule:`
+block uncommented — keeps a runner up more or less continuously and gets latency
+down to the interval. That is free on a public repository and around $345 a month
+on a private one, so it is the setting for a playground or for a self-hosted
+runner, not for a repository you are paying GitHub for.
 
 The card may stop at *Blocked on architect* first, with the agent's questions in
 one comment. Answer them by replying on the card — a single comment, in your own

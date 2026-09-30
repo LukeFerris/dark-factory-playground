@@ -126,10 +126,13 @@ set_var FACTORY_BOT_LOGIN "$FACTORY_BOT_LOGIN"
 
 # Set explicitly, though poller.yml defaults to the same numbers, so the two
 # knobs show up in `gh variable list` instead of being buried in the workflow.
-# A window just under the cron interval keeps a runner up nearly all the time;
-# FACTORY_POLL_WINDOW_SECONDS=0 gives one pass per scheduled run instead.
+#
+# A window of 0 is one pass per trigger, and Jira is what triggers it — see
+# JIRA-TRIGGERS.md. The interval only matters above 0, so it is set here for the
+# day somebody turns continuous polling back on (3000 and a self-hosted runner,
+# or 3000 and a willingness to pay for it).
 set_var FACTORY_POLL_INTERVAL_SECONDS "${FACTORY_POLL_INTERVAL_SECONDS:-30}"
-set_var FACTORY_POLL_WINDOW_SECONDS "${FACTORY_POLL_WINDOW_SECONDS:-270}"
+set_var FACTORY_POLL_WINDOW_SECONDS "${FACTORY_POLL_WINDOW_SECONDS:-0}"
 
 # ------------------------------------------------------------- environment
 
