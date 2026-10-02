@@ -54,6 +54,8 @@ interface Seen {
   marks: Array<{ key: string; value: Record<string, unknown> }>
   /** Assignments, in order. `null` is an unassignment. */
   assignments: Array<{ key: string; accountId: string | null }>
+  /** Who each claimed card goes back to when the turn ends. */
+  handBacks: Array<{ key: string; previous: string }>
   dispatches: string[][]
 }
 
@@ -65,6 +67,7 @@ function stub(board: Board): Seen {
     transitions: [],
     marks: [],
     assignments: [],
+    handBacks: [],
     dispatches: [],
   }
 
@@ -157,6 +160,8 @@ function stub(board: Board): Seen {
       const value = (await request.json()) as Record<string, unknown>
       if (params['property'] === TRIAGE_PROPERTY) {
         seen.marks.push({ key: params['key'] as string, value })
+      } else {
+        seen.handBacks.push({ key: params['key'] as string, previous: value['previous'] as string })
       }
       return new HttpResponse(null, { status: 200 })
     }),
@@ -206,6 +211,9 @@ describe('what triage looks at', () => {
     // The two Ready columns are dispatched by status on the same pass. Reading
     // them here as well would hand one card to two runners.
     expect(jql).not.toContain('Ready for')
+    // A card in review is the reviewer's. A comment there may well be for a
+    // colleague; the way to send it back is to drag it and assign it.
+    expect(jql).not.toContain('review')
   })
 
   // The poller runs this every thirty seconds, mostly against nothing.
@@ -223,7 +231,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'Design review',
+          status: 'Blocked on architect',
           comments: [
             { id: '1', authorId: HUMAN, body: 'please look at this' },
             { id: '2', authorId: FACTORY, body: 'design turn finished' },
@@ -247,14 +255,14 @@ describe('what triage looks at', () => {
    * needs no special case: the check is "did we write it", and we did.
    *
    * Reachable in practice: a turn whose `report` comment fails to post still
-   * transitions the card, which lands it in Design review with the factory's
-   * own start comment as the newest thing on it.
+   * transitions the card, which can land it in Blocked on architect with the
+   * factory's own start comment as the newest thing on it.
    */
   it('ignores its own "turn started" ping, which it now leaves on every turn', async () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'Design review',
+          status: 'Blocked on architect',
           comments: [
             { id: '1', authorId: HUMAN, body: 'can you look at the spacing' },
             { id: '2', authorId: FACTORY, body: 'design turn 2 started' },
@@ -277,7 +285,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'In review',
+          status: 'Blocked on engineer',
           comments: [{ id: '7', authorId: HUMAN, body: 'nice one' }],
           mark: '7',
         },
@@ -294,7 +302,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'In review',
+          status: 'Blocked on engineer',
           comments: [
             { id: '7', authorId: HUMAN, body: 'nice one' },
             { id: '8', authorId: HUMAN, body: 'actually the button does nothing' },
@@ -344,7 +352,7 @@ describe('acting on a decision', () => {
   })
 
   it('starts the build agent by dispatch, which is the only way in without a PR comment', async () => {
-    const board = oneNewComment('In review')
+    const board = oneNewComment('Blocked on engineer')
     const seen = stub(board)
 
     await run(always(BUILD))
@@ -358,7 +366,7 @@ describe('acting on a decision', () => {
   // nothing. A card that collects a line of factory commentary every time
   // somebody says "thanks" is worse than one that stays quiet.
   it('says nothing on the card when the answer is no action', async () => {
-    const board = oneNewComment('Design review')
+    const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
 
     const [outcome] = await run(always(NONE))
@@ -384,6 +392,16 @@ describe('acting on a decision', () => {
     expect(seen.assignments).toEqual([{ key: 'DF-3', accountId: FACTORY }])
   })
 
+  // They answered the question the turn stopped on, so the result is theirs —
+  // not whoever happened to be assigned while the card waited.
+  it('hands the card back to whoever wrote the comment when the turn ends', async () => {
+    const seen = stub(oneNewComment('Blocked on architect'))
+
+    await run(always(DESIGN))
+
+    expect(seen.handBacks).toEqual([{ key: 'DF-3', previous: HUMAN }])
+  })
+
   it('does not take a card it failed to move', async () => {
     const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
@@ -399,7 +417,7 @@ describe('acting on a decision', () => {
   })
 
   it('leaves the assignee alone when it decides to do nothing', async () => {
-    const board = oneNewComment('Design review')
+    const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
 
     await run(always(NONE))

@@ -68,27 +68,29 @@ picks the card up, one when it puts it down. A Jira status change notifies
 nobody and does not show up in the comment stream, so without the first of those
 a card being worked on for ten minutes reads exactly like a card being ignored.
 
-Two things a card carries are not comments. While a turn runs the card is
-**assigned** to the factory and handed back at the end, so the board view shows
-an avatar on whatever is being worked on right now; assignment notifies nobody,
-which is what makes it cheap enough to do every turn. And where to look — the
+Two things a card carries are not comments. A card is only the factory's when
+it is in a *Ready for …* column **and assigned** to the factory, so the board can
+hold cards it never touches. While a turn runs the factory keeps it, so the
+board view shows an avatar on whatever is being worked on right now, and at the
+end it hands the card back to whoever sent it in, mentioning them in the report
+comment so that Jira notifies them. And where to look — the
 pull request, the preview, and the live URL once it ships — goes on as
 **remote links**, one row each, replaced in place as they change, rather than a
 fresh comment per turn that the reader has to date-sort to use.
 
 ### Comments are the third entrance
 
-Dragging a card is not the only way to start work. Wherever the factory has
-stopped and is waiting on a person — *Design review*, *In review*, and the two
-*Blocked on …* statuses — a comment on the card is read on the next poll by a
-small model, which answers with one of three words: start a design turn, start a
-build turn, or do nothing. It then moves the card, says on the card why it
-moved, and dispatches the runner.
+Dragging a card is not the only way to start work. Where the factory has
+stopped to ask a question — the two *Blocked on …* statuses — a comment on the
+card is read on the next poll by a small model, which answers with one of three
+words: start a design turn, start a build turn, or do nothing. It then takes the
+card back, moves it, says on the card why it moved, and dispatches the runner.
 
-Most comments are `none`, and `none` is silent. The point is that a change of
-mind is a sentence on the ticket rather than a status the commenter has to work
-out for themselves. `docs/factory/STATE-MACHINE.md` has the details, including
-why a comment on a card in *In review* can legitimately start a *design* turn.
+Most comments are `none`, and `none` is silent. The point is that an answer is a
+sentence on the ticket rather than a status the commenter has to work out for
+themselves. In *Design review* and *In review* comments are left to people; to
+send a reviewed card back, drag it to a *Ready for …* column and assign it to
+the factory. `docs/factory/STATE-MACHINE.md` has the details.
 
 ### Nothing is allowed to go stale
 

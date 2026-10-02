@@ -111,7 +111,8 @@ stores them in GitHub.
 
 A plain licensed user gets exactly what the factory needs from the project's
 default permission scheme — browse, comment, transition, edit, create, assign
-and link — and nothing more. A turn assigns the card to itself while it runs and
+and link — and nothing more. The factory takes only cards assigned to it, holds
+the card while a turn runs, hands it back at the end, and
 puts the pull request and preview on as remote links, both of which that scheme
 already allows; neither can fail a turn if it does not. *Delete Issues* and
 *Administer Projects* belong to a project role
@@ -339,9 +340,10 @@ That `gh workflow run` is how you start a poll by hand, and until you set up the
 Jira triggers it is the only way work gets picked up: `poller.yml` ships with its
 `schedule:` commented out.
 
-**Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Three
+**Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Four
 Automation rules on the project call the workflow's dispatch endpoint when a card
-moves, when somebody comments, and every half hour as a backstop, which is what
+assigned to the factory reaches a *Ready* column, when a ready card is assigned
+to it, when somebody answers a question, and every half hour as a backstop, which is what
 makes the factory autonomous. It takes one fine-grained PAT, made by hand, and
 then `bootstrap/jira-triggers.sh`.
 

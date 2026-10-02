@@ -8,7 +8,9 @@ import {
   LINK_IDS,
   claimCard,
   dropLink,
+  handBackTarget,
   releaseCard,
+  sentInBy,
   syncLinks,
   turnLinks,
 } from './progress.ts'
@@ -17,6 +19,7 @@ const BASE = 'https://example.atlassian.net'
 const cfg: jira.JiraConfig = { base: BASE, user: 'bot@example.com', token: 'token' }
 const FACTORY = '712020:factory'
 const HUMAN = '557058:human'
+const OTHER = '557058:other'
 
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
@@ -39,8 +42,10 @@ function meta(patch: Partial<Meta> = {}): Meta {
 interface Card {
   /** Who holds the card, '' for nobody. */
   assignee: string
-  /** The saved "who had it before" property, or undefined if never written. */
+  /** The saved "who it goes back to" property, or undefined if never written. */
   saved?: { previous: string } | undefined
+  /** The card's history, oldest first, as `/changelog` returns it. */
+  history?: Array<{ author: string; field: string; to: string; toString: string }>
 }
 
 interface Seen {
@@ -62,6 +67,18 @@ function stub(card: Card): Seen {
       HttpResponse.json({
         key: 'DF-7',
         fields: { assignee: seen.card.assignee === '' ? null : { accountId: seen.card.assignee } },
+      }),
+    ),
+
+    http.get(`${BASE}/rest/api/3/issue/:key/changelog`, () =>
+      HttpResponse.json({
+        values: (seen.card.history ?? []).map((change) => ({
+          author: { accountId: change.author },
+          created: '2026-10-02T10:00:00.000+0000',
+          items: [{ field: change.field, to: change.to, toString: change.toString }],
+        })),
+        total: seen.card.history?.length ?? 0,
+        isLast: true,
       }),
     ),
 
@@ -224,9 +241,8 @@ describe('the links a turn offers', () => {
 
 /**
  * An avatar on the board is the one progress signal readable from the view
- * where nobody opens the card, and assignment notifies nobody — so it costs a
- * watcher nothing. What it must never do is quietly keep a card somebody else
- * put their name on.
+ * where nobody opens the card. What it must never do is quietly keep a card
+ * somebody else put their name on.
  */
 describe('holding the card while a turn runs', () => {
   it('takes the card and remembers who had it', async () => {
@@ -261,6 +277,37 @@ describe('holding the card while a turn runs', () => {
     expect(seen.card.saved).toEqual({ previous: HUMAN })
   })
 
+  /**
+   * From a Ready column the card is already the factory's: assigning it is how
+   * a person sends it in. So the record has to be written regardless, or the
+   * card would go back to the factory itself.
+   */
+  it('records who it goes back to even when it already holds the card', async () => {
+    const seen = stub({ assignee: FACTORY, saved: { previous: OTHER } })
+
+    await claimCard(cfg, 'DF-7', HUMAN)
+
+    expect(seen.saves).toEqual([{ previous: HUMAN }])
+    expect(seen.assigned).toEqual([])
+  })
+
+  it('takes the card too when somebody else holds it', async () => {
+    const seen = stub({ assignee: OTHER })
+
+    await claimCard(cfg, 'DF-7', HUMAN)
+
+    expect(seen.saves).toEqual([{ previous: HUMAN }])
+    expect(seen.assigned).toEqual([FACTORY])
+  })
+
+  it('never records itself as who the card goes back to', async () => {
+    const seen = stub({ assignee: FACTORY })
+
+    await claimCard(cfg, 'DF-7', FACTORY)
+
+    expect(seen.saves).toEqual([{ previous: '' }])
+  })
+
   it('hands the card back at the end of the turn', async () => {
     const seen = stub({ assignee: FACTORY, saved: { previous: HUMAN } })
 
@@ -290,6 +337,16 @@ describe('holding the card while a turn runs', () => {
     expect(seen.assigned).toEqual([])
   })
 
+  it('reads who it goes back to, for the mention', async () => {
+    stub({ assignee: FACTORY, saved: { previous: HUMAN } })
+    expect(await handBackTarget(cfg, 'DF-7')).toBe(HUMAN)
+  })
+
+  it('has nobody to hand back to when nothing was recorded', async () => {
+    stub({ assignee: FACTORY })
+    expect(await handBackTarget(cfg, 'DF-7')).toBe('')
+  })
+
   it('warns and carries on when Jira will not allow the assignment', async () => {
     stub({ assignee: '' })
     server.use(
@@ -299,5 +356,51 @@ describe('holding the card while a turn runs', () => {
     )
 
     await expect(claimCard(cfg, 'DF-7')).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * The card goes back to the person who sent it in, and the only record of that
+ * is the card's history: the status says where the card is, not who put it
+ * there.
+ */
+describe('who sent the card in', () => {
+  const READY = 'Ready for design'
+
+  it('is whoever last dragged it into the column', async () => {
+    stub({
+      assignee: FACTORY,
+      history: [
+        { author: OTHER, field: 'status', to: '10011', toString: READY },
+        { author: OTHER, field: 'status', to: '10010', toString: 'Backlog' },
+        { author: HUMAN, field: 'status', to: '10011', toString: READY },
+        { author: HUMAN, field: 'assignee', to: FACTORY, toString: 'Enki [bot]' },
+        { author: FACTORY, field: 'status', to: '10012', toString: 'Designing' },
+      ],
+    })
+
+    expect(await sentInBy(cfg, 'DF-7', READY)).toBe(HUMAN)
+  })
+
+  // A card dragged by an automation, or by the factory itself.
+  it('falls back to whoever assigned it to the factory', async () => {
+    stub({
+      assignee: FACTORY,
+      history: [
+        { author: FACTORY, field: 'status', to: '10011', toString: READY },
+        { author: OTHER, field: 'assignee', to: FACTORY, toString: 'Enki [bot]' },
+      ],
+    })
+
+    expect(await sentInBy(cfg, 'DF-7', READY)).toBe(OTHER)
+  })
+
+  it('is nobody when the history names no person', async () => {
+    stub({
+      assignee: FACTORY,
+      history: [{ author: '', field: 'status', to: '10011', toString: READY }],
+    })
+
+    expect(await sentInBy(cfg, 'DF-7', READY)).toBe('')
   })
 })

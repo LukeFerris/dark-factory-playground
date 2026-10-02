@@ -54,7 +54,8 @@ The `schedule:` block is commented out. Setup is in
 
 The poller's logic is unchanged. It still sweeps both *Ready for …* columns and
 the four `TRIAGE_STATUSES`, and still moves a card before dispatching, which
-remains the only gate stopping a card reaching two agents.
+remains the only gate stopping a card reaching two agents. (Which cards it takes
+was narrowed later, by [0006](0006-the-factory-takes-only-cards-assigned-to-it.md).)
 
 ### The sweep is not aimed at the card that fired the rule
 

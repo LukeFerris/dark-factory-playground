@@ -34,11 +34,33 @@ describe('how the poller claims a card', () => {
     expect(claim).toBeLessThan(dispatch)
   })
 
-  // An avatar is decoration on the work; the work is the dispatch below it.
+  // A hand-back is decoration on the work; the work is the dispatch below it.
   // claimCard already warns rather than throwing, and `|| true` is the second
   // belt — `set -e` is on in that step.
   it('never lets a failed claim stop the dispatch', () => {
-    expect(yaml).toContain('jira-claim "$key" || true')
+    expect(yaml).toContain('jira-claim "$key" --from "$waiting_status" || true')
+  })
+
+  // The card goes back to whoever dragged it in, which only the history knows.
+  it('hands the card back to whoever moved it into the column', () => {
+    expect(yaml).toContain('--from "$waiting_status"')
+  })
+})
+
+/**
+ * Which cards the poller takes.
+ *
+ * A card in a Ready column is only the factory's if it is also assigned to the
+ * factory, so people can keep cards on the same board that it never touches.
+ * The poller runs as the factory's account, so `currentUser()` is the bot.
+ */
+describe('which cards the poller takes', () => {
+  const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/poller.yml'), 'utf8')
+  const search = yaml.split('\n').find((line) => line.includes('jql="project = ${JIRA_PROJECT_KEY}'))
+
+  it('takes only cards assigned to the factory', () => {
+    expect(search).toBeDefined()
+    expect(search).toContain('AND assignee = currentUser()')
   })
 })
 
