@@ -255,7 +255,7 @@ if (( CREATE_CARD )); then
   npm run --silent factory -- jira-transition "$key" 'Ready for design'
   ok "$key moved to Ready for design"
 
-  info "Jira starts the poller once the Automation rules are set up; see"
+  info "Jira starts the poller once bootstrap/jira-triggers.sh has run; see"
   info "docs/factory/JIRA-TRIGGERS.md. Until then, and to start one now:"
   info "  gh workflow run poller.yml --repo $REPO_SLUG"
   info "Then watch: gh run watch --repo $REPO_SLUG"

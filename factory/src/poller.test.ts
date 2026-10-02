@@ -70,10 +70,9 @@ describe('how the poller is started', () => {
  *
  * Rule 2 in JIRA-TRIGGERS.md only fires for comments on cards in the statuses
  * triage looks at, so that a comment anywhere else does not buy a billed minute
- * to discover there is nothing to do. That list lives in Jira, where no test
- * can reach it, and the document is the only copy under version control. This
- * is what stops the document drifting from the code — the Jira rule still has
- * to be edited by hand, but at least the instruction to edit it will be right.
+ * to discover there is nothing to do. The live list is in Jira, where no test
+ * can reach it. This stops the document drifting from the code, so that the
+ * route by hand, at least, is right.
  */
 describe('the comment rule in JIRA-TRIGGERS.md', () => {
   const doc = readFileSync(resolve(REPO_ROOT, 'docs/factory/JIRA-TRIGGERS.md'), 'utf8')
@@ -82,6 +81,24 @@ describe('the comment rule in JIRA-TRIGGERS.md', () => {
   it('names exactly the statuses triage looks at', () => {
     expect(row).toBeDefined()
     const named = [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
+    expect(named).toEqual([...TRIAGE_STATUSES])
+  })
+})
+
+/**
+ * The same list, in the script that creates the rule.
+ *
+ * bootstrap/jira-triggers.sh writes the comment flow's status condition from
+ * its own copy of the list, because a shell script cannot import triage.ts.
+ * The flow it creates is only as current as that copy.
+ */
+describe('the comment rule in bootstrap/jira-triggers.sh', () => {
+  const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira-triggers.sh'), 'utf8')
+  const line = script.split('\n').find((candidate) => candidate.startsWith('TRIAGE_STATUSES=('))
+
+  it('names exactly the statuses triage looks at', () => {
+    expect(line).toBeDefined()
+    const named = [...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])
     expect(named).toEqual([...TRIAGE_STATUSES])
   })
 })
