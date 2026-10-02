@@ -8,9 +8,10 @@ repository is public. On a private one it bills every minute of it, roughly $345
 a month, per repository. That is what made the old design impossible to install
 anywhere else.
 
-Now Jira tells the factory when something has happened. Two Automation rules on
-the project POST to `poller.yml`'s dispatch endpoint; the run does one sweep and
-exits. Nothing is up between events.
+Now Jira tells the factory when something has happened. Automation rules on the
+project POST to `poller.yml`'s dispatch endpoint; the run does one sweep and
+exits. Nothing is up between events. `bootstrap/jira-triggers.sh` creates the
+rules; this document is what they are and why.
 
 **Nothing about the poller's logic changed.** It still sweeps both *Ready for …*
 columns and still runs comment triage across the four statuses in
@@ -35,10 +36,13 @@ in Jira. It is how little that credential can be allowed to do.
 | It can | It cannot |
 | --- | --- |
 | Start a workflow run | Push code |
-| Cancel or re-run one | Read secrets |
-| | Modify a workflow file |
-| | Merge anything |
+| Cancel or re-run one | Read secrets or variables |
+| Disable or enable a workflow | Modify a workflow file |
+| Delete runs, their logs, artifacts and caches | Merge anything |
 | | Touch any other repository |
+
+There is no narrower permission. *Create a workflow dispatch event* requires
+`Actions: write`, and `Actions: write` is all of the left-hand column.
 
 The reason `Actions: write` is enough is that **the PAT does not give the run its
 power.** It only starts the run. Once running, the poller mints its own App token
@@ -53,7 +57,10 @@ push access, which is a completely different conversation.
 Write the residual risk down plainly, because it is not zero: someone with this
 token can start factory runs on this repository and cancel them. Starting a
 design turn burns Anthropic credits and produces a branch and a draft PR for a
-card that was not ready. It is noise with a bill attached. It does not get code
+card that was not ready. It is noise with a bill attached. They can also disable
+`poller.yml`, which silences the factory, and delete run logs and the
+`.agent/out` transcripts uploaded as artifacts, which removes the evidence of what
+a run did. Neither changes the code. It does not get code
 merged — the output still faces CI, the validator's path allowlist in
 `factory/src/schema.ts`, and a required human approval on `main` with an empty
 `bypass_actors` list.
@@ -108,6 +115,32 @@ gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 3
 
 ## Checkpoint 3 — the rules
 
+**Run the script.** Put the PAT in `.env` as `FACTORY_DISPATCH_PAT`, then:
+
+```bash
+bootstrap/jira-triggers.sh --dry-run   # rehearse; the PAT prints as a placeholder
+bootstrap/jira-triggers.sh             # create and enable the three flows
+```
+
+It creates the three rules below through Atlassian's
+[Automation Rule Management API](https://developer.atlassian.com/cloud/automation/rest/api-group-rule-management/),
+scoped to this project, with the PAT in a secure header that Jira masks in the
+editor and in every read. It checks the PAT can see `poller.yml` before handing
+it to Jira, skips any flow that already exists by name, and leaves an existing
+flow's state alone, so a flow switched off on purpose stays off. To change a
+flow, delete it in Jira and re-run.
+
+It needs `JIRA_USER` to be allowed to administer automation on the project. The
+factory bot is refused (403), which is correct: an agent's account has no
+business editing the rules that start agents.
+
+The tables below are what the script creates, and the route by hand if the API
+is unavailable. Atlassian has renamed things since they were first written:
+projects are **spaces**, rules are **flows**, issues are **work items**, and the
+page is **Space settings → Automation → Create flow**. In the trigger picker,
+search rather than scroll; the Jira triggers are listed below the Automation,
+Compass and Confluence groups.
+
 All of these are **single-project rules**, which matters for more than tidiness:
 single-project rules have no monthly execution limit on any paid Jira tier, and
 do not count against the global/multi-project pool. Scope every rule to this
@@ -133,7 +166,7 @@ place a failed call is visible.
 | | |
 | --- | --- |
 | Name | `Factory: card ready` |
-| Trigger | **Issue transitioned** |
+| Trigger | **Work item transitioned** |
 | From status | *(blank — any)* |
 | To status | `Ready for design`, `Ready for build` |
 | Action | Send web request |
@@ -146,8 +179,8 @@ be gained by telling it which one moved.
 | | |
 | --- | --- |
 | Name | `Factory: new comment` |
-| Trigger | **Issue commented** |
-| Condition | **Issue fields condition** → Status → *is one of* → `Design review`, `Blocked on architect`, `In review`, `Blocked on engineer` |
+| Trigger | **Work item commented** |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Design review`, `Blocked on architect`, `In review`, `Blocked on engineer` |
 | Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
 | Action | Send web request |
 
@@ -156,10 +189,16 @@ Both conditions are there to stop paying for runs that cannot do anything.
 The status condition mirrors `TRIAGE_STATUSES` (`factory/src/triage.ts:44`) —
 those are the only four statuses triage looks at, so a comment anywhere else
 would start a run that sweeps and finds nothing. `poller.test.ts` asserts that
-the row above lists exactly those four, so changing `TRIAGE_STATUSES` fails CI
-until this document is changed with it. **The Jira rule itself is still edited
-by hand**, and nothing can reach in to check it — the test only guarantees that
-the instruction you are reading is current.
+the row above, and the `TRIAGE_STATUSES` line in `bootstrap/jira-triggers.sh`,
+list exactly those four, so changing the constant fails CI until both are
+changed with it. **The live flow in Jira is not checked by anything.** After a
+change, delete *Factory: new comment* in Jira and re-run the script to recreate
+it from the current list.
+
+The script writes this condition as a JQL condition (`status in (…)`) and the
+initiator check as a smart-value comparison (`{{initiator.accountId}}` is not the
+bot's account id). That is the same test as the two conditions in the table,
+expressed in forms the API takes as plain values.
 
 The initiator condition excludes the factory's own comments. It cannot loop
 without it — triage only acts on comments newer than the factory's own, so a
@@ -171,7 +210,7 @@ run for every comment the factory writes, which is most of them.
 | | |
 | --- | --- |
 | Name | `Factory: sweep` |
-| Trigger | **Scheduled**, every 30 minutes |
+| Trigger | **Scheduled**, every 30 minutes (the script writes cron `0 0/30 * * * ?`) |
 | JQL | `project = <KEY> AND status in ("Ready for design", "Ready for build")` |
 | Action | Send web request |
 
@@ -258,7 +297,7 @@ and mint a one-hour token per call, and nothing long-lived sits in Jira at all.
 
 Work outward from the board.
 
-1. **Did the rule fire?** Project settings → Automation → the rule → *Audit
+1. **Did the rule fire?** Space settings → Automation → *Audit
    log*. This is the only place a failed web request is recorded.
 2. **Did it get a 204?** Anything else is the token or the URL. Re-run the curl
    from Checkpoint 2.

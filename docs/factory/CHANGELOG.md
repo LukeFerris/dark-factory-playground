@@ -7,6 +7,68 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-02
+
+### The Jira triggers are created by a script, and are live
+
+`bootstrap/jira-triggers.sh` creates the three flows in JIRA-TRIGGERS.md through
+Atlassian's Automation Rule Management API
+(`api.atlassian.com/automation/public/jira/{cloudId}/rest/v1`). They were
+created on this project with it. The web request was proven end to end with a
+temporary flow of the same shape on the *Done* transition, so that no real card
+was dispatched: a throwaway card (DF-12) moved, and a `poller.yml` run triggered
+by the PAT's owner started five seconds later and made one pass in 23 seconds.
+The three real flows have not yet been seen to fire, and the comment flow's
+conditions are untested live.
+The script finds a flow by name and leaves an existing one alone, including
+whether it is enabled, and a dry run against the live flows reproduces all three
+payloads field for field, apart from the defaults Jira adds.
+
+The API is barely documented. What it actually takes, found by getting it wrong:
+
+- **Every component's `value` is an object.** A string, which is what the
+  rule-export JSON appears to use for some components, is a `500`, not a `400`.
+- **The required envelope is larger than the schema says.** `actor`
+  (`{actor, type: "ACCOUNT_ID"}`), `authorAccountId`, `writeAccessType`,
+  `notifyOnError`, `canOtherRuleTrigger`, `labels`, `collaborators`, `conditions`,
+  `children` and `connections: []` all have to be present. Missing any one of
+  them gives a `400` that says only that the rule "could not be parsed".
+- **A scheduled trigger takes cron and nothing else**:
+  `schedule: {method: "CRON", cronExpression: "0 0/30 * * * ?"}`, in Quartz
+  syntax with seconds first and `?` for day-of-week. `BASIC`, `FIXED_RATE`, a
+  plain `rate` and a value without a schedule are all `500`s.
+- **`DELETE /rule/{uuid}` needs a `Content-Type` header** despite having no
+  body. Without one it is a `415`.
+- **Trigger values are sparse on the way in.** A transition trigger needs only
+  `toStatus` as status IDs, and a comment trigger takes `{}`; Jira fills in
+  `eventKey`, `issueEvent`, `eventTypes` and `eventFilters` itself.
+- **Only a Jira admin can write rules.** The factory bot gets a `403`, which is
+  the right answer.
+
+The comment flow's two conditions are written as a JQL condition
+(`status in (…)`) and a smart-value comparison (`{{initiator.accountId}}` is not
+the bot's account id) rather than the UI's *Issue fields* and *User* conditions,
+because those are the forms the API takes as plain values. The test is the same.
+`TRIAGE_STATUSES` now has a third copy, in the script, and `poller.test.ts` pins
+that one as well.
+
+### Changing a default does not change a variable
+
+#40 changed `FACTORY_POLL_WINDOW_SECONDS`'s default to `0`, and the poller
+carried on looping for fifty minutes per run anyway. The repository variable had
+been set to `3000` by hand when the loop was the design, and an explicit
+variable beats the workflow's default. It is `0` now. Anything that moves a
+default in `poller.yml` has to check `gh variable list` too.
+
+### Correction: what `Actions: write` can do
+
+JIRA-TRIGGERS.md and the entry below said the PAT can start, cancel and re-run
+workflows. It can also **disable and enable them, and delete runs, their logs,
+artifacts and caches**. GitHub has no narrower permission that still allows a
+dispatch. So the holder of a leaked token can silence the factory and remove the
+record of what earlier runs did. Neither gets code merged, and the document now
+says so.
+
 ## 2026-09-30
 
 ### Jira starts the poller; the cron is off

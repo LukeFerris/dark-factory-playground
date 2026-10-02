@@ -339,10 +339,11 @@ That `gh workflow run` is how you start a poll by hand, and until you set up the
 Jira triggers it is the only way work gets picked up: `poller.yml` ships with its
 `schedule:` commented out.
 
-**Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Two
+**Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Three
 Automation rules on the project call the workflow's dispatch endpoint when a card
-moves or somebody comments, which is what makes the factory autonomous. It takes
-about twenty minutes and one fine-grained PAT.
+moves, when somebody comments, and every half hour as a backstop, which is what
+makes the factory autonomous. It takes one fine-grained PAT, made by hand, and
+then `bootstrap/jira-triggers.sh`.
 
 Two repository variables tune the poll itself, and on the default settings only
 the second one does anything:

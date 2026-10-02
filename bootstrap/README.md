@@ -1,6 +1,6 @@
 # `bootstrap/`
 
-Four scripts that turn an empty GitHub repository and an empty Jira site into a
+Five scripts that turn an empty GitHub repository and an empty Jira site into a
 working factory. Run them in this order:
 
 ```
@@ -10,6 +10,8 @@ bootstrap/github.sh              # apply
 bootstrap/jira.sh --dry-run      # rehearse
 bootstrap/jira.sh                # apply
 bootstrap/smoke.sh               # assert it all landed
+bootstrap/jira-triggers.sh --dry-run
+bootstrap/jira-triggers.sh       # the Automation flows that start the poller
 ```
 
 | Script | What it does | Changes remote state |
@@ -18,6 +20,7 @@ bootstrap/smoke.sh               # assert it all landed
 | `github.sh` | Actions permissions, secrets, variables, the `preview` environment, labels, rulesets | Yes |
 | `jira.sh` | Project, the ten statuses, the Factory workflow and scheme, custom fields, filter and board | Yes |
 | `smoke.sh` | Asserts every one of the above is present and correct | No, unless `--card` |
+| `jira-triggers.sh` | The three Jira Automation flows that dispatch `poller.yml`. Needs `FACTORY_DISPATCH_PAT`; see `docs/factory/JIRA-TRIGGERS.md` | Yes |
 
 ## Rules these scripts follow
 
@@ -26,8 +29,9 @@ and it is the one script with no dependencies of its own — it does not even
 source `lib.sh`, so a broken helper is something preflight can still report.
 
 **`--dry-run` is a complete rehearsal, not a best effort.** Every call that
-changes remote state in `github.sh` and `jira.sh` goes through `run()` or
-`jira_write()`, both of which print the request instead of sending it. A dry run
+changes remote state in `github.sh`, `jira.sh` and `jira-triggers.sh` goes
+through `run()`, `jira_write()` or `automation_write()`, all of which print the
+request instead of sending it. A dry run
 that prints nothing surprising means the real run will do nothing surprising.
 
 **They are idempotent.** Each step looks for what it needs before creating it,
@@ -70,3 +74,8 @@ The Jira payloads in `jira.sh` have been checked field-by-field against
 Atlassian's published OpenAPI spec — every endpoint exists and is undeprecated,
 and every schema-required field is sent. They have still never run against a
 live site, which needs Checkpoint B; see the note at the top of that file.
+
+`jira-triggers.sh` is the exception: Atlassian's Automation API is thinly
+documented, and its payloads were worked out against this project's live site
+and then checked to reproduce the flows it already had. What the API turned out
+to require is in the CHANGELOG entry for 2026-10-02.
