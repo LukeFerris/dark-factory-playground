@@ -42,7 +42,12 @@ interface Board {
   /** key -> the card's status, comments (oldest first) and existing mark. */
   cards: Record<
     string,
-    { status: string; comments: Array<{ id: string; authorId: string; body: string }>; mark?: string }
+    {
+      status: string
+      /** `mentions` are account ids @mentioned at the start of the comment. */
+      comments: Array<{ id: string; authorId: string; body: string; mentions?: string[] }>
+      mark?: string
+    }
   >
 }
 
@@ -54,6 +59,8 @@ interface Seen {
   marks: Array<{ key: string; value: Record<string, unknown> }>
   /** Assignments, in order. `null` is an unassignment. */
   assignments: Array<{ key: string; accountId: string | null }>
+  /** Who each claimed card goes back to when the turn ends. */
+  handBacks: Array<{ key: string; previous: string }>
   dispatches: string[][]
 }
 
@@ -65,6 +72,7 @@ function stub(board: Board): Seen {
     transitions: [],
     marks: [],
     assignments: [],
+    handBacks: [],
     dispatches: [],
   }
 
@@ -106,7 +114,18 @@ function stub(board: Board): Seen {
           id: c.id,
           author: { displayName: c.authorId === FACTORY ? 'Brakkr [bot]' : 'Luke', accountId: c.authorId },
           created: '2026-09-23T10:00:00.000+0000',
-          body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: c.body }] }] },
+          body: {
+            type: 'doc',
+            content: [
+              {
+                type: 'paragraph',
+                content: [
+                  ...(c.mentions ?? []).map((id) => ({ type: 'mention', attrs: { id, text: '@Enki' } })),
+                  { type: 'text', text: c.body },
+                ],
+              },
+            ],
+          },
         })),
       })
     }),
@@ -157,6 +176,8 @@ function stub(board: Board): Seen {
       const value = (await request.json()) as Record<string, unknown>
       if (params['property'] === TRIAGE_PROPERTY) {
         seen.marks.push({ key: params['key'] as string, value })
+      } else {
+        seen.handBacks.push({ key: params['key'] as string, previous: value['previous'] as string })
       }
       return new HttpResponse(null, { status: 200 })
     }),
@@ -223,7 +244,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'Design review',
+          status: 'Blocked on architect',
           comments: [
             { id: '1', authorId: HUMAN, body: 'please look at this' },
             { id: '2', authorId: FACTORY, body: 'design turn finished' },
@@ -247,14 +268,14 @@ describe('what triage looks at', () => {
    * needs no special case: the check is "did we write it", and we did.
    *
    * Reachable in practice: a turn whose `report` comment fails to post still
-   * transitions the card, which lands it in Design review with the factory's
-   * own start comment as the newest thing on it.
+   * transitions the card, which can land it in Blocked on architect with the
+   * factory's own start comment as the newest thing on it.
    */
   it('ignores its own "turn started" ping, which it now leaves on every turn', async () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'Design review',
+          status: 'Blocked on architect',
           comments: [
             { id: '1', authorId: HUMAN, body: 'can you look at the spacing' },
             { id: '2', authorId: FACTORY, body: 'design turn 2 started' },
@@ -277,7 +298,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'In review',
+          status: 'Blocked on engineer',
           comments: [{ id: '7', authorId: HUMAN, body: 'nice one' }],
           mark: '7',
         },
@@ -294,7 +315,7 @@ describe('what triage looks at', () => {
     const board: Board = {
       cards: {
         'DF-3': {
-          status: 'In review',
+          status: 'Blocked on engineer',
           comments: [
             { id: '7', authorId: HUMAN, body: 'nice one' },
             { id: '8', authorId: HUMAN, body: 'actually the button does nothing' },
@@ -344,7 +365,7 @@ describe('acting on a decision', () => {
   })
 
   it('starts the build agent by dispatch, which is the only way in without a PR comment', async () => {
-    const board = oneNewComment('In review')
+    const board = oneNewComment('Blocked on engineer')
     const seen = stub(board)
 
     await run(always(BUILD))
@@ -358,7 +379,7 @@ describe('acting on a decision', () => {
   // nothing. A card that collects a line of factory commentary every time
   // somebody says "thanks" is worse than one that stays quiet.
   it('says nothing on the card when the answer is no action', async () => {
-    const board = oneNewComment('Design review')
+    const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
 
     const [outcome] = await run(always(NONE))
@@ -384,6 +405,16 @@ describe('acting on a decision', () => {
     expect(seen.assignments).toEqual([{ key: 'DF-3', accountId: FACTORY }])
   })
 
+  // They answered the question the turn stopped on, so the result is theirs —
+  // not whoever happened to be assigned while the card waited.
+  it('hands the card back to whoever wrote the comment when the turn ends', async () => {
+    const seen = stub(oneNewComment('Blocked on architect'))
+
+    await run(always(DESIGN))
+
+    expect(seen.handBacks).toEqual([{ key: 'DF-3', previous: HUMAN }])
+  })
+
   it('does not take a card it failed to move', async () => {
     const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
@@ -399,7 +430,7 @@ describe('acting on a decision', () => {
   })
 
   it('leaves the assignee alone when it decides to do nothing', async () => {
-    const board = oneNewComment('Design review')
+    const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
 
     await run(always(NONE))
@@ -428,6 +459,95 @@ describe('acting on a decision', () => {
  * a card must never be marked as handled without having been handled, and a
  * card must never be left claimed with no way back.
  */
+/**
+ * A card in review is the reviewer's, and comments on it are mostly between
+ * people. Only a comment that @mentions the factory is for it.
+ */
+describe('comments on a card in review', () => {
+  function review(comments: Board['cards'][string]['comments']): Board {
+    return { cards: { 'DF-3': { status: 'In review', comments } } }
+  }
+  const question = { id: '1', authorId: FACTORY, body: 'Ready for review.' }
+
+  it('leaves a comment that does not mention the factory to the people', async () => {
+    const seen = stub(review([question, { id: '2', authorId: HUMAN, body: 'Looks good to me' }]))
+    const classify = always(BUILD)
+
+    expect(await run(classify)).toEqual([])
+    expect(classify.calls).toBe(0)
+    expect(seen.transitions).toEqual([])
+    expect(seen.marks).toEqual([])
+  })
+
+  it('takes the card back when a comment mentions the factory, for whoever wrote it', async () => {
+    const seen = stub(
+      review([question, { id: '2', authorId: HUMAN, body: ' the button is the wrong colour', mentions: [FACTORY] }]),
+    )
+
+    const [outcome] = await run(always(BUILD))
+
+    expect(outcome).toMatchObject({ key: 'DF-3', status: 'In review', action: 'build', acted: true })
+    expect(seen.transitions).toEqual([{ key: 'DF-3', to: 'Building' }])
+    expect(seen.assignments).toEqual([{ key: 'DF-3', accountId: FACTORY }])
+    expect(seen.handBacks).toEqual([{ key: 'DF-3', previous: HUMAN }])
+    expect(seen.marks.map((m) => m.value['commentId'])).toEqual(['2'])
+  })
+
+  // A colleague's "+1" underneath must not hide the request above it.
+  it('finds the mention under a later reply from someone else', async () => {
+    const seen = stub(
+      review([
+        question,
+        { id: '2', authorId: HUMAN, body: ' please centre the title', mentions: [FACTORY] },
+        { id: '3', authorId: '557058:colleague', body: '+1' },
+      ]),
+    )
+
+    const [outcome] = await run(always(DESIGN))
+
+    expect(outcome).toMatchObject({ action: 'design', acted: true })
+    expect(seen.handBacks).toEqual([{ key: 'DF-3', previous: HUMAN }])
+    expect(seen.marks.map((m) => m.value['commentId'])).toEqual(['2'])
+  })
+
+  // That mention was answered by the turn that wrote the factory's comment.
+  it('ignores a mention from before the factory last spoke', async () => {
+    stub(
+      review([
+        { id: '1', authorId: HUMAN, body: ' please centre the title', mentions: [FACTORY] },
+        { id: '2', authorId: FACTORY, body: 'Centred. Ready for review.' },
+        { id: '3', authorId: HUMAN, body: 'thanks' },
+      ]),
+    )
+    const classify = always(DESIGN)
+
+    expect(await run(classify)).toEqual([])
+    expect(classify.calls).toBe(0)
+  })
+
+  it('reads a mention once, however many replies follow it', async () => {
+    const board = review([
+      question,
+      { id: '2', authorId: HUMAN, body: ' thanks!', mentions: [FACTORY] },
+      { id: '3', authorId: '557058:colleague', body: 'agreed' },
+    ])
+    board.cards['DF-3']!.mark = '2'
+    stub(board)
+    const classify = always(NONE)
+
+    expect(await run(classify)).toEqual([])
+    expect(classify.calls).toBe(0)
+  })
+
+  it('ignores a mention of someone else', async () => {
+    stub(review([question, { id: '2', authorId: HUMAN, body: ' can you check this', mentions: [HUMAN] }]))
+    const classify = always(BUILD)
+
+    expect(await run(classify)).toEqual([])
+    expect(classify.calls).toBe(0)
+  })
+})
+
 describe('when a step fails', () => {
   const board: Board = {
     cards: {
@@ -504,6 +624,7 @@ describe('what the classifier is told', () => {
       authorId: HUMAN,
       created: '2026-09-23T10:00:00.000+0000',
       body: 'the second one',
+      mentions: [],
     },
   }
 

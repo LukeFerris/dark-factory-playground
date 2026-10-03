@@ -149,15 +149,17 @@ jobs:
             POLL_WINDOW=3000
           fi
 
-          # Every card in the status is waiting for us, so the whole column is
-          # dispatched. Triage, below, is the other shape: there the status
-          # says nothing and the comment decides.
+          # A card is sent in by putting it in the column AND assigning it to
+          # the factory, so other cards can live on the same board untouched.
+          # The poller runs as the factory's account, so currentUser() is the
+          # bot. Triage, below, is the other shape: there the status says
+          # nothing and the comment decides.
           dispatch() {
             waiting_status="$1"
             claimed_status="$2"
             workflow="$3"
 
-            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" ORDER BY created ASC"
+            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" AND assignee = currentUser() ORDER BY created ASC"
             keys="$(npm run --silent factory -- jira-search "$jql")"
 
             if [ -z "$keys" ]; then
@@ -183,19 +185,17 @@ jobs:
                 continue
               fi
 
-              # Take the avatar too, and take it here rather than leaving it to
-              # `announce` inside the dispatched run. A status change and an
-              # assignment are the same event — "the factory has this card" —
-              # and splitting them put 18 to 44 seconds of unassigned Designing
-              # on the board every time, with no end at all when the dispatch
-              # below failed.
+              # Record who the card goes back to when the turn ends: whoever
+              # dragged it into ${waiting_status}. The card is normally already
+              # assigned to the factory, since that is how it was sent in, so
+              # this is mostly the record; claimCard takes the avatar too if a
+              # person unassigned it in the seconds since the search.
               #
-              # After the transition, not before: the move is the step that can
-              # legitimately fail, and a card left in "Ready for …" wearing the
-              # bot's avatar would be a lie about a card the factory does not
-              # have. This never fails the pass — claimCard warns and returns —
-              # because an avatar is not worth a card.
-              npm run --silent factory -- jira-claim "$key" || true
+              # After the transition, not before: by then the history holds the
+              # drag and nothing after it but the factory's own move, which
+              # sentInBy skips. This never fails the pass — claimCard warns and
+              # returns — because a hand-back is not worth a card.
+              npm run --silent factory -- jira-claim "$key" --from "$waiting_status" || true
 
               echo "dispatching ${workflow} for ${key}"
               if ! gh workflow run "$workflow" -f key="$key"; then

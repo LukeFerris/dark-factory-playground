@@ -157,6 +157,7 @@ describe('isAnswered', () => {
     authorId,
     created: '2026-09-23T10:00:00.000+0000',
     body,
+    mentions: [],
   })
 
   it('is false when the newest comment is the factory\'s own question', () => {
@@ -336,5 +337,36 @@ describe('adfToText', () => {
   it('returns an empty string for a missing body rather than throwing', () => {
     expect(jira.adfToText(undefined)).toBe('')
     expect(jira.adfToText(null)).toBe('')
+  })
+})
+
+describe('mentions', () => {
+  const doc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'mention', attrs: { id: '712020:factory', text: '@Enki [bot]' } },
+          { type: 'text', text: ' please look' },
+        ],
+      },
+      { type: 'paragraph', content: [{ type: 'mention', attrs: { id: '557058:human' } }] },
+    ],
+  }
+
+  it('reads every mentioned account id, from the document rather than the text', () => {
+    expect(jira.mentionedIds(doc)).toEqual(['712020:factory', '557058:human'])
+  })
+
+  it('finds none in a comment without mentions', () => {
+    expect(jira.mentionedIds({ type: 'doc', content: [{ type: 'text', text: '@Enki' }] })).toEqual([])
+    expect(jira.mentionedIds(undefined)).toEqual([])
+  })
+
+  // The classifier reads the text, and "please look" without who it was said
+  // to reads like a note between people.
+  it('keeps the mention in the text', () => {
+    expect(jira.adfToText(doc)).toBe('@Enki [bot] please look\n@someone\n')
   })
 })

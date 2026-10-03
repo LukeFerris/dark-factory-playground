@@ -119,6 +119,14 @@ it is in every `transcript.json` artifact, and it is the only honest answer to
 
 ## Nothing happens at all
 
+**The card is not assigned to the factory.** A card in a *Ready for …* column is
+only taken if it is also assigned to the factory's Jira account; the column
+alone is how people park their own work on the same board. Assign it, and the
+*Factory: card assigned* flow starts the poller within seconds. A card in
+*Design review* or *In review* comes back either by a comment that @mentions the
+factory, or by dragging it to a *Ready for …* column and assigning it. See *Which cards are the factory's* in
+[JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
+
 **The trigger did not arrive.** Jira starts the poller now — the `schedule:` in
 `poller.yml` is commented out — so a silent factory is usually a silent trigger,
 and the evidence for that is on the Jira side, not in GitHub. Start at the rule's
@@ -384,10 +392,13 @@ npm run --silent factory -- card-pr DF-1
 
 ## A comment on a card did nothing
 
-Comments on cards in *Design review*, *In review*, *Blocked on architect* and
-*Blocked on engineer* are read by triage on each poll, which decides whether to
-start an agent. Nothing happening is the **designed** outcome for most comments,
-so before treating it as a fault, see what triage actually decided:
+Comments on cards in *Blocked on architect* and *Blocked on engineer* are read
+by triage on each poll, which decides whether to start an agent. Comments in
+*Design review* and *In review* are read only if they @mention the factory; a
+name typed as plain text, without picking the person from the list, is not a
+mention, and neither the Jira flow nor triage will see it. Nothing
+happening is the **designed** outcome for most comments, so before treating it
+as a fault, see what triage actually decided:
 
 ```bash
 npm run --silent factory -- triage --dry-run
@@ -507,9 +518,11 @@ died between the two — a cancelled workflow, a runner that vanished, an agent
 step that crashed the job — leaves the bot holding it. The card's status says
 the same thing: it will still be in *Designing* or *Building*.
 
-Nothing is stuck. Take the card back, or leave it; the next turn's `claimCard`
-finds the factory already assigned and does not overwrite what it saved, so the
-original holder survives however many times this happens.
+Nothing is stuck. Take the card back, or leave it. The next turn the poller or
+triage starts records afresh who the card goes back to — whoever dragged it in,
+or whoever answered the question — and a turn started by hand finds the factory
+already assigned and keeps what was saved. Neither ever records the factory
+itself.
 
 ```bash
 # Who the factory thinks had it before

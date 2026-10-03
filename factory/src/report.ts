@@ -7,7 +7,7 @@ import * as jira from './jira.ts'
 import { launcherFor } from './launcher.ts'
 import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
-import { releaseCard, syncLinks, turnLinks } from './progress.ts'
+import { handBackTarget, releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
 
 export interface Evidence {
@@ -329,6 +329,21 @@ export function fallbackComment(stage: Stage, result: Result, pr: string | null)
   return adf.doc(...lines.map((line) => adf.paragraph(adf.text(line))))
 }
 
+/**
+ * Puts the person the card is going back to at the top of the comment.
+ *
+ * The hand-back is the moment the card becomes theirs again, and the mention is
+ * what makes Jira tell them so even when they are not watching the card. With
+ * nobody to hand it back to, the comment is left as it is.
+ */
+export function addressedTo(comment: adf.AdfDoc, accountId: string): adf.AdfDoc {
+  if (accountId === '') return comment
+  return adf.doc(
+    adf.paragraph(adf.mention(accountId), adf.text(' — this card is back with you.')),
+    ...comment.content,
+  )
+}
+
 /** Posts the card comment and applies the status transition for this result. */
 export async function report(options: ReportOptions): Promise<void> {
   const meta = readMeta()
@@ -350,13 +365,9 @@ export async function report(options: ReportOptions): Promise<void> {
   // Through the launcher: the Jira comment is read by a person, who may open
   // it days later, long after the app has scaled back to zero. meta.preview_url
   // itself stays raw — that is the agent's copy.
-  const comment = buildComment(
-    options.stage,
-    result,
-    pr,
-    launcherFor(meta.preview_url),
-    runUrl(),
-    evidence,
+  const comment = addressedTo(
+    buildComment(options.stage, result, pr, launcherFor(meta.preview_url), runUrl(), evidence),
+    await handBackTarget(cfg, meta.key),
   )
 
   if (options.dryRun === true) {

@@ -120,6 +120,59 @@ export async function getIssue(cfg: JiraConfig, key: string): Promise<JiraIssue>
   return (await call(cfg, 'GET', `/rest/api/3/issue/${encodeURIComponent(key)}`)) as JiraIssue
 }
 
+/** One change to one field, as the card's history records it. */
+export interface ChangeItem {
+  field: string
+  /** The raw new value: an account id for `assignee`, a status id for `status`. */
+  to: string | null
+  /** The display form: a name for `assignee` and `status`. */
+  toString: string | null
+}
+
+export interface ChangeEntry {
+  /** '' when Jira itself made the change, which it does for some automations. */
+  authorId: string
+  created: string
+  items: ChangeItem[]
+}
+
+/**
+ * The card's history, oldest first, following pagination.
+ *
+ * Every drag and every assignment is in here with who did it, which is the
+ * only record of who moved a card: the status field itself says where the card
+ * is, not who put it there.
+ */
+export async function changelog(cfg: JiraConfig, key: string): Promise<ChangeEntry[]> {
+  const entries: ChangeEntry[] = []
+  let startAt = 0
+
+  for (;;) {
+    const page = (await call(
+      cfg,
+      'GET',
+      `/rest/api/3/issue/${encodeURIComponent(key)}/changelog?startAt=${startAt}&maxResults=100`,
+    )) as { values?: Array<Record<string, unknown>>; isLast?: boolean; total?: number }
+
+    const values = page.values ?? []
+    for (const value of values) {
+      const author = value['author'] as { accountId?: string } | undefined
+      entries.push({
+        authorId: author?.accountId ?? '',
+        created: (value['created'] as string) ?? '',
+        items: ((value['items'] as ChangeItem[] | undefined) ?? []).map((item) => ({
+          field: item.field,
+          to: item.to ?? null,
+          toString: item.toString ?? null,
+        })),
+      })
+    }
+
+    startAt += values.length
+    if (page.isLast === true || values.length === 0 || startAt >= (page.total ?? 0)) return entries
+  }
+}
+
 export interface JiraComment {
   /**
    * The comment's own id.
@@ -142,6 +195,14 @@ export interface JiraComment {
   authorId: string
   created: string
   body: string
+  /**
+   * The account ids this comment @mentions.
+   *
+   * Read from the document, not the text: the text has only a display name,
+   * and in a review column a mention of the factory is what makes a comment
+   * one for it to act on.
+   */
+  mentions: string[]
 }
 
 function toComment(c: Record<string, unknown>): JiraComment {
@@ -152,6 +213,7 @@ function toComment(c: Record<string, unknown>): JiraComment {
     authorId: (author?.['accountId'] as string) ?? '',
     created: (c['created'] as string) ?? '',
     body: adfToText(c['body']),
+    mentions: mentionedIds(c['body']),
   }
 }
 
@@ -182,14 +244,27 @@ export async function getComments(cfg: JiraConfig, key: string): Promise<JiraCom
  * merely incomplete.
  */
 export async function latestComment(cfg: JiraConfig, key: string): Promise<JiraComment | null> {
+  return (await recentComments(cfg, key, 1))[0] ?? null
+}
+
+/**
+ * The newest `count` comments on a card, **newest first**.
+ *
+ * The other end of the thread from `getComments`, which a long card truncates
+ * before it reaches anything recent.
+ */
+export async function recentComments(
+  cfg: JiraConfig,
+  key: string,
+  count: number,
+): Promise<JiraComment[]> {
   const raw = (await call(
     cfg,
     'GET',
-    `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=1`,
+    `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=${count}`,
   )) as { comments?: Array<Record<string, unknown>> }
 
-  const newest = (raw.comments ?? [])[0]
-  return newest === undefined ? null : toComment(newest)
+  return (raw.comments ?? []).map(toComment)
 }
 
 /**
@@ -385,9 +460,9 @@ export async function assigneeOf(cfg: JiraConfig, key: string): Promise<string> 
  * Assigns a card, or unassigns it when `accountId` is ''.
  *
  * Assignment is not a comment. It shows as an avatar on the board and a line in
- * the card's history, and it notifies nobody — which makes it the right shape
- * for "this is being worked on right now" and the wrong shape for anything a
- * person needs to read.
+ * the card's history. Whether it notifies anyone is down to the project's
+ * notification scheme, so nothing that a person must read relies on it: the
+ * hand-back at the end of a turn also mentions them in the comment.
  */
 export async function assign(cfg: JiraConfig, key: string, accountId: string): Promise<void> {
   await call(cfg, 'PUT', `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
@@ -445,6 +520,10 @@ export function adfToText(node: unknown): string {
 
   const n = node as Record<string, unknown>
   if (n['type'] === 'text' && typeof n['text'] === 'string') return n['text']
+  if (n['type'] === 'mention') {
+    const label = (n['attrs'] as { text?: unknown } | undefined)?.text
+    return typeof label === 'string' && label !== '' ? label : '@someone'
+  }
 
   const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
   const joiner =
@@ -455,4 +534,14 @@ export function adfToText(node: unknown): string {
   if (n['type'] === 'listItem') return `- ${inner.trim()}\n`
   if (n['type'] === 'hardBreak') return '\n'
   return inner
+}
+
+/** Every account id @mentioned anywhere in an ADF document, in order. */
+export function mentionedIds(node: unknown): string[] {
+  if (node === null || typeof node !== 'object') return []
+  const n = node as Record<string, unknown>
+  const id = (n['attrs'] as { id?: unknown } | undefined)?.id
+  const own = n['type'] === 'mention' && typeof id === 'string' && id !== '' ? [id] : []
+  const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
+  return [...own, ...children.flatMap(mentionedIds)]
 }

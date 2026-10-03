@@ -18,7 +18,7 @@ import {
   readMergeState,
   recordMerge,
 } from './merge.ts'
-import { claimCard } from './progress.ts'
+import { claimCard, sentInBy } from './progress.ts'
 import { refresh, refreshTargets } from './refresh.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
@@ -112,15 +112,25 @@ program
 // which reads as a card nobody has picked up. Worse, when the dispatch fails
 // it reads that way forever.
 //
-// Idempotent, so `announce` keeping its own call costs nothing: claimCard
-// returns early when the factory is already the assignee, and so cannot
-// overwrite the record of who had the card before.
+// `--from` is the poller's: the card was sent in by being dragged into that
+// status, and it goes back to whoever dragged it. Without it the card goes back
+// to whoever holds it now, and claimCard returns early when that is already the
+// factory — so `announce` keeping its own call costs nothing.
 program
   .command('jira-claim')
-  .description('Assign a card to the factory, remembering who had it.')
+  .description('Assign a card to the factory, remembering who it goes back to.')
   .argument('<key>', 'Issue key, e.g. DF-1')
-  .action(async (key: string) => {
-    await claimCard(jira.configFromEnv(), key)
+  .option('--from <status>', 'Hand it back to whoever moved it into this status')
+  .action(async (key: string, opts: { from?: string }) => {
+    const cfg = jira.configFromEnv()
+    let handBackTo: string | undefined
+    if (opts.from !== undefined) {
+      handBackTo = await sentInBy(cfg, key, opts.from).catch((error: Error) => {
+        console.error(`::warning::could not read who moved ${key}: ${error.message}`)
+        return ''
+      })
+    }
+    await claimCard(cfg, key, handBackTo)
     console.log(`${key} claimed`)
   })
 
