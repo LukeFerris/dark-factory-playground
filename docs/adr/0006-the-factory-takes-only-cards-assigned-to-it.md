@@ -34,16 +34,19 @@ account (`assignee = currentUser()`; the poller runs as that account). Two
 Automation flows cover the two orders, one on the transition and one on the
 assignment, and the sweep's JQL carries the same condition.
 
-**Only questions are answered by comment.** Triage reads the two *Blocked on …*
-statuses, where the factory has asked something, regardless of who the card is
-assigned to, and takes the card back when a comment answers it. *Design review*
-and *In review* are not read: to send a reviewed card back, a person drags it to
-a *Ready for …* column and assigns it to the factory.
+**A comment takes a card back only when it is addressed to the factory.** In the
+two *Blocked on …* statuses the factory has asked something, so any comment from
+a person is read, whoever the card is assigned to. In *Design review* and *In
+review* most comments are between people, so only one that @mentions the
+factory is read — the newest since the factory last spoke, so that a
+colleague's reply underneath does not hide it. Either way, if the comment asks
+for work, the factory takes the card back. Dragging a reviewed card to a *Ready
+for …* column and assigning it to the factory works too.
 
 **The card goes back to a person, by name.** At the start of a turn the factory
 records who the card goes back to: whoever dragged it into the *Ready for …*
 column, from the card's history, falling back to whoever assigned it to the
-factory; or, for a triage turn, whoever wrote the comment. At the end it assigns
+factory; or, for a turn started by a comment, whoever wrote it. At the end it assigns
 the card to them and opens the report comment with an @mention, because a
 mention notifies whatever the project's notification scheme says about
 assignment.
@@ -55,9 +58,13 @@ assignment.
 - Starting work is two gestures instead of one. A card dragged into a *Ready*
   column without the assignment waits, silently; the runbook's *Nothing happens
   at all* names that first.
-- A comment in a review status no longer starts a turn. Comments on the pull
-  request in GitHub still do (`build-turn.yml`'s `issue_comment` trigger), and
-  that path is not gated by the Jira assignee.
+- A comment in a review status starts a turn only if it @mentions the factory.
+  A name typed as plain text is not a mention. Comments on the pull request in
+  GitHub still start build turns (`build-turn.yml`'s `issue_comment` trigger),
+  and that path is not gated by the Jira assignee.
+- A review mention costs a Jira Automation condition (`{{comment.body}}`
+  contains `[~accountid:…]`) as well as triage's own check, so ordinary review
+  conversation never starts a run.
 - After a triage turn the card goes to the person who answered, not to the
   person who originally sent it in. That is the person most likely to be waiting
   on the result.

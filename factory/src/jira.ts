@@ -195,6 +195,14 @@ export interface JiraComment {
   authorId: string
   created: string
   body: string
+  /**
+   * The account ids this comment @mentions.
+   *
+   * Read from the document, not the text: the text has only a display name,
+   * and in a review column a mention of the factory is what makes a comment
+   * one for it to act on.
+   */
+  mentions: string[]
 }
 
 function toComment(c: Record<string, unknown>): JiraComment {
@@ -205,6 +213,7 @@ function toComment(c: Record<string, unknown>): JiraComment {
     authorId: (author?.['accountId'] as string) ?? '',
     created: (c['created'] as string) ?? '',
     body: adfToText(c['body']),
+    mentions: mentionedIds(c['body']),
   }
 }
 
@@ -235,14 +244,27 @@ export async function getComments(cfg: JiraConfig, key: string): Promise<JiraCom
  * merely incomplete.
  */
 export async function latestComment(cfg: JiraConfig, key: string): Promise<JiraComment | null> {
+  return (await recentComments(cfg, key, 1))[0] ?? null
+}
+
+/**
+ * The newest `count` comments on a card, **newest first**.
+ *
+ * The other end of the thread from `getComments`, which a long card truncates
+ * before it reaches anything recent.
+ */
+export async function recentComments(
+  cfg: JiraConfig,
+  key: string,
+  count: number,
+): Promise<JiraComment[]> {
   const raw = (await call(
     cfg,
     'GET',
-    `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=1`,
+    `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=${count}`,
   )) as { comments?: Array<Record<string, unknown>> }
 
-  const newest = (raw.comments ?? [])[0]
-  return newest === undefined ? null : toComment(newest)
+  return (raw.comments ?? []).map(toComment)
 }
 
 /**
@@ -498,6 +520,10 @@ export function adfToText(node: unknown): string {
 
   const n = node as Record<string, unknown>
   if (n['type'] === 'text' && typeof n['text'] === 'string') return n['text']
+  if (n['type'] === 'mention') {
+    const label = (n['attrs'] as { text?: unknown } | undefined)?.text
+    return typeof label === 'string' && label !== '' ? label : '@someone'
+  }
 
   const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
   const joiner =
@@ -508,4 +534,14 @@ export function adfToText(node: unknown): string {
   if (n['type'] === 'listItem') return `- ${inner.trim()}\n`
   if (n['type'] === 'hardBreak') return '\n'
   return inner
+}
+
+/** Every account id @mentioned anywhere in an ADF document, in order. */
+export function mentionedIds(node: unknown): string[] {
+  if (node === null || typeof node !== 'object') return []
+  const n = node as Record<string, unknown>
+  const id = (n['attrs'] as { id?: unknown } | undefined)?.id
+  const own = n['type'] === 'mention' && typeof id === 'string' && id !== '' ? [id] : []
+  const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
+  return [...own, ...children.flatMap(mentionedIds)]
 }

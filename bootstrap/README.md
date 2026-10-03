@@ -20,7 +20,7 @@ bootstrap/jira-triggers.sh       # the Automation flows that start the poller
 | `github.sh` | Actions permissions, secrets, variables, the `preview` environment, labels, rulesets | Yes |
 | `jira.sh` | Project, the ten statuses, the Factory workflow and scheme, custom fields, filter and board | Yes |
 | `smoke.sh` | Asserts every one of the above is present and correct | No, unless `--card` |
-| `jira-triggers.sh` | The four Jira Automation flows that dispatch `poller.yml`; re-running updates them in place. Needs `FACTORY_DISPATCH_PAT`; see `docs/factory/JIRA-TRIGGERS.md` | Yes |
+| `jira-triggers.sh` | The five Jira Automation flows that dispatch `poller.yml`; re-running updates them in place. Needs `FACTORY_DISPATCH_PAT`; see `docs/factory/JIRA-TRIGGERS.md` | Yes |
 
 ## Rules these scripts follow
 

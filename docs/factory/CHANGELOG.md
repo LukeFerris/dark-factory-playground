@@ -13,20 +13,24 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 A card in a *Ready for …* column is now the factory's only if it is also
 assigned to the factory's Jira account, so people can keep their own cards on
-the board. Triage reads only the two *Blocked on …* statuses; a reviewed card is
-sent back by dragging it to a *Ready* column and assigning it. At the end of a
+the board. Triage reads any comment in the two *Blocked on …* statuses, and in
+*Design review* and *In review* only a comment that @mentions the factory; a
+reviewed card can also be sent back by dragging it to a *Ready* column and
+assigning it. At the end of a
 turn the card goes to whoever dragged it in (from the changelog), or to whoever
 answered the question, and the report comment opens with an @mention of them.
 Why: [ADR 0006](../adr/0006-the-factory-takes-only-cards-assigned-to-it.md).
 
-`bootstrap/jira-triggers.sh` now writes four flows and updates existing ones in
+`bootstrap/jira-triggers.sh` now writes five flows and updates existing ones in
 place instead of skipping them. Re-run on this project: the three existing
 flows were updated with their ids and states kept, and *Factory: card assigned*
-was created. Seen live on a throwaway card (DF-13, left unassigned in Backlog
+and *Factory: mentioned* were created. Seen live on a throwaway card (DF-13, left unassigned in Backlog
 because Luke's account cannot delete cards): assigning it to the factory in
 *Backlog* started no run, and a comment on it in *Blocked on architect* started
-the poller three seconds later, where triage answered `none`. The new hand-back
-and mention have not yet run on a real turn.
+the poller three seconds later, where triage answered `none`. In *Design
+review*, a plain comment started no run and one that @mentioned the factory
+started the poller within seconds, where triage answered `none`. The new
+hand-back and mention have not yet run on a real turn.
 
 More about the API:
 
@@ -38,6 +42,11 @@ More about the API:
   `{"eventKey": "jira:issue_updated", "issueEvent": "issue_assigned"}`. With
   `{}`, which the commented trigger takes happily, the flow saves with a null
   event. With the event named, it fired three seconds after an assignment.
+- **`{{comment.body}}` shows a mention as `[~accountid:…]`**, so
+  `jira.comparator.condition` with operator `CONTAINS` against that string is
+  "this comment mentions the factory". An operator Jira does not like is
+  validated (`REGEX_MATCHES` wants a valid regex), so `CONTAINS` is a real
+  operator, not an ignored field.
 - **A rule needs at least one action.** A rule with only a trigger is a `400`
   ("must contain at least one valid action").
 

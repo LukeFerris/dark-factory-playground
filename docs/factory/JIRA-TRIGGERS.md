@@ -35,7 +35,8 @@ touch, so a column alone does not hand a card over.
 | Start a design | Drag the card to *Ready for design* **and** assign it to the factory |
 | Start a build | Drag the card to *Ready for build* **and** assign it to the factory |
 | Answer a question | Comment on the card. Nothing else is needed |
-| Send a reviewed card back for more work | Drag it to a *Ready for …* column **and** assign it to the factory |
+| Ask for more on a card in review | Comment on the card and **@mention the factory** |
+| Send a reviewed card back without a comment | Drag it to a *Ready for …* column **and** assign it to the factory |
 
 Either half can come first; a rule fires on each, and the poller takes a card
 only when both are true (`assignee = currentUser()` in its JQL, since it runs as
@@ -46,12 +47,13 @@ on architect* or *Blocked on engineer*. A comment there from anyone but the
 factory is read by triage, which takes the card back if the comment answers the
 question. The commenter does not need to reassign it.
 
-**Reviews.** *Design review* and *In review* mean the factory thinks it is done.
-Comments there are conversation between people, and the factory ignores them.
-To have it carry on, drag the card back to the right *Ready for …* column and
-assign it to the factory. Comments on the pull request in GitHub are different:
-they still start a build turn, as they always have (RUNBOOK, *A build turn will
-not start from a comment*).
+**Reviews.** *Design review* and *In review* mean the factory thinks it is done,
+and most comments there are conversation between people. A comment that
+@mentions the factory is for it: triage reads it, and if it asks for work the
+factory takes the card back, exactly as for an answered question. A comment
+without the mention is left alone. Comments on the pull request in GitHub are
+different: they still start a build turn, as they always have (RUNBOOK, *A
+build turn will not start from a comment*).
 
 **The hand-back.** At the end of a turn the factory assigns the card back, and
 the report comment starts by mentioning that person, so Jira notifies them even
@@ -59,7 +61,7 @@ if they are not watching the card. The card goes back to:
 
 - after a *Ready for …* column, whoever dragged the card into it (from the
   card's history), or, if nobody did, whoever assigned it to the factory;
-- after an answered question, whoever wrote the answer.
+- after a comment — an answer, or a mention in review — whoever wrote it.
 
 If nobody can be identified, the card is left unassigned and the comment has no
 mention.
@@ -163,10 +165,10 @@ gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 3
 
 ```bash
 bootstrap/jira-triggers.sh --dry-run   # rehearse; the PAT prints as a placeholder
-bootstrap/jira-triggers.sh             # create, or update, the four flows
+bootstrap/jira-triggers.sh             # create, or update, the five flows
 ```
 
-It creates the four rules below through Atlassian's
+It creates the five rules below through Atlassian's
 [Automation Rule Management API](https://developer.atlassian.com/cloud/automation/rest/api-group-rule-management/),
 scoped to this project, with the PAT in a secure header that Jira masks in the
 editor and in every read. It checks the PAT can see `poller.yml` before handing
@@ -238,7 +240,7 @@ Through the API this trigger must name its event —
 empty value Jira accepts the flow and stores the event as null; with it named,
 the flow fired three seconds after an assignment.
 
-### Rule 2 — somebody commented
+### Rule 2 — somebody answered a question
 
 | | |
 | --- | --- |
@@ -250,11 +252,11 @@ the flow fired three seconds after an assignment.
 
 Both conditions are there to stop paying for runs that cannot do anything.
 
-The status condition mirrors `TRIAGE_STATUSES` (`factory/src/triage.ts`) —
-those are the only statuses triage looks at, so a comment anywhere else would
-start a run that sweeps and finds nothing. There is no assignee condition: the
+The status condition mirrors `QUESTION_STATUSES` (`factory/src/triage.ts`) —
+where any comment from a person is read, so a comment anywhere else would start
+a run that sweeps and finds nothing. There is no assignee condition: the
 factory has usually handed the card back by the time somebody answers it.
-`poller.test.ts` asserts that the row above, and the `TRIAGE_STATUSES` line in
+`poller.test.ts` asserts that the row above, and the `QUESTION_STATUSES` line in
 `bootstrap/jira-triggers.sh`, list exactly those statuses, so changing the
 constant fails CI until both are changed with it. **The live flow in Jira is not
 checked by anything.** After a change, re-run the script to update it.
@@ -268,6 +270,23 @@ The initiator condition excludes the factory's own comments. It cannot loop
 without it — triage only acts on comments newer than the factory's own, so a
 factory comment produces a run that decides to do nothing — but it would file a
 run for every comment the factory writes, which is most of them.
+
+### Rule 2b — somebody mentioned the factory in review
+
+| | |
+| --- | --- |
+| Name | `Factory: mentioned` |
+| Trigger | **Work item commented** |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Design review`, `In review` |
+| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
+| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
+| Action | Send web request |
+
+Mirrors `REVIEW_STATUSES`, pinned the same way. `{{comment.body}}` renders as
+wiki markup, where an @mention is `[~accountid:…]`, so the last condition is
+"this comment mentions the factory". Without it every review comment would cost
+a run, and in review most comments are for other people. Triage applies the same
+test itself, so the condition saves money rather than deciding anything.
 
 ### Rule 3 — the backstop
 

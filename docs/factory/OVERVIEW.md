@@ -80,17 +80,19 @@ fresh comment per turn that the reader has to date-sort to use.
 
 ### Comments are the third entrance
 
-Dragging a card is not the only way to start work. Where the factory has
-stopped to ask a question — the two *Blocked on …* statuses — a comment on the
-card is read on the next poll by a small model, which answers with one of three
-words: start a design turn, start a build turn, or do nothing. It then takes the
-card back, moves it, says on the card why it moved, and dispatches the runner.
+Dragging a card is not the only way to start work. Wherever the factory has
+stopped and is waiting on a person, a comment addressed to it is read on the
+next poll by a small model, which answers with one of three words: start a
+design turn, start a build turn, or do nothing. In the two *Blocked on …*
+statuses, where it asked a question, any comment counts. In *Design review* and
+*In review*, where people are mostly talking to each other, only a comment that
+@mentions the factory does. It then takes the card back, moves it, says on the
+card why it moved, and dispatches the runner.
 
-Most comments are `none`, and `none` is silent. The point is that an answer is a
-sentence on the ticket rather than a status the commenter has to work out for
-themselves. In *Design review* and *In review* comments are left to people; to
-send a reviewed card back, drag it to a *Ready for …* column and assign it to
-the factory. `docs/factory/STATE-MACHINE.md` has the details.
+Most comments are `none`, and `none` is silent. The point is that a change of
+mind is a sentence on the ticket rather than a status the commenter has to work
+out for themselves. `docs/factory/STATE-MACHINE.md` has the details, including
+why a comment on a card in *In review* can legitimately start a *design* turn.
 
 ### Nothing is allowed to go stale
 

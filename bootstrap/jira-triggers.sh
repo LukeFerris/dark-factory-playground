@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# jira-triggers.sh — create the four Jira Automation flows that start the
+# jira-triggers.sh — create the five Jira Automation flows that start the
 # factory poller. See docs/factory/JIRA-TRIGGERS.md for why they exist.
 #
 #   Factory: card ready     a card assigned to the factory moved to a Ready column
 #   Factory: card assigned  a card in a Ready column was assigned to the factory
 #   Factory: new comment    a person commented on a card blocked on a question
+#   Factory: mentioned      a comment on a card in review @mentions the factory
 #   Factory: sweep          every 30 minutes, if the factory has a card waiting
 #
 # Each flow POSTs to poller.yml's workflow-dispatch endpoint with
@@ -30,7 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/bootstrap/lib.sh"
 
 if ! parse_common_args "$@"; then
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -42,9 +43,12 @@ assert_repo
 
 JIRA_BASE="${JIRA_BASE%/}"
 
-# The statuses whose comments triage reads. Must equal TRIAGE_STATUSES in
-# factory/src/triage.ts; poller.test.ts fails CI when they drift.
-TRIAGE_STATUSES=("Blocked on architect" "Blocked on engineer")
+# The statuses whose comments triage reads: any comment where the factory asked
+# a question, only a mention of it where a person is reviewing. Must equal the
+# lists of the same names in factory/src/triage.ts; poller.test.ts fails CI
+# when they drift.
+QUESTION_STATUSES=("Blocked on architect" "Blocked on engineer")
+REVIEW_STATUSES=("Design review" "In review")
 READY_STATUSES=("Ready for design" "Ready for build")
 SWEEP_CRON='0 0/30 * * * ?'
 
@@ -198,14 +202,21 @@ CARD_ASSIGNED="$(rule 'Factory: card assigned' \
   '{"type": "jira.issue.event.trigger:assigned", "value": {"eventKey": "jira:issue_updated", "issueEvent": "issue_assigned"}}' \
   "[$(jql_condition "status in ($(jql_list "${READY_STATUSES[@]}")) AND $FACTORY_IS_ASSIGNEE"), $WEBHOOK]")"
 
+NOT_THE_FACTORY="$(jq -nc --arg bot "$BOT_ID" '{component: "CONDITION", type: "jira.comparator.condition",
+  value: {first: "{{initiator.accountId}}", second: $bot, operator: "NOT_EQUALS"}}')"
+
 NEW_COMMENT="$(rule 'Factory: new comment' \
   'Starts the factory poller when a person comments on a card the factory stopped on to ask a question. Managed by bootstrap/jira-triggers.sh.' \
   '{"type": "jira.issue.event.trigger:commented", "value": {}}' \
-  "$(jq -nc --arg jql "status in ($(jql_list "${TRIAGE_STATUSES[@]}"))" --arg bot "$BOT_ID" --argjson w "$WEBHOOK" '[
-      {component: "CONDITION", type: "jira.jql.condition", value: $jql},
-      {component: "CONDITION", type: "jira.comparator.condition",
-       value: {first: "{{initiator.accountId}}", second: $bot, operator: "NOT_EQUALS"}},
-      $w]')")"
+  "[$(jql_condition "status in ($(jql_list "${QUESTION_STATUSES[@]}"))"), $NOT_THE_FACTORY, $WEBHOOK]")"
+
+# {{comment.body}} renders as wiki markup, where a mention is [~accountid:…].
+MENTIONED="$(rule 'Factory: mentioned' \
+  'Starts the factory poller when a comment on a card in review mentions the factory. Managed by bootstrap/jira-triggers.sh.' \
+  '{"type": "jira.issue.event.trigger:commented", "value": {}}' \
+  "[$(jql_condition "status in ($(jql_list "${REVIEW_STATUSES[@]}"))"), $NOT_THE_FACTORY,
+    $(jq -nc --arg m "[~accountid:$BOT_ID]" '{component: "CONDITION", type: "jira.comparator.condition",
+      value: {first: "{{comment.body}}", second: $m, operator: "CONTAINS"}}'), $WEBHOOK]")"
 
 # The scheduled trigger accepts only method CRON through this API; the BASIC
 # rate form the UI offers is a 500. Quartz syntax, so seconds come first.
@@ -260,6 +271,7 @@ section "Automation flows on $JIRA_PROJECT_KEY"
 ensure_flow "$CARD_READY"
 ensure_flow "$CARD_ASSIGNED"
 ensure_flow "$NEW_COMMENT"
+ensure_flow "$MENTIONED"
 ensure_flow "$SWEEP"
 
 section "Done"

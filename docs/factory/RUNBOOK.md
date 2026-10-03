@@ -123,8 +123,8 @@ it is in every `transcript.json` artifact, and it is the only honest answer to
 only taken if it is also assigned to the factory's Jira account; the column
 alone is how people park their own work on the same board. Assign it, and the
 *Factory: card assigned* flow starts the poller within seconds. A card in
-*Design review* or *In review* needs both: drag it to a *Ready for …* column and
-assign it. See *Which cards are the factory's* in
+*Design review* or *In review* comes back either by a comment that @mentions the
+factory, or by dragging it to a *Ready for …* column and assigning it. See *Which cards are the factory's* in
 [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
 
 **The trigger did not arrive.** Jira starts the poller now — the `schedule:` in
@@ -394,8 +394,9 @@ npm run --silent factory -- card-pr DF-1
 
 Comments on cards in *Blocked on architect* and *Blocked on engineer* are read
 by triage on each poll, which decides whether to start an agent. Comments in
-*Design review* and *In review* are not read at all: to send a reviewed card
-back, drag it to a *Ready for …* column and assign it to the factory. Nothing
+*Design review* and *In review* are read only if they @mention the factory; a
+name typed as plain text, without picking the person from the list, is not a
+mention, and neither the Jira flow nor triage will see it. Nothing
 happening is the **designed** outcome for most comments, so before treating it
 as a fault, see what triage actually decided:
 

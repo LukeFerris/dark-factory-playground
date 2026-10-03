@@ -130,13 +130,14 @@ Closing a pull request **without** merging deploys nothing and moves no card.
 The factory leaves a card in four statuses, but they are two different kinds of
 waiting. In *Blocked on architect* and *Blocked on engineer* it has asked a
 question, and the person replies by commenting, not by moving the card. In
-*Design review* and *In review* it thinks it is done; comments there are people
-talking to each other, and the factory ignores them. To send a reviewed card
-back, a person drags it to a *Ready for …* column and assigns it to the factory,
-the same as starting it the first time.
+*Design review* and *In review* it thinks it is done, and most comments there
+are people talking to each other; a reviewer who wants more from the factory
+@mentions it. (Dragging the card to a *Ready for …* column and assigning it to
+the factory also works, the same as starting it the first time.)
 
-So on every pass the poller looks at the two *Blocked* columns and asks, for each card,
-whether anyone has spoken since the factory did. When someone has, the comment is
+So on every pass the poller looks at those four columns and asks, for each card,
+whether anyone has spoken to the factory since it last did: any comment in a
+*Blocked* column, a comment that mentions it in a review one. When someone has, the comment is
 read once by a small model, which answers with one of three words:
 
 | Answer | What happens |
@@ -145,10 +146,9 @@ read once by a small model, which answers with one of three words:
 | `build` | Card moves to *Building*, the factory says why, `build-turn.yml` runs |
 | `none` | Nothing. The comment is recorded as considered and the card stays put |
 
-The routing does not have to match the column. An answer on a card in *Blocked
-on engineer* that changes the requirements is design work, and one on a card in
-*Blocked on architect* that reports a fault in the running application is build
-work; both cross over. The catch
+The routing does not have to match the column. A change of requirements on a
+card in *In review* is design work, and a fault in the running application
+reported on a card in *Design review* is build work; both cross over. The catch
 is the obvious one: a design turn on a branch that already has code revises a
 document the implementation no longer matches, and reconciling the two becomes
 the build agent's problem on the turn after.
@@ -266,7 +266,7 @@ nobody opens a card at all.
 The hand-back goes to whoever the turn was for: the person who dragged the card
 into the *Ready for …* column (`sentInBy`, from the card's history — falling
 back to whoever assigned the factory), or the person whose comment triage acted
-on. The report comment starts by mentioning them, because whether Jira emails
+on — an answer, or a mention in review. The report comment starts by mentioning them, because whether Jira emails
 an assignment depends on the notification scheme and a mention always notifies.
 
 **The avatar goes on at the same moment as the status, not when the run

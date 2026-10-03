@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './env.ts'
-import { TRIAGE_STATUSES } from './triage.ts'
+import { QUESTION_STATUSES, REVIEW_STATUSES } from './triage.ts'
 
 /**
  * The poller's claim, as written in the workflow.
@@ -88,39 +88,52 @@ describe('how the poller is started', () => {
 })
 
 /**
- * The comment rule's status list, against the one the code actually uses.
+ * The comment rules' status lists, against the ones the code actually uses.
  *
- * Rule 2 in JIRA-TRIGGERS.md only fires for comments on cards in the statuses
- * triage looks at, so that a comment anywhere else does not buy a billed minute
- * to discover there is nothing to do. The live list is in Jira, where no test
- * can reach it. This stops the document drifting from the code, so that the
+ * Rule 2 in JIRA-TRIGGERS.md fires for any comment on a card where the factory
+ * asked a question, and rule 2b for a comment that mentions the factory on a
+ * card in review, so that a comment anywhere else does not buy a billed minute
+ * to discover there is nothing to do. The live lists are in Jira, where no test
+ * can reach them. This stops the document drifting from the code, so that the
  * route by hand, at least, is right.
  */
-describe('the comment rule in JIRA-TRIGGERS.md', () => {
+describe('the comment rules in JIRA-TRIGGERS.md', () => {
   const doc = readFileSync(resolve(REPO_ROOT, 'docs/factory/JIRA-TRIGGERS.md'), 'utf8')
-  const row = doc.split('\n').find((line) => line.includes('Issue fields condition'))
+  const rows = doc.split('\n').filter((line) => line.includes('Issue fields condition'))
+  const named = (row: string | undefined) => [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
 
-  it('names exactly the statuses triage looks at', () => {
-    expect(row).toBeDefined()
-    const named = [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
-    expect(named).toEqual([...TRIAGE_STATUSES])
+  it('has one status condition per comment rule', () => {
+    expect(rows).toHaveLength(2)
+  })
+
+  it('names exactly the question statuses in rule 2', () => {
+    expect(named(rows[0])).toEqual([...QUESTION_STATUSES])
+  })
+
+  it('names exactly the review statuses in rule 2b', () => {
+    expect(named(rows[1])).toEqual([...REVIEW_STATUSES])
   })
 })
 
 /**
- * The same list, in the script that creates the rule.
+ * The same lists, in the script that creates the rules.
  *
- * bootstrap/jira-triggers.sh writes the comment flow's status condition from
- * its own copy of the list, because a shell script cannot import triage.ts.
- * The flow it creates is only as current as that copy.
+ * bootstrap/jira-triggers.sh writes the comment flows' status conditions from
+ * its own copies of the lists, because a shell script cannot import triage.ts.
+ * The flows it creates are only as current as those copies.
  */
-describe('the comment rule in bootstrap/jira-triggers.sh', () => {
+describe('the comment rules in bootstrap/jira-triggers.sh', () => {
   const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira-triggers.sh'), 'utf8')
-  const line = script.split('\n').find((candidate) => candidate.startsWith('TRIAGE_STATUSES=('))
+  const list = (name: string) => {
+    const line = script.split('\n').find((candidate) => candidate.startsWith(`${name}=(`))
+    return line === undefined ? undefined : [...line.matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  }
 
-  it('names exactly the statuses triage looks at', () => {
-    expect(line).toBeDefined()
-    const named = [...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])
-    expect(named).toEqual([...TRIAGE_STATUSES])
+  it('names exactly the question statuses', () => {
+    expect(list('QUESTION_STATUSES')).toEqual([...QUESTION_STATUSES])
+  })
+
+  it('names exactly the review statuses', () => {
+    expect(list('REVIEW_STATUSES')).toEqual([...REVIEW_STATUSES])
   })
 })
