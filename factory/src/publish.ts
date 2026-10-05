@@ -92,6 +92,10 @@ export interface PublishOptions {
  */
 export function publish(options: PublishOptions): PullRequest | null {
   const meta = readMeta()
+  // Gather records the branch, but in a build turn gather runs the card
+  // branch's own code from before main was merged in, which may predate that.
+  // Whatever is checked out now is the branch the turn worked on.
+  const branch = meta.branch !== '' ? meta.branch : git(['branch', '--show-current'], true).trim()
   const result = readResult()
 
   if (options.stage === 'build') {
@@ -122,12 +126,12 @@ export function publish(options: PublishOptions): PullRequest | null {
   }
 
   if (options.dryRun === true) {
-    console.log(`publish --dry-run: would push ${meta.branch}`)
+    console.log(`publish --dry-run: would push ${branch}`)
     return null
   }
 
-  if (meta.branch === '') throw new Error('No branch recorded for this turn; nothing to push to.')
-  git(['push', '--set-upstream', 'origin', meta.branch])
+  if (branch === '') throw new Error('No branch to push to: none recorded and HEAD is detached.')
+  git(['push', '--set-upstream', 'origin', branch])
 
   // No stage in the title. One pull request carries the card from design to
   // merge, so a title naming the stage would be wrong for most of its life —
@@ -142,9 +146,9 @@ export function publish(options: PublishOptions): PullRequest | null {
     ...(meta.preview_url === null ? {} : { preview_url: meta.preview_url }),
   })
 
-  let pr = findPrForBranch(meta.branch)
+  let pr = findPrForBranch(branch)
   if (pr === null) {
-    pr = createDraftPr(meta.branch, title, withBlock)
+    pr = createDraftPr(branch, title, withBlock)
   } else {
     setPrTitle(pr.number, title)
     updatePrBody(pr.number, withBlock)
