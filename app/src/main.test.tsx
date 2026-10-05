@@ -26,7 +26,7 @@ describe('main', () => {
 
     await loadEntryPoint()
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Deal Pipeline' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Deal CRM!' })).toBeInTheDocument()
     expect(root).toContainElement(screen.getByRole('main'))
   })
 

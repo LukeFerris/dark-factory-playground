@@ -2,7 +2,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { uatStep } from './uat'
 
 /**
- * The walkthrough for DF-11: dragging deal cards between stage columns.
+ * The walkthrough for DF-14: the app is called "Deal CRM!", with a briefcase
+ * icon beside the name in the header. The reviewer asked for the "!" after
+ * the first build, so it is in the heading and the tab title alike.
  *
  * Step numbers are the flattened `acceptance_criteria` steps a build turn
  * writes into `result.json`. A turn that changes those steps renumbers here in
@@ -10,251 +12,103 @@ import { uatStep } from './uat'
  *
  * It is one test rather than one per criterion because the reviewer follows
  * the steps in order on one page, so each step starts from whatever the one
- * before it left — the summary totals below are the ones they will see.
+ * before it left.
  *
- * It replaced DF-9's "a deal is edited from inside its card" walkthrough.
- * Editing is still covered by the unit tests; the card's walkthrough is this
- * card's.
+ * Steps 5 and 7 have no `uatStep`: one is looking at the browser tab, which a
+ * page screenshot does not show, and the other is the browser's own find bar,
+ * which a page cannot open. The steps after each assert what the reviewer sees.
+ *
+ * It replaced DF-11's drag-and-drop walkthrough. Dragging is still covered by
+ * the unit tests; the card's walkthrough is this card's.
  */
 
-const STAGES = [
-  'Sourcing',
-  'Screening',
-  'Due diligence',
-  'Investment committee',
-  'Closed',
-  'Passed',
-]
+type Box = { x: number; y: number; width: number; height: number }
 
-function column(page: Page, stage: string) {
-  return page.getByRole('region', { name: stage })
+function heading(page: Page) {
+  return page.getByRole('heading', { level: 1 })
 }
 
-function cardIn(page: Page, stage: string, company: string) {
-  return column(page, stage).getByRole('article', { name: company })
+function icon(page: Page) {
+  return heading(page).locator('svg')
 }
 
-function count(page: Page, stage: string) {
-  return column(page, stage).getByRole('heading', { level: 2 }).locator('span')
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox()
+  if (found === null) throw new Error('not on screen')
+  return found
 }
 
-function summary(page: Page) {
-  return page.getByText(/active deals? · /)
-}
-
-// The columns drawn with the dashed drop outline, read from what is painted
-// rather than from a class name.
-function outlined(page: Page) {
-  return expect.poll(async () => {
-    const dashed: string[] = []
-    for (const stage of STAGES) {
-      const style = await column(page, stage).evaluate(
-        (element) => getComputedStyle(element).outlineStyle,
-      )
-      if (style === 'dashed') dashed.push(stage)
-    }
-    return dashed
+// The box around the heading's words alone, without the icon beside them.
+function textBox(page: Page): Promise<Box> {
+  return heading(page).evaluate((element) => {
+    const range = document.createRange()
+    const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)
+    if (text === undefined) throw new Error('heading has no text')
+    range.selectNodeContents(text)
+    const { x, y, width, height } = range.getBoundingClientRect()
+    return { x, y, width, height }
   })
 }
 
-async function centre(locator: Locator) {
-  const box = await locator.boundingBox()
-  if (box === null) throw new Error('not on screen')
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+// What the page itself measures, once the browser has applied a resize.
+function viewportWidth(page: Page): Promise<number> {
+  return page.evaluate(() => window.innerWidth)
 }
 
-// A point in the column's empty space, just below `last`. Not the column's
-// bottom edge: every column is as tall as the tallest, which runs off screen.
-async function below(columnLocator: Locator, last: Locator) {
-  const box = await columnLocator.boundingBox()
-  const lastBox = await last.boundingBox()
-  if (box === null || lastBox === null) throw new Error('not on screen')
-  return { x: box.width / 2, y: lastBox.y + lastBox.height + 20 - box.y }
+// The icon sits wholly to the left of the words, and the two share a line.
+async function iconBesideName(page: Page) {
+  await expect(icon(page)).toBeVisible()
+  const glyph = await box(icon(page))
+  const words = await textBox(page)
+  expect(glyph.x + glyph.width).toBeLessThanOrEqual(words.x)
+  expect(glyph.y).toBeLessThan(words.y + words.height)
+  expect(words.y).toBeLessThan(glyph.y + glyph.height)
 }
 
-// While a card is being dragged, the column it would land in is highlighted,
-// and letting go outside every column leaves the card where it was.
-async function highlightsWithoutDropping(page: Page) {
+test('the app is called Deal CRM!, with a briefcase beside the name', async ({ page }) => {
+  await page.goto('/')
+
+  // The header shows the name "Deal CRM!" with a briefcase icon beside it.
   await uatStep(page, 1, async () => {
-    const from = await centre(cardIn(page, 'Sourcing', 'Northwind Analytics'))
-    const to = await centre(column(page, 'Screening'))
-    await page.mouse.move(from.x, from.y)
-    await page.mouse.down()
-    await page.mouse.move(to.x, to.y, { steps: 10 })
-    await outlined(page).toEqual(['Screening'])
+    await expect(heading(page)).toHaveText('Deal CRM!')
   })
 
   await uatStep(page, 2, async () => {
-    await expect(column(page, 'Screening')).toHaveCSS('outline-style', 'dashed')
-    await outlined(page).toEqual(['Screening'])
+    await expect(heading(page)).toHaveAccessibleName('Deal CRM!')
+    await iconBesideName(page)
   })
 
+  // The summary line still sits beneath the name.
+  const summary = page.getByText(/active deals? · /)
+
   await uatStep(page, 3, async () => {
-    const heading = await centre(page.getByRole('heading', { level: 1, name: 'Deal Pipeline' }))
-    await page.mouse.move(heading.x, heading.y, { steps: 10 })
-    await outlined(page).toEqual([])
+    await expect(summary).toBeVisible()
+    const name = await box(heading(page))
+    expect((await box(summary)).y).toBeGreaterThanOrEqual(name.y + name.height)
   })
 
   await uatStep(page, 4, async () => {
-    await outlined(page).toEqual([])
+    await expect(summary).toHaveText('4 active deals · £210m in pipeline')
   })
 
-  await uatStep(page, 5, async () => {
-    await page.mouse.up()
-    await expect(cardIn(page, 'Sourcing', 'Northwind Analytics')).toBeVisible()
-  })
-
+  // The browser tab is titled "Deal CRM!".
   await uatStep(page, 6, async () => {
-    await expect(cardIn(page, 'Sourcing', 'Northwind Analytics')).toBeVisible()
-    await expect(count(page, 'Sourcing')).toHaveText('1')
-    await outlined(page).toEqual([])
-  })
-}
-
-// Dropping a card on another column moves the deal to that stage.
-async function dropsOnAnotherColumn(page: Page) {
-  await uatStep(page, 7, async () => {
-    await cardIn(page, 'Sourcing', 'Northwind Analytics').dragTo(column(page, 'Screening'))
-    await expect(cardIn(page, 'Screening', 'Northwind Analytics')).toBeVisible()
+    await expect(page).toHaveTitle('Deal CRM!')
   })
 
+  // The old name "Deal Pipeline" appears nowhere on the page.
   await uatStep(page, 8, async () => {
-    await expect(count(page, 'Screening')).toHaveText('2')
-    await expect(column(page, 'Sourcing').getByText('No deals')).toBeVisible()
-    await expect(count(page, 'Sourcing')).toHaveText('0')
-    await expect(page.getByRole('combobox', { name: 'Stage for Northwind Analytics' })).toHaveValue(
-      'Screening',
-    )
+    await expect(page.getByText('Deal Pipeline')).toHaveCount(0)
   })
-}
 
-// A card can be dropped on an empty column.
-async function dropsOnAnEmptyColumn(page: Page) {
+  // The name and icon stay together on one line in a narrow window.
   await uatStep(page, 9, async () => {
-    const sourcing = column(page, 'Sourcing')
-    await cardIn(page, 'Due diligence', 'Brightline Packaging').dragTo(sourcing, {
-      targetPosition: await below(sourcing, sourcing.getByText('No deals')),
-    })
-    await expect(cardIn(page, 'Sourcing', 'Brightline Packaging')).toBeVisible()
+    await page.setViewportSize({ width: 375, height: 800 })
+    await expect.poll(() => viewportWidth(page)).toBe(375)
   })
 
   await uatStep(page, 10, async () => {
-    await expect(column(page, 'Sourcing').getByText('No deals')).toHaveCount(0)
-    await expect(column(page, 'Due diligence').getByText('No deals')).toBeVisible()
+    await expect(heading(page)).toHaveText('Deal CRM!')
+    await iconBesideName(page)
   })
-}
-
-// Dropping a card on "Closed" or "Passed" updates the summary.
-async function dropsOnTerminalStage(page: Page) {
-  await uatStep(page, 11, async () => {
-    await expect(summary(page)).toHaveText('4 active deals · £210m in pipeline')
-  })
-
-  // At 1280 wide the six columns overflow and the board scrolls sideways, so
-  // "Passed" has to be brought into view before anything can be dropped on it.
-  await uatStep(page, 12, async () => {
-    const heading = column(page, 'Passed').getByRole('heading', { level: 2 })
-    await heading.scrollIntoViewIfNeeded()
-    await expect(heading).toBeInViewport({ ratio: 1 })
-  })
-
-  await uatStep(page, 13, async () => {
-    const passed = column(page, 'Passed')
-    await cardIn(page, 'Screening', 'Harbour Dental Group').dragTo(passed, {
-      targetPosition: await below(passed, cardIn(page, 'Passed', 'Atlas Freight Tech')),
-    })
-    await expect(cardIn(page, 'Passed', 'Harbour Dental Group')).toBeVisible()
-  })
-
-  await uatStep(page, 14, async () => {
-    await expect(cardIn(page, 'Passed', 'Harbour Dental Group')).toBeVisible()
-    await expect(summary(page)).toHaveText('3 active deals · £185m in pipeline')
-  })
-}
-
-// Dropping a card back on its own column changes nothing.
-async function dropsOnOwnColumn(page: Page) {
-  await uatStep(page, 15, async () => {
-    const committee = column(page, 'Investment committee')
-    const kestrel = cardIn(page, 'Investment committee', 'Kestrel Energy Services')
-    await kestrel.dragTo(committee, { targetPosition: await below(committee, kestrel) })
-    await expect(cardIn(page, 'Investment committee', 'Kestrel Energy Services')).toBeVisible()
-  })
-
-  await uatStep(page, 16, async () => {
-    await expect(cardIn(page, 'Investment committee', 'Kestrel Energy Services')).toBeVisible()
-    await expect(count(page, 'Investment committee')).toHaveText('1')
-    await expect(summary(page)).toHaveText('3 active deals · £185m in pipeline')
-  })
-}
-
-// A card whose edit form is open can't be dragged.
-async function refusesWhileEditing(page: Page) {
-  await uatStep(page, 17, async () => {
-    await page.getByRole('button', { name: 'Edit Meridian Foods' }).click()
-    await expect(page.getByRole('form', { name: 'Edit Meridian Foods' })).toBeVisible()
-  })
-
-  await uatStep(page, 18, async () => {
-    const passed = column(page, 'Passed')
-    await column(page, 'Closed')
-      .getByRole('heading', { name: 'Meridian Foods' })
-      .dragTo(passed, {
-        targetPosition: await below(passed, cardIn(page, 'Passed', 'Harbour Dental Group')),
-      })
-    await expect(cardIn(page, 'Closed', 'Meridian Foods')).toBeVisible()
-  })
-
-  await uatStep(page, 19, async () => {
-    await expect(cardIn(page, 'Closed', 'Meridian Foods')).toBeVisible()
-    await expect(
-      column(page, 'Passed').getByRole('article', { name: 'Meridian Foods' }),
-    ).toHaveCount(0)
-    await expect(
-      cardIn(page, 'Closed', 'Meridian Foods').getByRole('form', { name: 'Edit Meridian Foods' }),
-    ).toBeVisible()
-  })
-}
-
-// Moves made by dragging survive a reload.
-async function survivesReload(page: Page) {
-  await uatStep(page, 20, async () => {
-    await page.reload()
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Deal Pipeline')
-  })
-
-  await uatStep(page, 21, async () => {
-    await expect(cardIn(page, 'Screening', 'Northwind Analytics')).toBeVisible()
-    await expect(cardIn(page, 'Sourcing', 'Brightline Packaging')).toBeVisible()
-    await expect(cardIn(page, 'Passed', 'Harbour Dental Group')).toBeVisible()
-  })
-}
-
-// The "Stage" picker still moves a card.
-async function stagePickerStillMoves(page: Page) {
-  await uatStep(page, 22, async () => {
-    await page
-      .getByRole('combobox', { name: 'Stage for Kestrel Energy Services' })
-      .selectOption('Closed')
-    await expect(cardIn(page, 'Closed', 'Kestrel Energy Services')).toBeVisible()
-  })
-
-  await uatStep(page, 23, async () => {
-    await expect(cardIn(page, 'Closed', 'Kestrel Energy Services')).toBeVisible()
-    await expect(summary(page)).toHaveText('2 active deals · £100m in pipeline')
-  })
-}
-
-// One criterion per helper, run in order on one page: each starts from
-// whatever the one before it left.
-test('deal cards are dragged between stage columns', async ({ page }) => {
-  await page.goto('/')
-  await highlightsWithoutDropping(page)
-  await dropsOnAnotherColumn(page)
-  await dropsOnAnEmptyColumn(page)
-  await dropsOnTerminalStage(page)
-  await dropsOnOwnColumn(page)
-  await refusesWhileEditing(page)
-  await survivesReload(page)
-  await stagePickerStillMoves(page)
 })
