@@ -7,7 +7,95 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-05
+
+### Cards lock while the factory works them, and "@Enki stop" stops a turn
+
+While a turn has a card, only the factory can move it or reassign it. Jira
+enforces this itself: the Factory workflow carries
+`jira.permission.transition.user` and `jira.permission.assign.user`, set to the
+factory's account id, on *Designing* and *Building*. Every run that works a
+card shares one concurrency group, `factory-card-<KEY>`. A PR comment now goes
+through a new `build-comment.yml`, which dispatches `build-turn.yml` with the
+key, so that turn moves its card to *Building* like every other turn.
+
+There are two new ways out of a locked status:
+
+- **Stop.** "@Enki stop" on the card triggers a new *Factory: stop* flow, which
+  dispatches `stop.yml`. That cancels the run and returns the card, assigned
+  to whoever said stop.
+- **Orphans.** Every poller pass runs `factory release-orphans`. It lets go of
+  a locked card with no unfinished run after ten minutes. The sweep flow now
+  also fires while any card is locked, so this happens on a quiet board too.
+
+Why: [ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md).
+
+Seen live: with the properties set through the API and DF-13 in *Building*,
+Luke's token (a project admin) was refused both a transition and an
+assignment, and the factory's token could still do both. The properties went
+live before this change merged, so until it does, a crashed run's card can be
+recovered only with the factory's token. No card is locked now.
+
+About the API:
+
+- **`/rest/api/3/workflow/search?projectId=` ignored its filter.** It returned
+  every workflow on the site. Read one workflow by name instead with
+  `POST /rest/api/3/workflows?expand=values.transitions` and
+  `{"workflowNames": ["Factory"]}`.
+- **`POST /rest/api/3/workflows/update` replaces the whole workflow.** Send
+  back the `version` you read, every status and transition as you read them,
+  and a top-level `statuses` list with the same fields you would give on
+  create. `bootstrap/jira.sh` sends it only when the properties differ from
+  what they should be. Its dry run against the live site reports both statuses
+  already locked to the factory.
+- **`jira.permission.<action>.user` takes an account id and binds admins
+  too.**
+- **A cancelled run skips its `!cancelled()` steps.** Every *Report* step now
+  uses that guard, so a cancelled turn never reports. `factory stop` moves the
+  card itself once the run has finished cancelling.
+
 ## 2026-10-02
+
+### The factory takes only cards assigned to it
+
+A card in a *Ready for …* column is now the factory's only if it is also
+assigned to the factory's Jira account, so people can keep their own cards on
+the board. Triage reads any comment in the two *Blocked on …* statuses, and in
+*Design review* and *In review* only a comment that @mentions the factory; a
+reviewed card can also be sent back by dragging it to a *Ready* column and
+assigning it. At the end of a
+turn the card goes to whoever dragged it in (from the changelog), or to whoever
+answered the question, and the report comment opens with an @mention of them.
+Why: [ADR 0006](../adr/0006-the-factory-takes-only-cards-assigned-to-it.md).
+
+`bootstrap/jira-triggers.sh` now writes five flows and updates existing ones in
+place instead of skipping them. Re-run on this project: the three existing
+flows were updated with their ids and states kept, and *Factory: card assigned*
+and *Factory: mentioned* were created. Seen live on a throwaway card (DF-13, left unassigned in Backlog
+because Luke's account cannot delete cards): assigning it to the factory in
+*Backlog* started no run, and a comment on it in *Blocked on architect* started
+the poller three seconds later, where triage answered `none`. In *Design
+review*, a plain comment started no run and one that @mentioned the factory
+started the poller within seconds, where triage answered `none`. The new
+hand-back and mention have not yet run on a real turn.
+
+More about the API:
+
+- **`PUT /rule/{uuid}` with `{rule: …}` replaces a flow in place**, keeping its
+  uuid and audit log. A rule body built from scratch is accepted, without the
+  component ids a GET returns. The `state` in the body is applied, so the script
+  sends the flow's current one.
+- **The assigned trigger must name its event**:
+  `{"eventKey": "jira:issue_updated", "issueEvent": "issue_assigned"}`. With
+  `{}`, which the commented trigger takes happily, the flow saves with a null
+  event. With the event named, it fired three seconds after an assignment.
+- **`{{comment.body}}` shows a mention as `[~accountid:…]`**, so
+  `jira.comparator.condition` with operator `CONTAINS` against that string is
+  "this comment mentions the factory". An operator Jira does not like is
+  validated (`REGEX_MATCHES` wants a valid regex), so `CONTAINS` is a real
+  operator, not an ignored field.
+- **A rule needs at least one action.** A rule with only a trigger is a `400`
+  ("must contain at least one valid action").
 
 ### The Jira triggers are created by a script, and are live
 

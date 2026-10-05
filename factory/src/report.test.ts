@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { prUrl } from './env.ts'
-import { buildComment, fallbackComment, targetStatus } from './report.ts'
+import { addressedTo, buildComment, fallbackComment, targetStatus } from './report.ts'
 import { STATUS_TRANSITIONS, type Criterion, type Result } from './schema.ts'
 import { slugify, branchName } from './branch.ts'
 
@@ -51,6 +51,31 @@ function hrefs(node: unknown): string[] {
   const kids = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
   return [...own, ...kids.flatMap(hrefs)]
 }
+
+/**
+ * The hand-back is when the card becomes somebody's again, and a mention is the
+ * one thing Jira always notifies on — so the person it goes back to hears about
+ * it even when they are not watching the card.
+ */
+describe('addressedTo', () => {
+  const comment = buildComment('design', result(), null, null, null)
+
+  it('opens the comment with a mention of who the card goes back to', () => {
+    const doc = addressedTo(comment, '557058:human')
+    expect(doc.content[0]).toEqual({
+      type: 'paragraph',
+      content: [
+        { type: 'mention', attrs: { id: '557058:human' } },
+        { type: 'text', text: ' — this card is back with you.' },
+      ],
+    })
+    expect(doc.content.slice(1)).toEqual(comment.content)
+  })
+
+  it('leaves the comment alone when there is nobody to hand it back to', () => {
+    expect(addressedTo(comment, '')).toBe(comment)
+  })
+})
 
 describe('buildComment', () => {
   it('always links the Actions run that produced it', () => {

@@ -119,6 +119,14 @@ it is in every `transcript.json` artifact, and it is the only honest answer to
 
 ## Nothing happens at all
 
+**The card is not assigned to the factory.** A card in a *Ready for …* column is
+only taken if it is also assigned to the factory's Jira account; the column
+alone is how people park their own work on the same board. Assign it, and the
+*Factory: card assigned* flow starts the poller within seconds. A card in
+*Design review* or *In review* comes back either by a comment that @mentions the
+factory, or by dragging it to a *Ready for …* column and assigning it. See *Which cards are the factory's* in
+[JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
+
 **The trigger did not arrive.** Jira starts the poller now — the `schedule:` in
 `poller.yml` is commented out — so a silent factory is usually a silent trigger,
 and the evidence for that is on the Jira side, not in GitHub. Start at the rule's
@@ -244,6 +252,71 @@ That branch of `act()` is the only one that leaves the card claimed with nothing
 running, and it is deliberate: the alternative is moving the card back, which
 races the next poll. Re-dispatching by hand is the recovery.
 
+You can't drag the card back out yourself: *Designing* and *Building* are
+locked to the factory (see the next section). If you leave it alone, the
+poller's orphan check lets it go after ten minutes with no run. The card goes
+back where it came from and is assigned to whoever sent it in.
+
+---
+
+## A card is locked and will not move
+
+On a card in *Designing* or *Building*, only the factory can change the status
+or the assignee. Jira refuses everyone else, admins included, and a drag on the
+board just snaps back. That is deliberate: it is how a running turn keeps its
+card ([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)).
+Comments and fields still work.
+
+**To stop the turn and get the card back,** comment on the card, mention the
+factory, and make "stop" the first word: `@Enki stop`. Pick the factory from
+the mention list; a name typed as plain text is not a mention. Within about a
+minute:
+
+- the run is cancelled;
+- the card goes back to the status it came from and is assigned to you;
+- a *Stopped, as asked* comment links the cancelled run.
+
+Anything the turn already pushed stays on the branch. If nothing happens:
+
+```bash
+gh run list --workflow stop.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+```
+
+| What you see | Means |
+| --- | --- |
+| No run | The *Factory: stop* flow didn't fire. Check its audit log in Jira, and that the comment really mentions the factory |
+| A run whose log says `stop: DF-1 -> not-a-stop` | The newest comment to the factory doesn't start with "stop", or the factory has commented since |
+| `-> already-handled` | That comment was acted on already |
+| `-> not-locked` | The card had already left *Designing* / *Building* |
+
+**If no run is working on it** (it died, was cancelled in the Actions tab, or
+timed out), you don't need to do anything. Every poller pass runs
+`factory release-orphans`, which lets go of a locked card that has had no
+unfinished run for ten minutes. The *Factory: sweep* flow starts a pass every
+half hour while any card is locked. To do it now:
+
+```bash
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
+```
+
+The check finds runs by name (`DF-1 build turn`), so a run started before
+`run-name` was added to the workflows is invisible to it. During that one
+rollout window, it could let go of a card whose turn is still running.
+
+**If the factory's own code is what's broken**, there are two ways out. Run
+the same check locally, as the factory. It needs the bot's Jira credentials
+(only the factory can move a locked card) and `gh` signed in to the repository:
+
+```bash
+export JIRA_BASE=… JIRA_USER="$JIRA_BOT_EMAIL" JIRA_TOKEN=<the bot's API token>
+export JIRA_PROJECT_KEY=DF GH_OWNER=… GH_REPO=…
+npm run --silent factory -- release-orphans --dry-run   # then without --dry-run
+```
+
+Or, as a Jira admin, remove the two `jira.permission.*` properties from the
+status in the Factory workflow's editor. That unlocks every card in that
+status. Re-run `bootstrap/jira.sh` to put them back.
+
 ---
 
 ## A turn was rejected by validation
@@ -338,13 +411,15 @@ is the whole reason the fan-out exists.
 
 ## A build turn will not start from a comment
 
-`build-turn.yml` has two entrances and they fail differently. A comment on the
-**pull request** goes through the four guards below. A comment on the **card**
-goes through triage instead, which dispatches the workflow with a key and no
-guards at all — if that is the path you expected, read *A comment on a card did
-nothing* further down instead of this section.
+A build turn has two entrances, and they fail differently. A comment on the
+**pull request** goes through the four guards in `build-comment.yml`, which
+then dispatches `build-turn.yml` with the card's key. A comment on the **card**
+goes through triage instead, which dispatches the same workflow with no guards.
+If that is the path you expected, read *A comment on a card did nothing*
+further down instead.
 
-The pull-request path requires all four of:
+The pull-request path requires all four of these (`gh run list --workflow
+build-comment.yml` shows a skipped run when one fails):
 
 1. the comment is on a pull request
 2. the PR carries **`factory:active`**
@@ -384,10 +459,13 @@ npm run --silent factory -- card-pr DF-1
 
 ## A comment on a card did nothing
 
-Comments on cards in *Design review*, *In review*, *Blocked on architect* and
-*Blocked on engineer* are read by triage on each poll, which decides whether to
-start an agent. Nothing happening is the **designed** outcome for most comments,
-so before treating it as a fault, see what triage actually decided:
+Comments on cards in *Blocked on architect* and *Blocked on engineer* are read
+by triage on each poll, which decides whether to start an agent. Comments in
+*Design review* and *In review* are read only if they @mention the factory; a
+name typed as plain text, without picking the person from the list, is not a
+mention, and neither the Jira flow nor triage will see it. Nothing
+happening is the **designed** outcome for most comments, so before treating it
+as a fault, see what triage actually decided:
 
 ```bash
 npm run --silent factory -- triage --dry-run
@@ -507,9 +585,11 @@ died between the two — a cancelled workflow, a runner that vanished, an agent
 step that crashed the job — leaves the bot holding it. The card's status says
 the same thing: it will still be in *Designing* or *Building*.
 
-Nothing is stuck. Take the card back, or leave it; the next turn's `claimCard`
-finds the factory already assigned and does not overwrite what it saved, so the
-original holder survives however many times this happens.
+Nothing is stuck. Take the card back, or leave it. The next turn the poller or
+triage starts records afresh who the card goes back to — whoever dragged it in,
+or whoever answered the question — and a turn started by hand finds the factory
+already assigned and keeps what was saved. Neither ever records the factory
+itself.
 
 ```bash
 # Who the factory thinks had it before
@@ -836,4 +916,8 @@ gh workflow disable poller.yml --repo "$GH_OWNER/$GH_REPO"
 ```
 
 Nothing new starts. In-flight runs continue; `gh run cancel <id>` each one. To
-stop a single card, remove `factory:active` from its PR.
+stop a single card, comment `@Enki stop` on it (see *A card is locked and will
+not move*), and remove `factory:active` from its PR so a PR comment can't start
+another turn. Cards whose runs you cancel by hand are let go by the next poller
+pass. With the poller disabled, run `factory release-orphans` locally, as in
+that section.

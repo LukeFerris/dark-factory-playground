@@ -83,6 +83,17 @@ describe('the start comment', () => {
    * report and must not imply otherwise. Promising an outcome here is how a
    * progress ping turns into a lie.
    */
+  // Jira refuses a drag on a locked card without saying why, so this is
+  // where the person who just tried finds out, and how to get it back.
+  it('says the card is locked and how to stop the turn', () => {
+    const flat = adfToText(startComment(meta(), null))
+    expect(flat).toContain('only the factory can move or reassign it')
+    expect(flat).toContain('stop')
+
+    const sent = JSON.stringify(startComment(meta(), null, '712020:factory'))
+    expect(sent).toContain('"type":"mention","attrs":{"id":"712020:factory"}')
+  })
+
   it('claims no result, because the turn has not run yet', () => {
     const flat = adfToText(startComment(meta({ stage: 'build', turn: 1 }), 'https://run'))
     for (const word of ['finished', 'ready for review', 'Acceptance criteria']) {

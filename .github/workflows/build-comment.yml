@@ -1,0 +1,68 @@
+name: factory build comment
+
+# A comment on a card's pull request, turned into a build turn.
+#
+# This used to be a second trigger on build-turn.yml. It is its own workflow
+# because a run's concurrency group is worked out from the event before any
+# step runs, and a comment event knows the pull request but not the card. So
+# the comment path could not share the card's group, `factory-card-<KEY>`, and
+# a turn from a comment could run beside a design turn, a refresh or a stop on
+# the same card. Here the key is read from the title and the turn dispatched
+# with it, so every turn goes in by the same door.
+#
+# Four guards have to hold before anything is dispatched:
+#   1. the comment is on a pull request, not a plain issue
+#   2. the PR carries the factory:active label
+#   3. the commenter is not the factory's own bot — otherwise reporting a turn
+#      would trigger the next
+#   4. the commenter can actually write to the repository
+#
+# The bot login comes from the FACTORY_BOT_LOGIN repository variable rather than
+# being hard-coded, because the App slug is only known at Checkpoint A.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.issue.pull_request != null &&
+      contains(github.event.issue.labels.*.name, 'factory:active') &&
+      github.event.comment.user.login != vars.FACTORY_BOT_LOGIN &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Send the turn
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .head.ref)"
+          case "$branch" in
+            card/*) ;;
+            *) echo "::error::PR #${PR} is on ${branch}, which is not a card branch."; exit 1 ;;
+          esac
+
+          key="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .title \
+            | sed -n 's/^\[\([A-Z][A-Z0-9]*-[0-9]\+\)\].*/\1/p')"
+          if [ -z "$key" ]; then
+            echo "::error::Could not read a Jira key from the title of PR #${PR}."
+            exit 1
+          fi
+
+          echo "dispatching build-turn.yml for ${key} (PR #${PR})"
+          gh workflow run build-turn.yml --repo "$GITHUB_REPOSITORY" -f key="$key"

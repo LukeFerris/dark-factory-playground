@@ -10,15 +10,61 @@ anywhere else.
 
 Now Jira tells the factory when something has happened. Automation rules on the
 project POST to `poller.yml`'s dispatch endpoint; the run does one sweep and
-exits. Nothing is up between events. `bootstrap/jira-triggers.sh` creates the
+exits. One rule, the stop, posts to `stop.yml` instead. Nothing is up between events. `bootstrap/jira-triggers.sh` creates the
 rules; this document is what they are and why.
 
-**Nothing about the poller's logic changed.** It still sweeps both *Ready for …*
-columns and still runs comment triage across the four statuses in
-`TRIAGE_STATUSES` (`factory/src/triage.ts:44`). It still claims a card by moving
-it before dispatching, which is the only thing stopping a card reaching two
-agents (`poller.yml`, the `dispatch()` function). The cron is commented out and
-`FACTORY_POLL_WINDOW_SECONDS` defaults to `0`. That is the whole change.
+**Nothing about the poller's logic changed** when the triggers arrived. It
+still sweeps both *Ready for …* columns, runs comment triage across the
+statuses in `TRIAGE_STATUSES` (`factory/src/triage.ts`), and claims a card by
+moving it before dispatching, which is the only thing stopping a card reaching
+two agents (`poller.yml`, the `dispatch()` function). The cron is commented out
+and `FACTORY_POLL_WINDOW_SECONDS` defaults to `0`.
+
+What a card needs before the factory takes it is in the next section, because
+the rules below are written around it.
+
+---
+
+## Which cards are the factory's
+
+The board is shared. People keep cards on it that the factory should never
+touch, so a column alone does not hand a card over.
+
+| To | Do this |
+| --- | --- |
+| Start a design | Drag the card to *Ready for design* **and** assign it to the factory |
+| Start a build | Drag the card to *Ready for build* **and** assign it to the factory |
+| Answer a question | Comment on the card. Nothing else is needed |
+| Ask for more on a card in review | Comment on the card and **@mention the factory** |
+| Send a reviewed card back without a comment | Drag it to a *Ready for …* column **and** assign it to the factory |
+
+Either half can come first; a rule fires on each, and the poller takes a card
+only when both are true (`assignee = currentUser()` in its JQL, since it runs as
+the factory's account).
+
+**Questions.** When the factory stops to ask something, the card goes to *Blocked
+on architect* or *Blocked on engineer*. A comment there from anyone but the
+factory is read by triage, which takes the card back if the comment answers the
+question. The commenter does not need to reassign it.
+
+**Reviews.** *Design review* and *In review* mean the factory thinks it is done,
+and most comments there are conversation between people. A comment that
+@mentions the factory is for it: triage reads it, and if it asks for work the
+factory takes the card back, exactly as for an answered question. A comment
+without the mention is left alone. Comments on the pull request in GitHub are
+different: they still start a build turn, as they always have (RUNBOOK, *A
+build turn will not start from a comment*).
+
+**The hand-back.** At the end of a turn the factory assigns the card back, and
+the report comment starts by mentioning that person, so Jira notifies them even
+if they are not watching the card. The card goes back to:
+
+- after a *Ready for …* column, whoever dragged the card into it (from the
+  card's history), or, if nobody did, whoever assigned it to the factory;
+- after a comment — an answer, or a mention in review — whoever wrote it.
+
+If nobody can be identified, the card is left unassigned and the comment has no
+mention.
 
 ---
 
@@ -119,16 +165,17 @@ gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 3
 
 ```bash
 bootstrap/jira-triggers.sh --dry-run   # rehearse; the PAT prints as a placeholder
-bootstrap/jira-triggers.sh             # create and enable the three flows
+bootstrap/jira-triggers.sh             # create, or update, the six flows
 ```
 
-It creates the three rules below through Atlassian's
+It creates the six rules below through Atlassian's
 [Automation Rule Management API](https://developer.atlassian.com/cloud/automation/rest/api-group-rule-management/),
 scoped to this project, with the PAT in a secure header that Jira masks in the
-editor and in every read. It checks the PAT can see `poller.yml` before handing
-it to Jira, skips any flow that already exists by name, and leaves an existing
-flow's state alone, so a flow switched off on purpose stays off. To change a
-flow, delete it in Jira and re-run.
+editor and in every read. It checks the PAT can see `poller.yml` and `stop.yml`
+before handing it to Jira (so it fails until `stop.yml` is on `main`), and updates a flow that already exists by name in place
+(`PUT /rule/{uuid}`), which keeps its id and audit log. An update keeps the
+flow's state, so a flow switched off on purpose stays off; a new flow is created
+and enabled. Re-running the script is how a change here reaches Jira.
 
 It needs `JIRA_USER` to be allowed to administer automation on the project. The
 factory bot is refused (403), which is correct: an agent's account has no
@@ -146,7 +193,8 @@ single-project rules have no monthly execution limit on any paid Jira tier, and
 do not count against the global/multi-project pool. Scope every rule to this
 project and the volume question never arises.
 
-Each rule's action is the same **Send web request**:
+Every rule's action is the same **Send web request**, except the stop rule's
+(Rule 2c):
 
 | Field | Value |
 | --- | --- |
@@ -169,31 +217,50 @@ place a failed call is visible.
 | Trigger | **Work item transitioned** |
 | From status | *(blank — any)* |
 | To status | `Ready for design`, `Ready for build` |
+| Condition | **JQL condition** → `assignee = "<factory account id>"` |
 | Action | Send web request |
 
 Both columns in one rule. The poller sweeps both anyway, so there is nothing to
-be gained by telling it which one moved.
+be gained by telling it which one moved. The condition keeps a card somebody
+else is working on from starting a run that would find nothing.
 
-### Rule 2 — somebody commented
+### Rule 1b — a ready card was given to the factory
+
+| | |
+| --- | --- |
+| Name | `Factory: card assigned` |
+| Trigger | **Work item assigned** |
+| Condition | **JQL condition** → `status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>"` |
+| Action | Send web request |
+
+The other order: the card was already in the column and is then given to the
+factory. Without this rule it would wait for the sweep.
+
+Through the API this trigger must name its event —
+`{"eventKey": "jira:issue_updated", "issueEvent": "issue_assigned"}`. With an
+empty value Jira accepts the flow and stores the event as null; with it named,
+the flow fired three seconds after an assignment.
+
+### Rule 2 — somebody answered a question
 
 | | |
 | --- | --- |
 | Name | `Factory: new comment` |
 | Trigger | **Work item commented** |
-| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Design review`, `Blocked on architect`, `In review`, `Blocked on engineer` |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Blocked on architect`, `Blocked on engineer` |
 | Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
 | Action | Send web request |
 
 Both conditions are there to stop paying for runs that cannot do anything.
 
-The status condition mirrors `TRIAGE_STATUSES` (`factory/src/triage.ts:44`) —
-those are the only four statuses triage looks at, so a comment anywhere else
-would start a run that sweeps and finds nothing. `poller.test.ts` asserts that
-the row above, and the `TRIAGE_STATUSES` line in `bootstrap/jira-triggers.sh`,
-list exactly those four, so changing the constant fails CI until both are
-changed with it. **The live flow in Jira is not checked by anything.** After a
-change, delete *Factory: new comment* in Jira and re-run the script to recreate
-it from the current list.
+The status condition mirrors `QUESTION_STATUSES` (`factory/src/triage.ts`) —
+where any comment from a person is read, so a comment anywhere else would start
+a run that sweeps and finds nothing. There is no assignee condition: the
+factory has usually handed the card back by the time somebody answers it.
+`poller.test.ts` asserts that the row above, and the `QUESTION_STATUSES` line in
+`bootstrap/jira-triggers.sh`, list exactly those statuses, so changing the
+constant fails CI until both are changed with it. **The live flow in Jira is not
+checked by anything.** After a change, re-run the script to update it.
 
 The script writes this condition as a JQL condition (`status in (…)`) and the
 initiator check as a smart-value comparison (`{{initiator.accountId}}` is not the
@@ -205,14 +272,63 @@ without it — triage only acts on comments newer than the factory's own, so a
 factory comment produces a run that decides to do nothing — but it would file a
 run for every comment the factory writes, which is most of them.
 
+### Rule 2b — somebody mentioned the factory in review
+
+| | |
+| --- | --- |
+| Name | `Factory: mentioned` |
+| Trigger | **Work item commented** |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Design review`, `In review` |
+| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
+| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
+| Action | Send web request |
+
+Mirrors `REVIEW_STATUSES`, pinned the same way. `{{comment.body}}` renders as
+wiki markup, where an @mention is `[~accountid:…]`, so the last condition is
+"this comment mentions the factory". Without it every review comment would cost
+a run, and in review most comments are for other people. Triage applies the same
+test itself, so the condition saves money rather than deciding anything.
+
+### Rule 2c — somebody told the factory to stop
+
+| | |
+| --- | --- |
+| Name | `Factory: stop` |
+| Trigger | **Work item commented** |
+| Condition | **JQL condition** → `status in ("Designing", "Building")` |
+| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
+| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
+| Action | Send web request to `…/actions/workflows/stop.yml/dispatches`, custom data `{"ref":"main","inputs":{"key":"{{issue.key}}"}}` |
+
+*Designing* and *Building* are locked to the factory while a turn runs
+([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)): nobody
+else can move or reassign the card. A comment such as "@Enki stop" is how a
+person gets it back. The status list mirrors `LOCKED_STATUSES`
+(`factory/src/lock.ts`), and `poller.test.ts` pins the script's copy of it.
+
+The flow can't tell a stop from any other mention, so it fires on every mention
+of the factory on a locked card. `factory stop` reads the comment again and does
+nothing unless "stop" is the first word after the mention. It goes straight to
+`stop.yml` rather than to the poller because a stop can't wait for the turn to
+end, and `stop.yml` is not in the card's concurrency group.
+
 ### Rule 3 — the backstop
 
 | | |
 | --- | --- |
 | Name | `Factory: sweep` |
 | Trigger | **Scheduled**, every 30 minutes (the script writes cron `0 0/30 * * * ?`) |
-| JQL | `project = <KEY> AND status in ("Ready for design", "Ready for build")` |
+| JQL | `project = <KEY> AND ((status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>") OR status in ("Designing", "Building"))` |
 | Action | Send web request |
+
+The second half of the JQL is for cards left locked. A run that dies without
+reporting leaves its card in *Designing* or *Building*, which only the factory
+can move it out of. Every poller pass looks for locked cards with no run working
+on them and lets them go (`factory release-orphans`). Without this half, on a
+quiet board, no pass would ever run to find them. A card that is locked because
+a turn is running also starts a run every half hour. That run finds the turn
+and does nothing, which is one billed minute per half hour while the factory
+is busy.
 
 A push trigger's failure mode is a dropped event, and a dropped event under the
 old design was a late card whereas here it is a card that waits forever. This is
@@ -221,13 +337,14 @@ low-frequency GitHub cron: **when the JQL matches nothing, no action runs, so no
 GitHub run is filed and nothing is billed.** A GitHub cron cannot make that
 distinction — it has to start a job to find out there was no work.
 
-It only covers the two *Ready for …* columns. A dropped comment event is not
+It only covers cards in the two *Ready for …* columns that are assigned to the
+factory, which is what the poller takes. A dropped comment event is not
 covered, because a JQL cannot express "has a comment newer than the factory's
 own" — that question is the whole of `factory triage` and it needs the factory's
 own account to answer. In practice a stalled comment is visible on the board (a
 card sitting in *Blocked on architect* with an answer on it) and one
 `gh workflow run poller.yml` fixes it. If that turns out to happen often, widen
-the JQL to all four `TRIAGE_STATUSES` and accept sweeping on a timer instead.
+the JQL to the `TRIAGE_STATUSES` and accept sweeping on a timer instead.
 
 ---
 
@@ -306,8 +423,9 @@ Work outward from the board.
    `gh workflow list --all` — since a previously scheduled workflow can have
    been auto-disabled before the cron was removed.
 4. **Did the run find the card?** Read the log. `none waiting in Ready for
-   design` with a card sitting in that column means the JQL and the board
-   disagree, which is a status-name mismatch, not a trigger problem.
+   design` with a card sitting in that column means the card is not assigned to
+   the factory, or the JQL and the board disagree on a status name. Neither is
+   a trigger problem.
 
 The rest of the failure modes are unchanged and are in
 [RUNBOOK.md](RUNBOOK.md).

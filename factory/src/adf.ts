@@ -29,6 +29,15 @@ export function link(value: string, href: string): AdfNode {
   return { type: 'text', text: value, marks: [{ type: 'link', attrs: { href } }] }
 }
 
+/**
+ * An @mention. Jira notifies the mentioned person, whatever the project's
+ * notification scheme says, which makes it the one reliable way to tell
+ * somebody a comment is for them.
+ */
+export function mention(accountId: string): AdfNode {
+  return { type: 'mention', attrs: { id: accountId } }
+}
+
 export function paragraph(...content: AdfNode[]): AdfNode {
   return { type: 'paragraph', content }
 }

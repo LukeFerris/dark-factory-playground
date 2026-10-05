@@ -7,6 +7,7 @@ import { announce } from './announce.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
 import { triagePass } from './triage.ts'
+import { releaseOrphans, stop, takeCard } from './lock.ts'
 import { currentBranch } from './git.ts'
 import { findPrForCard } from './github.ts'
 import {
@@ -18,7 +19,7 @@ import {
   readMergeState,
   recordMerge,
 } from './merge.ts'
-import { claimCard } from './progress.ts'
+import { claimCard, sentInBy } from './progress.ts'
 import { refresh, refreshTargets } from './refresh.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
@@ -84,6 +85,39 @@ program
   })
 
 program
+  .command('stop')
+  .description('Act on "@Enki stop": cancel the card\'s run and put the card back.')
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .option('--dry-run', 'Check and print, but cancel nothing and move nothing', false)
+  .action(async (key: string, opts: { dryRun: boolean }) => {
+    const outcome = await stop({ cfg: jira.configFromEnv(), key, dryRun: opts.dryRun })
+    console.log(`stop: ${key} -> ${outcome}`)
+  })
+
+program
+  .command('release-orphans')
+  .description('Let go of every locked card that no run is working on.')
+  .option('--dry-run', 'Print what would be let go, and change nothing', false)
+  .action(async (opts: { dryRun: boolean }) => {
+    const released = await releaseOrphans({
+      cfg: jira.configFromEnv(),
+      projectKey: required('JIRA_PROJECT_KEY'),
+      dryRun: opts.dryRun,
+    })
+    console.log(released.length === 0 ? 'release-orphans: none' : `release-orphans: let go of ${released.join(', ')}`)
+  })
+
+program
+  .command('jira-take')
+  .description('Move a card into a locked status, unless it is in one, and assign it to the factory.')
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .argument('<status>', 'The locked status, e.g. Building')
+  .action(async (key: string, status: string) => {
+    await takeCard(jira.configFromEnv(), key, status)
+    console.log(`${key} taken`)
+  })
+
+program
   .command('card-pr')
   .description("Print the open pull request number for a card's branch.")
   .argument('<key>', 'Issue key, e.g. DF-1')
@@ -112,15 +146,25 @@ program
 // which reads as a card nobody has picked up. Worse, when the dispatch fails
 // it reads that way forever.
 //
-// Idempotent, so `announce` keeping its own call costs nothing: claimCard
-// returns early when the factory is already the assignee, and so cannot
-// overwrite the record of who had the card before.
+// `--from` is the poller's: the card was sent in by being dragged into that
+// status, and it goes back to whoever dragged it. Without it the card goes back
+// to whoever holds it now, and claimCard returns early when that is already the
+// factory — so `announce` keeping its own call costs nothing.
 program
   .command('jira-claim')
-  .description('Assign a card to the factory, remembering who had it.')
+  .description('Assign a card to the factory, remembering who it goes back to.')
   .argument('<key>', 'Issue key, e.g. DF-1')
-  .action(async (key: string) => {
-    await claimCard(jira.configFromEnv(), key)
+  .option('--from <status>', 'Hand it back to whoever moved it into this status')
+  .action(async (key: string, opts: { from?: string }) => {
+    const cfg = jira.configFromEnv()
+    let handBackTo: string | undefined
+    if (opts.from !== undefined) {
+      handBackTo = await sentInBy(cfg, key, opts.from).catch((error: Error) => {
+        console.error(`::warning::could not read who moved ${key}: ${error.message}`)
+        return ''
+      })
+    }
+    await claimCard(cfg, key, handBackTo)
     console.log(`${key} claimed`)
   })
 

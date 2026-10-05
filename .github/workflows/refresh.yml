@@ -157,16 +157,11 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.cards) }}
-    # The same group build-start.yml uses, so a first build turn and a refresh
-    # cannot both be working the card at once. It does NOT cover build-turn.yml,
-    # which groups on `factory-build-turn-<key or PR number>` and cannot be
-    # unified with this one — the comment path into it knows the PR number and not
-    # the key. What that leaves is a refresh racing a later turn, on separate
-    # runners with separate checkouts, and the loser's push is rejected as
-    # non-fast-forward. Noisy, recoverable, and not silent, which is the part
-    # that matters.
+    # The card's group, which design.yml, build-start.yml and build-turn.yml
+    # share, so a refresh never works a card a turn is working, and the other
+    # way about. A turn this leg hands the card to queues behind it.
     concurrency:
-      group: factory-build-${{ matrix.key }}
+      group: factory-card-${{ matrix.key }}
       cancel-in-progress: false
     steps:
       - name: Mint App token

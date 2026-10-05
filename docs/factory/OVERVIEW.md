@@ -68,22 +68,40 @@ picks the card up, one when it puts it down. A Jira status change notifies
 nobody and does not show up in the comment stream, so without the first of those
 a card being worked on for ten minutes reads exactly like a card being ignored.
 
-Two things a card carries are not comments. While a turn runs the card is
-**assigned** to the factory and handed back at the end, so the board view shows
-an avatar on whatever is being worked on right now; assignment notifies nobody,
-which is what makes it cheap enough to do every turn. And where to look — the
+Two things a card carries are not comments. A card is only the factory's when
+it is in a *Ready for …* column **and assigned** to the factory, so the board can
+hold cards it never touches. While a turn runs the factory keeps it, so the
+board view shows an avatar on whatever is being worked on right now, and at the
+end it hands the card back to whoever sent it in, mentioning them in the report
+comment so that Jira notifies them. And where to look — the
 pull request, the preview, and the live URL once it ships — goes on as
 **remote links**, one row each, replaced in place as they change, rather than a
 fresh comment per turn that the reader has to date-sort to use.
 
+### A card the factory is working is locked
+
+While a turn runs, the card sits in *Designing* or *Building*. Jira lets only
+the factory move a card out of those statuses or reassign it. A person
+dragging it elsewhere, an admin included, gets a refusal. That keeps one card
+in one pair of hands: a drag can't start a second turn on a branch the first is
+still writing, or be quietly overwritten when the first one reports. Runs on
+the same card queue behind each other. To take a card back mid-turn, comment
+"@Enki stop" on it: the run is cancelled and the card returns to where it was,
+assigned to you. A run that dies without reporting has its card let go
+automatically by the next poll.
+[ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md) has the
+reasoning.
+
 ### Comments are the third entrance
 
 Dragging a card is not the only way to start work. Wherever the factory has
-stopped and is waiting on a person — *Design review*, *In review*, and the two
-*Blocked on …* statuses — a comment on the card is read on the next poll by a
-small model, which answers with one of three words: start a design turn, start a
-build turn, or do nothing. It then moves the card, says on the card why it
-moved, and dispatches the runner.
+stopped and is waiting on a person, a comment addressed to it is read on the
+next poll by a small model, which answers with one of three words: start a
+design turn, start a build turn, or do nothing. In the two *Blocked on …*
+statuses, where it asked a question, any comment counts. In *Design review* and
+*In review*, where people are mostly talking to each other, only a comment that
+@mentions the factory does. It then takes the card back, moves it, says on the
+card why it moved, and dispatches the runner.
 
 Most comments are `none`, and `none` is silent. The point is that a change of
 mind is a sentence on the ticket rather than a status the commenter has to work
@@ -121,7 +139,7 @@ rather than saying "merge conflict".
 | `app/` | The example React 19 + TypeScript app the factory writes features into |
 | `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
 | `.agent/` | The agent boundary: the three manuals, and the in/out directories |
-| `.github/workflows/` | Eight workflows: the poller, design, build start/setup/turn/teardown, refresh, and production |
+| `.github/workflows/` | Ten workflows: the poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production |
 | `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts |
 | `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
 | `docs/design/<KEY>/` | One directory per card: the design, and the build log |

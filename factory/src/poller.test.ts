@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './env.ts'
-import { TRIAGE_STATUSES } from './triage.ts'
+import { LOCKED_STATUSES } from './lock.ts'
+import { QUESTION_STATUSES, REVIEW_STATUSES } from './triage.ts'
 
 /**
  * The poller's claim, as written in the workflow.
@@ -34,11 +35,33 @@ describe('how the poller claims a card', () => {
     expect(claim).toBeLessThan(dispatch)
   })
 
-  // An avatar is decoration on the work; the work is the dispatch below it.
+  // A hand-back is decoration on the work; the work is the dispatch below it.
   // claimCard already warns rather than throwing, and `|| true` is the second
   // belt — `set -e` is on in that step.
   it('never lets a failed claim stop the dispatch', () => {
-    expect(yaml).toContain('jira-claim "$key" || true')
+    expect(yaml).toContain('jira-claim "$key" --from "$waiting_status" || true')
+  })
+
+  // The card goes back to whoever dragged it in, which only the history knows.
+  it('hands the card back to whoever moved it into the column', () => {
+    expect(yaml).toContain('--from "$waiting_status"')
+  })
+})
+
+/**
+ * Which cards the poller takes.
+ *
+ * A card in a Ready column is only the factory's if it is also assigned to the
+ * factory, so people can keep cards on the same board that it never touches.
+ * The poller runs as the factory's account, so `currentUser()` is the bot.
+ */
+describe('which cards the poller takes', () => {
+  const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/poller.yml'), 'utf8')
+  const search = yaml.split('\n').find((line) => line.includes('jql="project = ${JIRA_PROJECT_KEY}'))
+
+  it('takes only cards assigned to the factory', () => {
+    expect(search).toBeDefined()
+    expect(search).toContain('AND assignee = currentUser()')
   })
 })
 
@@ -66,39 +89,67 @@ describe('how the poller is started', () => {
 })
 
 /**
- * The comment rule's status list, against the one the code actually uses.
+ * The comment rules' status lists, against the ones the code actually uses.
  *
- * Rule 2 in JIRA-TRIGGERS.md only fires for comments on cards in the statuses
- * triage looks at, so that a comment anywhere else does not buy a billed minute
- * to discover there is nothing to do. The live list is in Jira, where no test
- * can reach it. This stops the document drifting from the code, so that the
+ * Rule 2 in JIRA-TRIGGERS.md fires for any comment on a card where the factory
+ * asked a question, and rule 2b for a comment that mentions the factory on a
+ * card in review, so that a comment anywhere else does not buy a billed minute
+ * to discover there is nothing to do. The live lists are in Jira, where no test
+ * can reach them. This stops the document drifting from the code, so that the
  * route by hand, at least, is right.
  */
-describe('the comment rule in JIRA-TRIGGERS.md', () => {
+describe('the comment rules in JIRA-TRIGGERS.md', () => {
   const doc = readFileSync(resolve(REPO_ROOT, 'docs/factory/JIRA-TRIGGERS.md'), 'utf8')
-  const row = doc.split('\n').find((line) => line.includes('Issue fields condition'))
+  const rows = doc.split('\n').filter((line) => line.includes('Issue fields condition'))
+  const named = (row: string | undefined) => [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
 
-  it('names exactly the statuses triage looks at', () => {
-    expect(row).toBeDefined()
-    const named = [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
-    expect(named).toEqual([...TRIAGE_STATUSES])
+  it('has one status condition per comment rule', () => {
+    expect(rows).toHaveLength(2)
+  })
+
+  it('names exactly the question statuses in rule 2', () => {
+    expect(named(rows[0])).toEqual([...QUESTION_STATUSES])
+  })
+
+  it('names exactly the review statuses in rule 2b', () => {
+    expect(named(rows[1])).toEqual([...REVIEW_STATUSES])
   })
 })
 
 /**
- * The same list, in the script that creates the rule.
+ * The same lists, in the script that creates the rules.
  *
- * bootstrap/jira-triggers.sh writes the comment flow's status condition from
- * its own copy of the list, because a shell script cannot import triage.ts.
- * The flow it creates is only as current as that copy.
+ * bootstrap/jira-triggers.sh writes the comment flows' status conditions from
+ * its own copies of the lists, because a shell script cannot import triage.ts.
+ * The flows it creates are only as current as those copies.
  */
-describe('the comment rule in bootstrap/jira-triggers.sh', () => {
+describe('the comment rules in bootstrap/jira-triggers.sh', () => {
   const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira-triggers.sh'), 'utf8')
-  const line = script.split('\n').find((candidate) => candidate.startsWith('TRIAGE_STATUSES=('))
+  const list = (name: string) => {
+    const line = script.split('\n').find((candidate) => candidate.startsWith(`${name}=(`))
+    return line === undefined ? undefined : [...line.matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  }
 
-  it('names exactly the statuses triage looks at', () => {
-    expect(line).toBeDefined()
-    const named = [...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])
-    expect(named).toEqual([...TRIAGE_STATUSES])
+  it('names exactly the question statuses', () => {
+    expect(list('QUESTION_STATUSES')).toEqual([...QUESTION_STATUSES])
+  })
+
+  it('names exactly the review statuses', () => {
+    expect(list('REVIEW_STATUSES')).toEqual([...REVIEW_STATUSES])
+  })
+
+  // The stop flow and the sweep both read this one. A status locked in Jira but
+  // missing here is a card nobody can stop and nothing ever lets go of.
+  it('names exactly the locked statuses', () => {
+    expect(list('LOCKED_STATUSES')).toEqual([...LOCKED_STATUSES])
+  })
+})
+
+describe('the lock in bootstrap/jira.sh', () => {
+  const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira.sh'), 'utf8')
+  const line = script.split('\n').find((candidate) => candidate.startsWith('LOCKED_STATUSES=('))
+
+  it('locks exactly the statuses lock.ts treats as held', () => {
+    expect([...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])).toEqual([...LOCKED_STATUSES])
   })
 })

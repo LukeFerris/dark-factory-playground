@@ -1,0 +1,74 @@
+name: factory stop
+
+# "@Enki stop", from a comment on the card.
+#
+# Started by the "Factory: stop" Jira Automation flow (bootstrap/
+# jira-triggers.sh) whenever someone other than the factory comments on a card
+# in Designing or Building and mentions it. The flow cannot tell a stop from
+# any other mention, and nothing it sends is trusted, so `factory stop` checks
+# it all again from Jira: the card is still locked, the newest comment to the
+# factory starts with "stop", and that comment has not been acted on. Anything
+# else is a no-op. See factory/src/lock.ts and ADR 0007.
+#
+# Not in the card's concurrency group, `factory-card-<KEY>`: the run it is
+# stopping holds that group, so a stop in it would wait for the very thing it
+# is meant to end. Its own group per card instead, so two stops for one card do
+# not cancel and release twice.
+
+run-name: ${{ inputs.key }} stop
+
+on:
+  workflow_dispatch:
+    inputs:
+      key:
+        description: 'Jira issue key, e.g. DF-14'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-stop-${{ inputs.key }}
+  cancel-in-progress: false
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Cancelling a run needs actions: write, which the App has and this
+      # workflow's own token does not.
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Stop the card
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          KEY: ${{ inputs.key }}
+        run: |
+          set -euo pipefail
+          # The key comes from a Jira webhook body. A key is all it can be.
+          if ! [[ "$KEY" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
+            echo "::error::'${KEY}' is not an issue key."
+            exit 1
+          fi
+          npm run --silent factory -- stop "$KEY"

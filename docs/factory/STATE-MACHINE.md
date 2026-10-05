@@ -127,13 +127,17 @@ Closing a pull request **without** merging deploys nothing and moves no card.
 
 ## Comments are the third entrance
 
-The factory leaves a card in four statuses: *Design review*, *In review*,
-*Blocked on architect*, *Blocked on engineer*. Each means the same thing — the
-factory has said its piece and is waiting on a person — and in each of them the
-person replies by commenting, not by moving the card.
+The factory leaves a card in four statuses, but they are two different kinds of
+waiting. In *Blocked on architect* and *Blocked on engineer* it has asked a
+question, and the person replies by commenting, not by moving the card. In
+*Design review* and *In review* it thinks it is done, and most comments there
+are people talking to each other; a reviewer who wants more from the factory
+@mentions it. (Dragging the card to a *Ready for …* column and assigning it to
+the factory also works, the same as starting it the first time.)
 
 So on every pass the poller looks at those four columns and asks, for each card,
-whether anyone has spoken since the factory did. When someone has, the comment is
+whether anyone has spoken to the factory since it last did: any comment in a
+*Blocked* column, a comment that mentions it in a review one. When someone has, the comment is
 read once by a small model, which answers with one of three words:
 
 | Answer | What happens |
@@ -208,10 +212,39 @@ asked for on the branch.
 ### The other way into a build turn
 
 A human commenting on the **pull request** still grants a build turn directly,
-without going through Jira or the classifier — that path is older than triage
-and unchanged. `build-turn.yml` now has both entrances, and they run the same
-turn; see the header of that file for why the guards on the comment path cannot
-be applied to the dispatch one.
+without going through Jira or the classifier. That path is older than triage.
+`build-comment.yml` applies the four guards, reads the card's key from the PR
+title, and dispatches `build-turn.yml` with it, the same way triage does. The
+turn's first step moves the card from *In review* to *Building*, so the card is
+locked for that turn like any other (see below).
+
+## While a turn runs, the card is locked
+
+*Designing* and *Building* mean a turn has the card, and only the factory can
+move a card out of either or reassign it
+([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)). Jira
+enforces this itself, through two properties on those statuses in the Factory
+workflow. A drag by anyone else, an admin included, is refused, and the board
+will not accept the drop. Comments, fields and links stay open.
+
+Every way into a turn moves the card into one of them first: the poller from a
+*Ready* column, triage from a review or *Blocked* column, refresh from *In
+review*, and a PR-comment turn as its first step. Every run that works a card
+shares one concurrency group, `factory-card-<KEY>`, so a second run waits for
+the first to finish.
+
+There are two ways out that aren't the end of a turn:
+
+| | Started by | Card goes to | Assigned to |
+| --- | --- | --- | --- |
+| **Stop** | A comment that mentions the factory and starts with "stop", e.g. "@Enki stop" | The status it was in before the factory took it | Whoever said stop |
+| **Orphan** | A poller pass finds the card locked for over ten minutes with no unfinished run | The status it was in before the factory took it | Whoever sent it in |
+
+A stop cancels the card's runs and waits for them to end before it moves the
+card. If the turn reported first, the card has already left the lock, and the
+stop leaves it where the turn put it. Both ways out assign the card first and
+move it second, because a card in a *Ready* column assigned to the factory is
+how a turn starts.
 
 ## A turn says when it starts, and who has the card
 
@@ -252,10 +285,18 @@ Three decisions worth recording:
 The comment is the loud one: it notifies watchers and lands in an email. Two
 other things about a running turn want saying, and neither wants that treatment.
 
-**The assignee** is what a board shows. Whoever takes the card assigns it to the
-bot and `report` hands it back, so the avatar column answers "is anything
-happening on this card" from the one view where nobody opens a card at all.
-Assignment notifies nobody, so it costs a watcher nothing.
+**The assignee** is what a board shows, and it is also how a card is sent in: a
+card in a *Ready for …* column is only the factory's if it is assigned to the
+factory, so people can keep their own cards on the same board. While a turn
+runs the factory holds the card, and `report` hands it back, so the avatar
+column answers "is anything happening on this card" from the one view where
+nobody opens a card at all.
+
+The hand-back goes to whoever the turn was for: the person who dragged the card
+into the *Ready for …* column (`sentInBy`, from the card's history — falling
+back to whoever assigned the factory), or the person whose comment triage acted
+on — an answer, or a mention in review. The report comment starts by mentioning them, because whether Jira emails
+an assignment depends on the notification scheme and a mention always notifies.
 
 **The avatar goes on at the same moment as the status, not when the run
 starts.** The poller and triage each claim the card immediately after moving
@@ -268,14 +309,14 @@ When the dispatch failed it looked that way for good. `announce` still calls
 `claimCard` is idempotent: it returns early when the factory already holds the
 card, so the second call cannot overwrite the record of who held it before.
 
-Whoever held the card is saved first, in a hidden issue property
-(`factory-assignee`), and restored at the end. Two rules keep that from
+Who the card goes back to is saved first, in a hidden issue property
+(`factory-assignee`), and used at the end. Two rules keep that from
 misbehaving:
 
-- **A re-run does not overwrite the saved holder.** If the factory already has
-  the card, `claimCard` leaves the property alone. Saving again would record the
-  bot as the previous holder and the card would be handed back to the bot from
-  then on, permanently.
+- **The factory never records itself.** The poller and triage name the person
+  explicitly; a turn started by hand finds the factory already assigned and
+  leaves the property alone. Recording the bot would hand the card back to the
+  bot from then on, permanently.
 - **A human who takes the card mid-turn keeps it.** `releaseCard` only acts if
   the factory is still the assignee. Taking a card is how somebody says "I am
   dealing with this", and the end of the turn must not quietly undo it.
@@ -357,11 +398,11 @@ for adding an admin-only escape hatch if you decide you want one after all.
 
 The factory has two identities, one per system, and neither of them is you.
 
-| | Comment on a card | Move a card | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| The Jira bot user | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
-| The factory App | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
-| You | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
+| | Comment on a card | Move a card | Move a card the factory is working | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| The Jira bot user | ✅ | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
+| The factory App | — | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
+| You | ✅ | ✅ | ❌ (comment "@Enki stop") | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
 
 Neither party can do the whole job alone, which is the point. The bot is the
 only one that can call something *Done*, and it cannot approve or merge the

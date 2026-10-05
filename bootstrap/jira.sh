@@ -4,7 +4,8 @@
 #
 # Creates (or reuses) a company-managed Kanban project, the ten factory
 # statuses, the Factory workflow and scheme, the two custom fields, and a filter
-# and board over the project.
+# and board over the project. Locks the statuses the factory works a card in to
+# the factory's account (ADR 0007).
 #
 # Idempotent: every step looks for what it needs before creating it, so a
 # re-run after a partial failure picks up where it stopped.
@@ -29,7 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/bootstrap/lib.sh"
 
 if ! parse_common_args "$@"; then
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -280,6 +281,91 @@ else
 
   jira_write POST /rest/api/3/workflows/create "$payload" >/dev/null
   (( DRY_RUN )) || ok "created \"$WORKFLOW_NAME\" with a global transition into each status"
+fi
+
+# --------------------------------------------------------------------- lock
+
+section "Lock"
+
+# While the factory works a card, only the factory can move it or reassign it.
+# Jira does this itself, with two permission properties on a status: on a card
+# in one of these, a transition or an assignment by anyone else — a project
+# admin, a site admin — is refused, and the board will not take the drop. See
+# ADR 0007 and factory/src/lock.ts, whose LOCKED_STATUSES must equal this list;
+# poller.test.ts checks.
+#
+# Reconciled rather than set once: a status taken off this list loses its lock,
+# and a property somebody added by hand for another account is put right.
+LOCKED_STATUSES=("Designing" "Building")
+LOCK_KEYS='["jira.permission.transition.user", "jira.permission.assign.user"]'
+
+# POST, but a read: the workflows endpoint takes its query as a body. Runs under
+# --dry-run like every other read.
+jira_read_post() {
+  local path="$1" payload="$2" body status
+  body="$(printf '%s' "$payload" | curl -sS -w '\n%{http_code}' -X POST \
+    -u "$JIRA_USER:$JIRA_TOKEN" \
+    -H 'Accept: application/json' -H 'Content-Type: application/json' \
+    --max-time 30 --data-binary @- "$JIRA_BASE$path")"
+  status="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  [[ "$status" -lt 400 ]] || die "POST $path -> $status: $body"
+  printf '%s' "$body"
+}
+
+BOT_ID=""
+if [[ -n "${JIRA_BOT_EMAIL:-}" ]]; then
+  BOT_ID="$(jira_get "/rest/api/3/user/search?query=$(jq -rn --arg e "$JIRA_BOT_EMAIL" '$e|@uri')" \
+    | jq -r '[.[]? | select(.accountType == "atlassian")][0].accountId // empty')"
+fi
+
+WORKFLOW="$(jira_read_post '/rest/api/3/workflows?expand=values.transitions' \
+  "$(jq -nc --arg n "$WORKFLOW_NAME" '{workflowNames: [$n]}')" | jq -c '.workflows[0] // empty')"
+
+if [[ -z "$BOT_ID" ]]; then
+  warn "JIRA_BOT_EMAIL is not set, or is not a Jira user yet: ${LOCKED_STATUSES[*]} are NOT locked."
+  info "Re-run this script once the factory's Jira account exists (docs/factory/SETUP.md)."
+elif [[ -z "$WORKFLOW" ]]; then
+  info "\"$WORKFLOW_NAME\" does not exist yet (dry run); it would be locked to $BOT_ID once created"
+else
+  locked_json="$(printf '%s\n' "${LOCKED_STATUSES[@]}" | jq -R . | jq -sc .)"
+
+  # Every status's properties as they should be: the lock keys taken off, then
+  # put back on the locked statuses only, for the factory.
+  wanted="$(jq -c --argjson have "$existing_statuses" --argjson locked "$locked_json" \
+    --argjson keys "$LOCK_KEYS" --arg bot "$BOT_ID" '
+    [ .statuses[] | . as $s
+      | ($have[] | select(.id == $s.statusReference) | .name) as $name
+      | { statusReference, layout,
+          properties: ( (.properties // {} | with_entries(select(.key as $k | $keys | index($k) | not)))
+                        + (if ($locked | index($name)) == null then {}
+                           else ($keys | map({key: ., value: $bot}) | from_entries) end) ) } ]
+  ' <<<"$WORKFLOW")"
+
+  current="$(jq -c '[.statuses[] | {statusReference, layout, properties: (.properties // {})}]' <<<"$WORKFLOW")"
+
+  missing="$(jq -r --argjson have "$existing_statuses" '[.[] as $n | select(($have | map(.name) | index($n)) == null)] | join(", ")' \
+    <<<"$locked_json")"
+  [[ -z "$missing" ]] || die "Cannot lock $missing: no such status."
+
+  if [[ "$(jq -S . <<<"$wanted")" == "$(jq -S . <<<"$current")" ]]; then
+    ok "${LOCKED_STATUSES[*]} already locked to the factory ($BOT_ID)"
+  else
+    # The update replaces the whole workflow, so everything read is sent back
+    # as it was apart from the status properties. `version` is the optimistic
+    # lock: a workflow edited since the read is a 409, not a lost edit. The
+    # top-level statuses carry the same required fields as on create.
+    payload="$(jq -n --argjson wf "$WORKFLOW" --argjson wanted "$wanted" --argjson have "$existing_statuses" '{
+      statuses: [ $wf.statuses[] as $s | $have[] | select(.id == $s.statusReference)
+                  | {statusReference: .id, id, name, statusCategory, description: (.description // "")} ],
+      workflows: [{
+        id: $wf.id, version: $wf.version, name: $wf.name, description: ($wf.description // ""),
+        startPointLayout: $wf.startPointLayout, statuses: $wanted, transitions: $wf.transitions
+      }]
+    }')"
+    jira_write POST /rest/api/3/workflows/update "$payload" >/dev/null
+    (( DRY_RUN )) || ok "locked ${LOCKED_STATUSES[*]} to the factory ($BOT_ID)"
+  fi
 fi
 
 # ---------------------------------------------------------- workflow scheme
