@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
@@ -98,5 +99,16 @@ describe('which of the factory’s own comments count as a turn', () => {
     const meta = await gather({ key: 'DF-1', stage: 'design' })
     expect(meta.turn).toBe(2)
     expect(readFileSync(TASK_PATH, 'utf8')).toContain('design turn 1 started')
+  })
+})
+
+describe('the branch a turn publishes to', () => {
+  // build-turn.yml checks the PR branch out and never calls prepare-branch, so
+  // gather is the only thing that names the branch publish pushes.
+  it('is the branch that is checked out', async () => {
+    card([])
+    const meta = await gather({ key: 'DF-1', stage: 'build' })
+    const current = execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim()
+    expect(meta.branch).toBe(current)
   })
 })

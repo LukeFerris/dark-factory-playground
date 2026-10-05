@@ -126,6 +126,7 @@ export function publish(options: PublishOptions): PullRequest | null {
     return null
   }
 
+  if (meta.branch === '') throw new Error('No branch recorded for this turn; nothing to push to.')
   git(['push', '--set-upstream', 'origin', meta.branch])
 
   // No stage in the title. One pull request carries the card from design to
