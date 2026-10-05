@@ -54,7 +54,8 @@ export function PipelineBoard({ deals, onMove, onUpdate }: PipelineBoardProps) {
   function handleDragLeave(event: DragEvent<HTMLElement>) {
     // Moving onto a card inside the column fires dragleave too; only clear
     // once the pointer has left the column itself.
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))
+      return
     setDropTarget(null)
   }
 
@@ -157,7 +158,9 @@ function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardPr
         <h3 id={headingId} className="deal__company">
           {deal.company}
         </h3>
-        {!editing && deal.size !== undefined && <span className="deal__size">{formatSize(deal.size)}</span>}
+        {!editing && deal.size !== undefined && (
+          <span className="deal__size">{formatSize(deal.size)}</span>
+        )}
       </div>
       {editing ? (
         <EditDealForm deal={deal} onSave={handleSave} onCancel={close} />
@@ -181,7 +184,12 @@ function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardPr
               </option>
             ))}
           </select>
-          <button type="button" ref={editButton} className="deal__edit" onClick={() => setEditing(true)}>
+          <button
+            type="button"
+            ref={editButton}
+            className="deal__edit"
+            onClick={() => setEditing(true)}
+          >
             Edit<span className="visually-hidden"> {deal.company}</span>
           </button>
         </>

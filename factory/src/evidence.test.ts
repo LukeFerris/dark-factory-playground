@@ -223,73 +223,111 @@ describe('buildSlides', () => {
   // The complement of the render tests: on a machine that cannot draw text,
   // the thing to prove is that it says so plainly instead of leaking a filter
   // graph error, so one of the two always runs wherever this suite is run.
-  it.skipIf(canRender || !canShoot)('names the missing capability rather than the filter', () => {
-    const dir = scratch()
-    shot(dir, 1)
-    const outcome = buildSlides({ result: result(), dir, out: join(dir, 'x.mp4') })
-    expect(outcome.ok).toBe(false)
-    expect(outcome.reason).toBe('this ffmpeg was built without drawtext')
-  }, 60_000)
+  it.skipIf(canRender || !canShoot)(
+    'names the missing capability rather than the filter',
+    () => {
+      const dir = scratch()
+      shot(dir, 1)
+      const outcome = buildSlides({ result: result(), dir, out: join(dir, 'x.mp4') })
+      expect(outcome.ok).toBe(false)
+      expect(outcome.reason).toBe('this ffmpeg was built without drawtext')
+    },
+    60_000,
+  )
 
-  it.skipIf(!canRender)('renders one video from the screenshots it has', () => {
-    const dir = scratch()
-    shot(dir, 1)
-    shot(dir, 2)
-    const out = join(dir, 'uat-slides.mp4')
+  it.skipIf(!canRender)(
+    'renders one video from the screenshots it has',
+    () => {
+      const dir = scratch()
+      shot(dir, 1)
+      shot(dir, 2)
+      const out = join(dir, 'uat-slides.mp4')
 
-    const outcome = buildSlides({ result: result(), dir, out })
+      const outcome = buildSlides({ result: result(), dir, out })
 
-    expect(outcome.reason).toBe('')
-    expect(outcome.ok).toBe(true)
-    expect(outcome.video).toBe(out)
-    expect(outcome.slides).toBe(2)
-    expect(outcome.missing).toEqual([3])
+      expect(outcome.reason).toBe('')
+      expect(outcome.ok).toBe(true)
+      expect(outcome.video).toBe(out)
+      expect(outcome.slides).toBe(2)
+      expect(outcome.missing).toEqual([3])
 
-    // The canvas is fixed, and the concat demuxer only copies streams, so what
-    // comes out is what every slide was padded to.
-    const probe = spawnSync(
-      'ffprobe',
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
-       '-of', 'csv=p=0', out],
-      { encoding: 'utf8' },
-    )
-    expect(probe.stdout.trim()).toBe('1280,980')
-  }, 120_000)
+      // The canvas is fixed, and the concat demuxer only copies streams, so what
+      // comes out is what every slide was padded to.
+      const probe = spawnSync(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-select_streams',
+          'v:0',
+          '-show_entries',
+          'stream=width,height',
+          '-of',
+          'csv=p=0',
+          out,
+        ],
+        { encoding: 'utf8' },
+      )
+      expect(probe.stdout.trim()).toBe('1280,980')
+    },
+    120_000,
+  )
 
-  it.skipIf(!canRender)('pads a screenshot of any shape onto the same canvas', () => {
-    const dir = scratch()
-    shot(dir, 1, 600, 1400)
-    const out = join(dir, 'uat-slides.mp4')
+  it.skipIf(!canRender)(
+    'pads a screenshot of any shape onto the same canvas',
+    () => {
+      const dir = scratch()
+      shot(dir, 1, 600, 1400)
+      const out = join(dir, 'uat-slides.mp4')
 
-    expect(buildSlides({ result: result(), dir, out }).ok).toBe(true)
+      expect(buildSlides({ result: result(), dir, out }).ok).toBe(true)
 
-    const probe = spawnSync(
-      'ffprobe',
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
-       '-of', 'csv=p=0', out],
-      { encoding: 'utf8' },
-    )
-    expect(probe.stdout.trim()).toBe('1280,980')
-  }, 120_000)
+      const probe = spawnSync(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-select_streams',
+          'v:0',
+          '-show_entries',
+          'stream=width,height',
+          '-of',
+          'csv=p=0',
+          out,
+        ],
+        { encoding: 'utf8' },
+      )
+      expect(probe.stdout.trim()).toBe('1280,980')
+    },
+    120_000,
+  )
 
-  it.skipIf(!canRender)('refuses a video over the cap rather than attaching it', () => {
-    const dir = scratch()
-    shot(dir, 1)
-    const outcome = buildSlides({ result: result(), dir, out: join(dir, 'x.mp4'), maxKb: 0 })
-    expect(outcome.ok).toBe(false)
-    expect(outcome.reason).toMatch(/over the 0 KB cap/)
-  }, 120_000)
+  it.skipIf(!canRender)(
+    'refuses a video over the cap rather than attaching it',
+    () => {
+      const dir = scratch()
+      shot(dir, 1)
+      const outcome = buildSlides({ result: result(), dir, out: join(dir, 'x.mp4'), maxKb: 0 })
+      expect(outcome.ok).toBe(false)
+      expect(outcome.reason).toMatch(/over the 0 KB cap/)
+    },
+    120_000,
+  )
 
-  it.skipIf(!canRender)('survives a caption full of ffmpeg metacharacters', () => {
-    const dir = scratch()
-    shot(dir, 1)
-    const nasty = "Totals read £45m — 20% up: 'quarter' over \\last, x=1,y=2 [ok]"
-    const outcome = buildSlides({
-      result: result({ acceptance_criteria: [{ criterion: nasty, steps: [nasty] }] }),
-      dir,
-      out: join(dir, 'x.mp4'),
-    })
-    expect(outcome.reason).toBe('')
-    expect(outcome.ok).toBe(true)
-  }, 120_000)
+  it.skipIf(!canRender)(
+    'survives a caption full of ffmpeg metacharacters',
+    () => {
+      const dir = scratch()
+      shot(dir, 1)
+      const nasty = "Totals read £45m — 20% up: 'quarter' over \\last, x=1,y=2 [ok]"
+      const outcome = buildSlides({
+        result: result({ acceptance_criteria: [{ criterion: nasty, steps: [nasty] }] }),
+        dir,
+        out: join(dir, 'x.mp4'),
+      })
+      expect(outcome.reason).toBe('')
+      expect(outcome.ok).toBe(true)
+    },
+    120_000,
+  )
 })

@@ -112,7 +112,10 @@ function stub(board: Board): Seen {
       return HttpResponse.json({
         comments: thread.slice(0, limit).map((c) => ({
           id: c.id,
-          author: { displayName: c.authorId === FACTORY ? 'Brakkr [bot]' : 'Luke', accountId: c.authorId },
+          author: {
+            displayName: c.authorId === FACTORY ? 'Brakkr [bot]' : 'Luke',
+            accountId: c.authorId,
+          },
           created: '2026-09-23T10:00:00.000+0000',
           body: {
             type: 'doc',
@@ -120,7 +123,10 @@ function stub(board: Board): Seen {
               {
                 type: 'paragraph',
                 content: [
-                  ...(c.mentions ?? []).map((id) => ({ type: 'mention', attrs: { id, text: '@Enki' } })),
+                  ...(c.mentions ?? []).map((id) => ({
+                    type: 'mention',
+                    attrs: { id, text: '@Enki' },
+                  })),
                   { type: 'text', text: c.body },
                 ],
               },
@@ -198,8 +204,14 @@ function always(decision: TriageDecision): Classifier & { calls: number } {
   return fn
 }
 
-const DESIGN: TriageDecision = { action: 'design', reason: 'Answers the question about the tab order.' }
-const BUILD: TriageDecision = { action: 'build', reason: 'Reports the button does nothing on Safari.' }
+const DESIGN: TriageDecision = {
+  action: 'design',
+  reason: 'Answers the question about the tab order.',
+}
+const BUILD: TriageDecision = {
+  action: 'build',
+  reason: 'Reports the button does nothing on Safari.',
+}
 const NONE: TriageDecision = { action: 'none', reason: 'Acknowledgement, nothing to do.' }
 
 /** Runs a pass against whichever board `stub` last installed. */
@@ -240,7 +252,7 @@ describe('what triage looks at', () => {
     expect(classify.calls).toBe(0)
   })
 
-  it('ignores a card whose last word is the factory\'s own', async () => {
+  it("ignores a card whose last word is the factory's own", async () => {
     const board: Board = {
       cards: {
         'DF-3': {
@@ -442,7 +454,12 @@ describe('acting on a decision', () => {
     const board = oneNewComment('Blocked on architect')
     const seen = stub(board)
 
-    const [outcome] = await triagePass({ cfg, projectKey: 'DF', classify: always(DESIGN), dryRun: true })
+    const [outcome] = await triagePass({
+      cfg,
+      projectKey: 'DF',
+      classify: always(DESIGN),
+      dryRun: true,
+    })
 
     expect(outcome).toMatchObject({ action: 'design', acted: false })
     expect(seen.transitions).toEqual([])
@@ -481,12 +498,20 @@ describe('comments on a card in review', () => {
 
   it('takes the card back when a comment mentions the factory, for whoever wrote it', async () => {
     const seen = stub(
-      review([question, { id: '2', authorId: HUMAN, body: ' the button is the wrong colour', mentions: [FACTORY] }]),
+      review([
+        question,
+        { id: '2', authorId: HUMAN, body: ' the button is the wrong colour', mentions: [FACTORY] },
+      ]),
     )
 
     const [outcome] = await run(always(BUILD))
 
-    expect(outcome).toMatchObject({ key: 'DF-3', status: 'In review', action: 'build', acted: true })
+    expect(outcome).toMatchObject({
+      key: 'DF-3',
+      status: 'In review',
+      action: 'build',
+      acted: true,
+    })
     expect(seen.transitions).toEqual([{ key: 'DF-3', to: 'Building' }])
     expect(seen.assignments).toEqual([{ key: 'DF-3', accountId: FACTORY }])
     expect(seen.handBacks).toEqual([{ key: 'DF-3', previous: HUMAN }])
@@ -540,7 +565,12 @@ describe('comments on a card in review', () => {
   })
 
   it('ignores a mention of someone else', async () => {
-    stub(review([question, { id: '2', authorId: HUMAN, body: ' can you check this', mentions: [HUMAN] }]))
+    stub(
+      review([
+        question,
+        { id: '2', authorId: HUMAN, body: ' can you check this', mentions: [HUMAN] },
+      ]),
+    )
     const classify = always(BUILD)
 
     expect(await run(classify)).toEqual([])
@@ -602,7 +632,10 @@ describe('when a step fails', () => {
   it('still starts the turn when it cannot post the explanation', async () => {
     const seen = stub(board)
     server.use(
-      http.post(`${BASE}/rest/api/3/issue/DF-3/comment`, () => new HttpResponse(null, { status: 500 })),
+      http.post(
+        `${BASE}/rest/api/3/issue/DF-3/comment`,
+        () => new HttpResponse(null, { status: 500 }),
+      ),
     )
 
     const [outcome] = await run(always(DESIGN))
@@ -629,7 +662,7 @@ describe('what the classifier is told', () => {
     },
   }
 
-  it('carries the card, the status, the factory\'s question and the reply', () => {
+  it("carries the card, the status, the factory's question and the reply", () => {
     const prompt = classifierPrompt(context)
     expect(prompt).toContain('DF-3: Let the user type their name')
     expect(prompt).toContain('Status: Blocked on architect')

@@ -104,12 +104,18 @@ program
       projectKey: required('JIRA_PROJECT_KEY'),
       dryRun: opts.dryRun,
     })
-    console.log(released.length === 0 ? 'release-orphans: none' : `release-orphans: let go of ${released.join(', ')}`)
+    console.log(
+      released.length === 0
+        ? 'release-orphans: none'
+        : `release-orphans: let go of ${released.join(', ')}`,
+    )
   })
 
 program
   .command('jira-take')
-  .description('Move a card into a locked status, unless it is in one, and assign it to the factory.')
+  .description(
+    'Move a card into a locked status, unless it is in one, and assign it to the factory.',
+  )
   .argument('<key>', 'Issue key, e.g. DF-1')
   .argument('<status>', 'The locked status, e.g. Building')
   .action(async (key: string, status: string) => {
@@ -249,13 +255,21 @@ program
 program
   .command('refresh-plan')
   .description('Print, as JSON, every card in "In review" whose branch may need main merging in.')
-  .option('--exclude <keys>', 'Comma-separated keys to leave alone, e.g. the card that just merged', '')
+  .option(
+    '--exclude <keys>',
+    'Comma-separated keys to leave alone, e.g. the card that just merged',
+    '',
+  )
   .action(async (opts: { exclude: string }) => {
     const exclude = opts.exclude
       .split(',')
       .map((k) => k.trim().toUpperCase())
       .filter((k) => k !== '')
-    const targets = await refreshTargets(jira.configFromEnv(), required('JIRA_PROJECT_KEY'), exclude)
+    const targets = await refreshTargets(
+      jira.configFromEnv(),
+      required('JIRA_PROJECT_KEY'),
+      exclude,
+    )
     console.log(JSON.stringify(targets))
   })
 
@@ -266,17 +280,19 @@ program
   .requiredOption('--because-pr <number>', 'The pull request whose merge set this off', (v) =>
     Number.parseInt(v, 10),
   )
-  .requiredOption('--because-title <title>', 'That pull request\'s title')
+  .requiredOption('--because-title <title>', "That pull request's title")
   .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
-  .action(async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
-    const outcome = await refresh({
-      key,
-      because: { number: opts.becausePr, title: opts.becauseTitle },
-      cfg: jira.configFromEnv(),
-      dryRun: opts.dryRun,
-    })
-    console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
-  })
+  .action(
+    async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
+      const outcome = await refresh({
+        key,
+        because: { number: opts.becausePr, title: opts.becauseTitle },
+        cfg: jira.configFromEnv(),
+        dryRun: opts.dryRun,
+      })
+      console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+    },
+  )
 
 program
   .command('validate')
@@ -402,7 +418,7 @@ program
 
 program
   .command('ship')
-  .description("Move a merged card to Done and record where it went live.")
+  .description('Move a merged card to Done and record where it went live.')
   .argument('<pr>', 'PR number', (v) => Number.parseInt(v, 10))
   .requiredOption('--url <url>', 'The production URL now serving this card')
   .option('--dry-run', 'Print the comment without posting or transitioning', false)

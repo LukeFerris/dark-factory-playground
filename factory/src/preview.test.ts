@@ -197,7 +197,10 @@ describe('kickoff', () => {
   })
 
   it('falls back to the branch name when the body has no block', () => {
-    const calls = stub({ body: 'Someone rewrote this.', headRefName: 'card/DF-4-greet-the-visitor' })
+    const calls = stub({
+      body: 'Someone rewrote this.',
+      headRefName: 'card/DF-4-greet-the-visitor',
+    })
 
     kickoff(16)
 

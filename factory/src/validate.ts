@@ -58,7 +58,10 @@ export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
 export function contractProblems(result: Result): string[] {
   const problems: string[] = []
 
-  if ((result.status === 'blocked' || result.status === 'question') && result.questions.length === 0) {
+  if (
+    (result.status === 'blocked' || result.status === 'question') &&
+    result.questions.length === 0
+  ) {
     problems.push(`status is "${result.status}" but no questions were given.`)
   }
   if (result.status === 'failed' && result.reason.trim() === '') {

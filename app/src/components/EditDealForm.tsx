@@ -69,7 +69,11 @@ export function EditDealForm({ deal, onSave, onCancel }: EditDealFormProps) {
       </div>
       <div className="field">
         <label htmlFor={id('sector')}>Sector</label>
-        <input id={id('sector')} value={sector} onChange={(event) => setSector(event.target.value)} />
+        <input
+          id={id('sector')}
+          value={sector}
+          onChange={(event) => setSector(event.target.value)}
+        />
       </div>
       <div className="field">
         <label htmlFor={id('size')}>Deal size (£m)</label>

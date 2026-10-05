@@ -155,7 +155,9 @@ describe('deploying the preview', () => {
    */
   it('updates the image when the app already exists, and does not create', () => {
     const calls = stub((args) =>
-      isFqdnRead(args) ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' } : {},
+      isFqdnRead(args)
+        ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' }
+        : {},
     )
 
     deployPreview(config, 7)
@@ -246,7 +248,9 @@ describe('the scale-to-zero cooldown', () => {
     expect(cooldownCall(created)).toContain('properties.template.scale.cooldownPeriod=900')
 
     const updated = stub((args) =>
-      isFqdnRead(args) ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' } : {},
+      isFqdnRead(args)
+        ? { stdout: 'df-preview-pr-7.kindsky.westeurope.azurecontainerapps.io' }
+        : {},
     )
     deployPreview(config, 7)
     expect(cooldownCall(updated)).toContain('properties.template.scale.cooldownPeriod=900')

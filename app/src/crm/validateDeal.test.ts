@@ -21,17 +21,33 @@ describe('parseSize', () => {
 describe('validateDeal', () => {
   it('returns a trimmed deal with a numeric size', () => {
     expect(
-      validateDeal({ company: '  Acme Logistics ', sector: ' Industrials ', size: ' 45 ', owner: ' Sam Patel ' }),
-    ).toEqual({ deal: { company: 'Acme Logistics', sector: 'Industrials', size: 45, owner: 'Sam Patel' } })
+      validateDeal({
+        company: '  Acme Logistics ',
+        sector: ' Industrials ',
+        size: ' 45 ',
+        owner: ' Sam Patel ',
+      }),
+    ).toEqual({
+      deal: { company: 'Acme Logistics', sector: 'Industrials', size: 45, owner: 'Sam Patel' },
+    })
   })
 
   it('gives no size for a blank size', () => {
     const result = validateDeal({ ...valid, size: '' })
-    expect(result).toEqual({ deal: { company: 'Acme Logistics', sector: 'Industrials', size: undefined, owner: 'Sam Patel' } })
+    expect(result).toEqual({
+      deal: {
+        company: 'Acme Logistics',
+        sector: 'Industrials',
+        size: undefined,
+        owner: 'Sam Patel',
+      },
+    })
   })
 
   it.each(['', '   '])('rejects a company of %j', (company) => {
-    expect(validateDeal({ ...valid, company })).toEqual({ errors: { company: 'Enter a company name' } })
+    expect(validateDeal({ ...valid, company })).toEqual({
+      errors: { company: 'Enter a company name' },
+    })
   })
 
   it.each(['0', '-5', 'abc'])('rejects a size of %j', (size) => {

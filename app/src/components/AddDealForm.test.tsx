@@ -39,7 +39,12 @@ describe('AddDealForm', () => {
     const { onAdd, user } = setup()
     await user.type(screen.getByLabelText('Company'), 'No Size Ltd')
     await user.click(screen.getByRole('button', { name: 'Add deal' }))
-    expect(onAdd).toHaveBeenCalledWith({ company: 'No Size Ltd', sector: '', size: undefined, owner: '' })
+    expect(onAdd).toHaveBeenCalledWith({
+      company: 'No Size Ltd',
+      sector: '',
+      size: undefined,
+      owner: '',
+    })
   })
 
   it('submits the parsed values, clears the fields and returns focus to Company', async () => {
@@ -50,7 +55,12 @@ describe('AddDealForm', () => {
     await user.type(screen.getByLabelText('Owner'), 'Sam Patel')
     await user.click(screen.getByRole('button', { name: 'Add deal' }))
 
-    expect(onAdd).toHaveBeenCalledWith({ company: 'Acme Logistics', sector: 'Industrials', size: 12.5, owner: 'Sam Patel' })
+    expect(onAdd).toHaveBeenCalledWith({
+      company: 'Acme Logistics',
+      sector: 'Industrials',
+      size: 12.5,
+      owner: 'Sam Patel',
+    })
     for (const label of ['Company', 'Sector', 'Deal size (£m)', 'Owner']) {
       expect(screen.getByLabelText(label)).toHaveValue('')
     }

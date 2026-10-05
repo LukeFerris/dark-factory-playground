@@ -70,7 +70,9 @@ export async function claimCard(
         previous: handBackTo === me ? '' : handBackTo,
       } satisfies HeldBy)
     } else if (current !== me) {
-      await jira.setIssueProperty(cfg, key, ASSIGNEE_PROPERTY, { previous: current } satisfies HeldBy)
+      await jira.setIssueProperty(cfg, key, ASSIGNEE_PROPERTY, {
+        previous: current,
+      } satisfies HeldBy)
     }
 
     if (current !== me) await jira.assign(cfg, key, me)
@@ -90,8 +92,9 @@ export async function sentInBy(cfg: jira.JiraConfig, key: string, status: string
   const me = await jira.myAccountId(cfg)
   const history = [...(await jira.changelog(cfg, key))].reverse()
   const by = (match: (item: jira.ChangeItem) => boolean): string =>
-    history.find((entry) => entry.authorId !== '' && entry.authorId !== me && entry.items.some(match))
-      ?.authorId ?? ''
+    history.find(
+      (entry) => entry.authorId !== '' && entry.authorId !== me && entry.items.some(match),
+    )?.authorId ?? ''
 
   return (
     by((item) => item.field === 'status' && item.toString === status) ||
@@ -190,11 +193,7 @@ export async function syncLinks(
  * Tolerant of a card that never had it — a 404 here means the row is already
  * absent, which is the state being asked for.
  */
-export async function dropLink(
-  cfg: jira.JiraConfig,
-  key: string,
-  globalId: string,
-): Promise<void> {
+export async function dropLink(cfg: jira.JiraConfig, key: string, globalId: string): Promise<void> {
   try {
     await jira.deleteRemoteLink(cfg, key, globalId)
   } catch (error) {

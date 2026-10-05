@@ -240,7 +240,7 @@ export function toJsonSchema(): unknown {
         items: { type: 'string' },
         default: [],
         description:
-          'What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader\'s terms. Leave empty rather than padding it.',
+          "What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader's terms. Leave empty rather than padding it.",
       },
       answers: {
         type: 'array',

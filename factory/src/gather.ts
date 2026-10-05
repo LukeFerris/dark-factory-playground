@@ -53,7 +53,9 @@ function previewUrlOf(pr: number | undefined): string | null {
   try {
     return parseFactoryBlock(prBodyAndBranch(pr).body)?.preview_url ?? null
   } catch (error) {
-    console.warn(`::warning::could not read the preview URL off PR #${pr}: ${(error as Error).message}`)
+    console.warn(
+      `::warning::could not read the preview URL off PR #${pr}: ${(error as Error).message}`,
+    )
     return null
   }
 }
@@ -96,11 +98,7 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   const parent = issue.fields['parent'] as { fields?: { summary?: string } } | undefined
   const epic = parent?.fields?.summary ?? ''
 
-  const lines: string[] = [
-    `# ${options.key}: ${summary}`,
-    '',
-    `Stage: **${options.stage}**`,
-  ]
+  const lines: string[] = [`# ${options.key}: ${summary}`, '', `Stage: **${options.stage}**`]
   if (epic !== '') lines.push(`Epic: ${epic}`)
   lines.push('', '## Description', '', description === '' ? '_(none given)_' : description)
 

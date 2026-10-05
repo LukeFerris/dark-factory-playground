@@ -101,8 +101,7 @@ export function buildComment(
         ),
       ),
     )
-    const marker =
-      evidence.video !== null ? ' (in the walkthrough)' : ' (screenshot attached)'
+    const marker = evidence.video !== null ? ' (in the walkthrough)' : ' (screenshot attached)'
     if (evidence.proved.length > 0) {
       blocks.push(
         adf.paragraph(
@@ -356,11 +355,7 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
-  const { evidence, evidenceNote } = await attachEvidence(
-    cfg,
-    meta.key,
-    options.dryRun === true,
-  )
+  const { evidence, evidenceNote } = await attachEvidence(cfg, meta.key, options.dryRun === true)
 
   // Through the launcher: the Jira comment is read by a person, who may open
   // it days later, long after the app has scaled back to zero. meta.preview_url
@@ -373,7 +368,9 @@ export async function report(options: ReportOptions): Promise<void> {
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))
     console.log(`report --dry-run: ${evidenceNote}`)
-    console.log(`report --dry-run: would move ${meta.key} to ${targetStatus(options.stage, result)}`)
+    console.log(
+      `report --dry-run: would move ${meta.key} to ${targetStatus(options.stage, result)}`,
+    )
     return
   }
 

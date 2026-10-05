@@ -189,7 +189,12 @@ describe('what the card says when it is going back to Building', () => {
 describe('what the card says when no agent may touch the conflict', () => {
   it('names the machinery and asks for a person, with no promise of a retry', () => {
     const text = textOf(
-      refusedComment(because, state({ state: 'refused', denied: ['factory/src/validate.ts'] }), 19, null),
+      refusedComment(
+        because,
+        state({ state: 'refused', denied: ['factory/src/validate.ts'] }),
+        19,
+        null,
+      ),
     )
 
     expect(text).toContain('factory/src/validate.ts')

@@ -119,7 +119,10 @@ export function capturedSteps(dir: string): number[] {
  * so a reviewer can see that there was more and go and read the card.
  */
 export function wrap(text: string, max: number, lines: number): string[] {
-  const words = text.trim().split(/\s+/).filter((w) => w !== '')
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== '')
   if (words.length === 0) return []
 
   const out: string[] = []
@@ -136,7 +139,10 @@ export function wrap(text: string, max: number, lines: number): string[] {
   }
   if (out.length < lines && current !== '') out.push(current)
 
-  const used = out.join(' ').split(/\s+/).filter((w) => w !== '').length
+  const used = out
+    .join(' ')
+    .split(/\s+/)
+    .filter((w) => w !== '').length
   if (used < words.length) {
     const last = out[lines - 1] ?? ''
     out[lines - 1] = `${last.slice(0, Math.max(0, max - 1)).trimEnd()}…`
@@ -156,7 +162,10 @@ export interface Slide {
 
 /** About two and a half words a second, between four and twelve. */
 export function holdSeconds(lines: string[]): number {
-  const words = lines.join(' ').split(/\s+/).filter((w) => w !== '').length
+  const words = lines
+    .join(' ')
+    .split(/\s+/)
+    .filter((w) => w !== '').length
   return Math.min(12, Math.max(4, Math.ceil(words / 2.5)))
 }
 
@@ -319,12 +328,30 @@ export function buildSlides(options: SlidesOptions): SlidesOutcome {
       const clip = `${stem}.mp4`
       const rendered = spawnSync(
         'ffmpeg',
-        ['-y', '-loop', '1', '-t', String(slide.seconds), '-i', slide.shot,
-         '-vf', filters, '-r', '30', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', clip],
+        [
+          '-y',
+          '-loop',
+          '1',
+          '-t',
+          String(slide.seconds),
+          '-i',
+          slide.shot,
+          '-vf',
+          filters,
+          '-r',
+          '30',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:v',
+          'libx264',
+          clip,
+        ],
         { encoding: 'utf8' },
       )
       if (rendered.status !== 0) {
-        throw new Error(`ffmpeg could not render step ${slide.step.n}: ${(rendered.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`)
+        throw new Error(
+          `ffmpeg could not render step ${slide.step.n}: ${(rendered.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`,
+        )
       }
       parts.push(clip)
     })
@@ -351,7 +378,12 @@ export function buildSlides(options: SlidesOptions): SlidesOutcome {
     const kb = Math.ceil(statSync(out).size / 1024)
     if (kb > maxKb) {
       rmSync(out, { force: true })
-      return { ...base, ok: false, video: null, reason: `the video is ${kb} KB, over the ${maxKb} KB cap` }
+      return {
+        ...base,
+        ok: false,
+        video: null,
+        reason: `the video is ${kb} KB, over the ${maxKb} KB cap`,
+      }
     }
 
     return { ...base, ok: true, video: out, reason: '' }

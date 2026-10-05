@@ -4,7 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { EditDealForm } from './EditDealForm'
 import type { Deal } from '../crm/types'
 
-const beta: Deal = { id: 'b', company: 'Beta Health', sector: 'Healthcare', stage: 'Screening', size: 12.5, owner: 'Jo Lee' }
+const beta: Deal = {
+  id: 'b',
+  company: 'Beta Health',
+  sector: 'Healthcare',
+  stage: 'Screening',
+  size: 12.5,
+  owner: 'Jo Lee',
+}
 
 function setup(deal: Deal = beta) {
   const onSave = vi.fn()
@@ -36,14 +43,24 @@ describe('EditDealForm', () => {
     await user.clear(form.getByLabelText('Deal size (£m)'))
     await user.type(form.getByLabelText('Deal size (£m)'), '20')
     await user.click(form.getByRole('button', { name: 'Save' }))
-    expect(onSave).toHaveBeenCalledWith({ company: 'Beta Care', sector: 'Healthcare', size: 20, owner: 'Jo Lee' })
+    expect(onSave).toHaveBeenCalledWith({
+      company: 'Beta Care',
+      sector: 'Healthcare',
+      size: 20,
+      owner: 'Jo Lee',
+    })
   })
 
   it('saves a cleared size as no size', async () => {
     const { form, onSave, user } = setup()
     await user.clear(form.getByLabelText('Deal size (£m)'))
     await user.click(form.getByRole('button', { name: 'Save' }))
-    expect(onSave).toHaveBeenCalledWith({ company: 'Beta Health', sector: 'Healthcare', size: undefined, owner: 'Jo Lee' })
+    expect(onSave).toHaveBeenCalledWith({
+      company: 'Beta Health',
+      sector: 'Healthcare',
+      size: undefined,
+      owner: 'Jo Lee',
+    })
   })
 
   it('rejects a blank company and focuses it', async () => {

@@ -17,7 +17,14 @@ import { uatStep } from './uat'
  * card's.
  */
 
-const STAGES = ['Sourcing', 'Screening', 'Due diligence', 'Investment committee', 'Closed', 'Passed']
+const STAGES = [
+  'Sourcing',
+  'Screening',
+  'Due diligence',
+  'Investment committee',
+  'Closed',
+  'Passed',
+]
 
 function column(page: Page, stage: string) {
   return page.getByRole('region', { name: stage })
@@ -41,7 +48,9 @@ function outlined(page: Page) {
   return expect.poll(async () => {
     const dashed: string[] = []
     for (const stage of STAGES) {
-      const style = await column(page, stage).evaluate((element) => getComputedStyle(element).outlineStyle)
+      const style = await column(page, stage).evaluate(
+        (element) => getComputedStyle(element).outlineStyle,
+      )
       if (style === 'dashed') dashed.push(stage)
     }
     return dashed
@@ -113,7 +122,9 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(count(page, 'Screening')).toHaveText('2')
     await expect(column(page, 'Sourcing').getByText('No deals')).toBeVisible()
     await expect(count(page, 'Sourcing')).toHaveText('0')
-    await expect(page.getByRole('combobox', { name: 'Stage for Northwind Analytics' })).toHaveValue('Screening')
+    await expect(page.getByRole('combobox', { name: 'Stage for Northwind Analytics' })).toHaveValue(
+      'Screening',
+    )
   })
 
   // A card can be dropped on an empty column.
@@ -178,16 +189,22 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
 
   await uatStep(page, 18, async () => {
     const passed = column(page, 'Passed')
-    await column(page, 'Closed').getByRole('heading', { name: 'Meridian Foods' }).dragTo(passed, {
-      targetPosition: await below(passed, cardIn(page, 'Passed', 'Harbour Dental Group')),
-    })
+    await column(page, 'Closed')
+      .getByRole('heading', { name: 'Meridian Foods' })
+      .dragTo(passed, {
+        targetPosition: await below(passed, cardIn(page, 'Passed', 'Harbour Dental Group')),
+      })
     await expect(cardIn(page, 'Closed', 'Meridian Foods')).toBeVisible()
   })
 
   await uatStep(page, 19, async () => {
     await expect(cardIn(page, 'Closed', 'Meridian Foods')).toBeVisible()
-    await expect(column(page, 'Passed').getByRole('article', { name: 'Meridian Foods' })).toHaveCount(0)
-    await expect(cardIn(page, 'Closed', 'Meridian Foods').getByRole('form', { name: 'Edit Meridian Foods' })).toBeVisible()
+    await expect(
+      column(page, 'Passed').getByRole('article', { name: 'Meridian Foods' }),
+    ).toHaveCount(0)
+    await expect(
+      cardIn(page, 'Closed', 'Meridian Foods').getByRole('form', { name: 'Edit Meridian Foods' }),
+    ).toBeVisible()
   })
 
   // Moves made by dragging survive a reload.
@@ -204,7 +221,9 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
 
   // The "Stage" picker still moves a card.
   await uatStep(page, 22, async () => {
-    await page.getByRole('combobox', { name: 'Stage for Kestrel Energy Services' }).selectOption('Closed')
+    await page
+      .getByRole('combobox', { name: 'Stage for Kestrel Energy Services' })
+      .selectOption('Closed')
     await expect(cardIn(page, 'Closed', 'Kestrel Energy Services')).toBeVisible()
   })
 

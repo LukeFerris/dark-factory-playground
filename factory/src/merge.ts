@@ -363,7 +363,9 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
   const allowed = new Set(state.conflicts)
   const strayed = dirtyPaths().filter((p) => !allowed.has(p))
   for (const path of strayed) {
-    problems.push(`${path} was changed while resolving the merge, and it was not one of the conflicts.`)
+    problems.push(
+      `${path} was changed while resolving the merge, and it was not one of the conflicts.`,
+    )
   }
 
   for (const path of state.conflicts) {

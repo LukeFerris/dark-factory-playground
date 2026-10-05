@@ -40,7 +40,9 @@ describe('transitionTo', () => {
     let posted: unknown = null
     server.use(
       http.get(`${BASE}/rest/api/3/issue/DF-1/transitions`, () =>
-        HttpResponse.json({ transitions: [{ id: '31', name: 'x', to: { name: 'Design Review' } }] }),
+        HttpResponse.json({
+          transitions: [{ id: '31', name: 'x', to: { name: 'Design Review' } }],
+        }),
       ),
       http.post(`${BASE}/rest/api/3/issue/DF-1/transitions`, async ({ request }) => {
         posted = await request.json()
@@ -134,9 +136,7 @@ describe('addAttachment', () => {
   // Jira answers with a list, one entry per part. An empty one would otherwise
   // sail through and be embedded as `undefined`.
   it('refuses an empty answer rather than returning nothing useful', async () => {
-    server.use(
-      http.post(`${BASE}/rest/api/3/issue/DF-1/attachments`, () => HttpResponse.json([])),
-    )
+    server.use(http.post(`${BASE}/rest/api/3/issue/DF-1/attachments`, () => HttpResponse.json([])))
     await expect(jira.addAttachment(cfg, 'DF-1', file)).rejects.toThrow(/silently/)
   })
 })
@@ -161,7 +161,7 @@ describe('isAnswered', () => {
     bodyWithoutMentions: body,
   })
 
-  it('is false when the newest comment is the factory\'s own question', () => {
+  it("is false when the newest comment is the factory's own question", () => {
     expect(jira.isAnswered(comment(US, 'Questions: …'), US)).toBe(false)
   })
 
@@ -195,7 +195,10 @@ describe('getComments', () => {
               id: '10042',
               author: { displayName: 'Brakkr [bot]', accountId: '712020:factory' },
               created: '2026-09-23T10:00:00.000+0000',
-              body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }] },
+              body: {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }],
+              },
             },
           ],
         }),
@@ -324,8 +327,14 @@ describe('adfToText', () => {
         {
           type: 'bulletList',
           content: [
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }] },
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }] },
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }],
+            },
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }],
+            },
           ],
         },
       ],
@@ -361,7 +370,9 @@ describe('mentions', () => {
   })
 
   it('finds none in a comment without mentions', () => {
-    expect(jira.mentionedIds({ type: 'doc', content: [{ type: 'text', text: '@Enki' }] })).toEqual([])
+    expect(jira.mentionedIds({ type: 'doc', content: [{ type: 'text', text: '@Enki' }] })).toEqual(
+      [],
+    )
     expect(jira.mentionedIds(undefined)).toEqual([])
   })
 
@@ -377,7 +388,14 @@ describe('mentions', () => {
     server.use(
       http.get(`${BASE}/rest/api/3/issue/DF-3/comment`, () =>
         HttpResponse.json({
-          comments: [{ id: '1', author: { displayName: 'Luke', accountId: '557058:human' }, created: 'x', body: doc }],
+          comments: [
+            {
+              id: '1',
+              author: { displayName: 'Luke', accountId: '557058:human' },
+              created: 'x',
+              body: doc,
+            },
+          ],
         }),
       ),
     )
@@ -398,16 +416,33 @@ describe('changelog', () => {
             {
               author: { accountId: '712020:factory' },
               created: '2026-10-05T10:00:00.000+0000',
-              items: [{ field: 'status', to: '400', toString: 'Building', from: '10016', fromString: 'In review' }],
+              items: [
+                {
+                  field: 'status',
+                  to: '400',
+                  toString: 'Building',
+                  from: '10016',
+                  fromString: 'In review',
+                },
+              ],
             },
-            { author: { accountId: 'a' }, created: 'y', items: [{ field: 'labels', toString: 'x' }] },
+            {
+              author: { accountId: 'a' },
+              created: 'y',
+              items: [{ field: 'labels', toString: 'x' }],
+            },
           ],
           isLast: true,
         }),
       ),
     )
     const [moved, labelled] = await jira.changelog(cfg, 'DF-3')
-    expect(moved?.items[0]).toEqual({ field: 'status', to: '400', toString: 'Building', fromString: 'In review' })
+    expect(moved?.items[0]).toEqual({
+      field: 'status',
+      to: '400',
+      toString: 'Building',
+      fromString: 'In review',
+    })
     expect(labelled?.items[0]?.fromString).toBeNull()
   })
 })

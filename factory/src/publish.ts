@@ -19,7 +19,12 @@ function readResult(): Result {
   return ResultSchema.parse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
 }
 
-export function prBody(key: string, summary: string, result: Result, previewUrl: string | null): string {
+export function prBody(
+  key: string,
+  summary: string,
+  result: Result,
+  previewUrl: string | null,
+): string {
   const lines: string[] = [`### ${key}: ${summary}`, '', result.summary.trim(), '']
 
   if (result.context.trim() !== '') {
@@ -119,7 +124,7 @@ export function publish(options: PublishOptions): PullRequest | null {
 
   const staged = git(['diff', '--cached', '--name-only']).trim()
   if (staged === '') {
-    console.log('publish: nothing to commit within the stage\'s allowed paths.')
+    console.log("publish: nothing to commit within the stage's allowed paths.")
   } else {
     const subject = (result.summary.split('\n')[0] ?? 'factory turn').slice(0, 72)
     git(['commit', '-m', `${meta.key}: ${subject}`])

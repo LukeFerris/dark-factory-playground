@@ -46,9 +46,7 @@ export type PreviewBackend = 'ghcr' | 'azure'
 export function previewBackend(): PreviewBackend {
   const value = optional('FACTORY_PREVIEW_BACKEND', 'ghcr').toLowerCase()
   if (value !== 'ghcr' && value !== 'azure') {
-    throw new Error(
-      `FACTORY_PREVIEW_BACKEND must be "ghcr" or "azure", not "${value}".`,
-    )
+    throw new Error(`FACTORY_PREVIEW_BACKEND must be "ghcr" or "azure", not "${value}".`)
   }
   return value
 }
@@ -233,7 +231,9 @@ export function previewDown(prNumber: number, dryRun = false): void {
   const backend = previewBackend()
 
   if (dryRun) {
-    console.log(`preview-down --dry-run: would tear down the ${backend} preview for PR #${prNumber}`)
+    console.log(
+      `preview-down --dry-run: would tear down the ${backend} preview for PR #${prNumber}`,
+    )
     return
   }
 
@@ -265,9 +265,10 @@ export function previewDown(prNumber: number, dryRun = false): void {
   // Find the GHCR version tagged pr-<N> and delete just that one.
   try {
     const versionsPath = packageVersionsPath()
-    const versions = ghJson<
-      Array<{ id: number; metadata?: { container?: { tags?: string[] } } }>
-    >(['api', versionsPath])
+    const versions = ghJson<Array<{ id: number; metadata?: { container?: { tags?: string[] } } }>>([
+      'api',
+      versionsPath,
+    ])
 
     const match = (versions ?? []).find((v) =>
       (v.metadata?.container?.tags ?? []).includes(`pr-${prNumber}`),

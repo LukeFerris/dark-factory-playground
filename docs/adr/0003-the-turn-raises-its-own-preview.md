@@ -16,15 +16,15 @@ reason was a real one and still holds: `packages: write`,
 `deployments: write` and `id-token: write` must never be in scope while an
 agent is running, and a separate workflow guarantees that.
 
-What it got wrong was the *ordering*, and the symptom took five cards to
+What it got wrong was the _ordering_, and the symptom took five cards to
 notice. `report` — the step that comments on the Jira card and transitions it
-to *In review* — ran at the end of the agent's workflow. The label that
+to _In review_ — ran at the end of the agent's workflow. The label that
 triggered the deploy was applied by `publish`, a step earlier in that same
 workflow. So the sequence was:
 
 1. `publish` pushes the branch, opens the PR, applies `factory:active`
-2. `report` comments on Jira and moves the card to *In review*
-3. *…the label event fires…*
+2. `report` comments on Jira and moves the card to _In review_
+3. _…the label event fires…_
 4. `build-setup.yml` starts, builds an image, waits for a container
 
 Two consequences, both visible on live cards:
@@ -33,13 +33,13 @@ Two consequences, both visible on live cards:
   URL from `meta.json`, and on turn 1 nothing has written one yet — the deploy
   has not started. Confirmed on DF-4: PR #16's factory block has the preview
   URL; none of the card's Jira comments do.
-- **The card reaches *In review* before there is anything to review.** *In
-  review* is not a status, it is an instruction to a human to go and look. On
+- **The card reaches _In review_ before there is anything to review.** _In
+  review_ is not a status, it is an instruction to a human to go and look. On
   the Azure backend the deploy that follows takes minutes.
 
 The second is the real defect. Appending the link to the Jira comment once the
-deploy finished would have made the card *eventually* correct; the card needs
-to be correct *when it is read*.
+deploy finished would have made the card _eventually_ correct; the card needs
+to be correct _when it is read_.
 
 ## Decision
 
@@ -48,10 +48,10 @@ request event.**
 
 `build-start.yml` and `build-turn.yml` each gained a second job:
 
-| Job | Holds | Does |
-| --- | --- | --- |
-| `turn` | `contents: read` | Runs the agent, validates, publishes, uploads `.agent/` as an artifact |
-| `preview` | `packages: write`, `deployments: write`, `id-token: write`, `pull-requests: write` | Restores the artifact, deploys, waits for a 200, then reports |
+| Job       | Holds                                                                              | Does                                                                   |
+| --------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `turn`    | `contents: read`                                                                   | Runs the agent, validates, publishes, uploads `.agent/` as an artifact |
+| `preview` | `packages: write`, `deployments: write`, `id-token: write`, `pull-requests: write` | Restores the artifact, deploys, waits for a 200, then reports          |
 
 `report` is the last step of `preview`. By the time the card moves, the preview
 serving that turn's code has answered — or the job failed and the card says so.

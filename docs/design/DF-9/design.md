@@ -98,20 +98,20 @@ alternatives are listed under Risks.
 
 ## Components affected
 
-| File | Change |
-| --- | --- |
-| `app/src/crm/validateDeal.ts` | New. `parseSize` (moved from `AddDealForm`) and `validateDeal` returning a trimmed `NewDeal` or field errors |
-| `app/src/crm/validateDeal.test.ts` | New. Unit tests for both functions |
-| `app/src/components/AddDealForm.tsx` | Uses `validateDeal` instead of its private rules. No change in behaviour, markup or ids |
-| `app/src/components/EditDealForm.tsx` | New. The in-card form: props `deal: Deal`, `onSave(changes: NewDeal)`, `onCancel()`. Holds field strings and errors locally. Field ids are namespaced by deal id (e.g. `edit-<id>-company`) so they never clash with the add form or another card |
-| `app/src/components/EditDealForm.test.tsx` | New |
-| `app/src/components/PipelineBoard.tsx` | New prop `onUpdate(id: string, changes: NewDeal)`. `DealCard` gains local `editing` state, an "Edit" button, and renders `EditDealForm` in place of details and stage select while editing. Manages focus on open and close |
-| `app/src/components/PipelineBoard.test.tsx` | Extended: existing renders pass `onUpdate={vi.fn()}`; new cases below |
-| `app/src/crm/useDeals.ts` | New `updateDeal(id, changes: NewDeal)`: replaces company (trimmed), sector, size and owner on the matching deal and keeps `id` and `stage` |
-| `app/src/crm/useDeals.test.ts` | Extended with `updateDeal` cases |
-| `app/src/App.tsx` | Wires `updateDeal` to the board through `handleUpdate`, which announces "Saved changes to <new company>" |
-| `app/src/App.test.tsx` | New integration case for edit, save, cancel and reload |
-| `app/src/index.css` | Styles for the "Edit" button, the in-card form (fields stacked vertically), and a secondary button style for "Cancel". `.button` inside the card drops the `23px` top margin |
+| File                                        | Change                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/src/crm/validateDeal.ts`               | New. `parseSize` (moved from `AddDealForm`) and `validateDeal` returning a trimmed `NewDeal` or field errors                                                                                                                                      |
+| `app/src/crm/validateDeal.test.ts`          | New. Unit tests for both functions                                                                                                                                                                                                                |
+| `app/src/components/AddDealForm.tsx`        | Uses `validateDeal` instead of its private rules. No change in behaviour, markup or ids                                                                                                                                                           |
+| `app/src/components/EditDealForm.tsx`       | New. The in-card form: props `deal: Deal`, `onSave(changes: NewDeal)`, `onCancel()`. Holds field strings and errors locally. Field ids are namespaced by deal id (e.g. `edit-<id>-company`) so they never clash with the add form or another card |
+| `app/src/components/EditDealForm.test.tsx`  | New                                                                                                                                                                                                                                               |
+| `app/src/components/PipelineBoard.tsx`      | New prop `onUpdate(id: string, changes: NewDeal)`. `DealCard` gains local `editing` state, an "Edit" button, and renders `EditDealForm` in place of details and stage select while editing. Manages focus on open and close                       |
+| `app/src/components/PipelineBoard.test.tsx` | Extended: existing renders pass `onUpdate={vi.fn()}`; new cases below                                                                                                                                                                             |
+| `app/src/crm/useDeals.ts`                   | New `updateDeal(id, changes: NewDeal)`: replaces company (trimmed), sector, size and owner on the matching deal and keeps `id` and `stage`                                                                                                        |
+| `app/src/crm/useDeals.test.ts`              | Extended with `updateDeal` cases                                                                                                                                                                                                                  |
+| `app/src/App.tsx`                           | Wires `updateDeal` to the board through `handleUpdate`, which announces "Saved changes to <new company>"                                                                                                                                          |
+| `app/src/App.test.tsx`                      | New integration case for edit, save, cancel and reload                                                                                                                                                                                            |
+| `app/src/index.css`                         | Styles for the "Edit" button, the in-card form (fields stacked vertically), and a secondary button style for "Cancel". `.button` inside the card drops the `23px` top margin                                                                      |
 
 No new dependencies. No change to the stored data's shape or storage key.
 
@@ -139,7 +139,7 @@ No new dependencies. No change to the stored data's shape or storage key.
   <company>", which is "Edit" plus a visually hidden company name, using the
   same pattern as the stage label. It sits after the stage select, so the tab
   order within a card is stage select, then Edit. It is a real `<button
-  type="button">`.
+type="button">`.
 - **Opening.** Focus moves to the "Company" field in that card's form. The
   form is a `<form>` with `aria-label="Edit <company>"` (the saved name), so a
   screen reader announces which deal is being edited. The card's `<h3>` stays,

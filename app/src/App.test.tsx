@@ -35,8 +35,12 @@ describe('App', () => {
 
     const stage = () => screen.getByRole('combobox', { name: 'Stage for Acme Logistics' })
     await user.selectOptions(stage(), 'Due diligence')
-    expect(column('Due diligence').getByRole('article', { name: 'Acme Logistics' })).toBeInTheDocument()
-    expect(column('Sourcing').queryByRole('article', { name: 'Acme Logistics' })).not.toBeInTheDocument()
+    expect(
+      column('Due diligence').getByRole('article', { name: 'Acme Logistics' }),
+    ).toBeInTheDocument()
+    expect(
+      column('Sourcing').queryByRole('article', { name: 'Acme Logistics' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Moved Acme Logistics to Due diligence')
     expect(stage()).toHaveFocus()
 
@@ -83,7 +87,9 @@ describe('App', () => {
     await user.type(form.getByLabelText('Company'), 'Something Else')
     await user.click(form.getByRole('button', { name: 'Cancel' }))
 
-    expect(column('Screening').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+    expect(
+      column('Screening').getByRole('article', { name: 'Harbour Dental Group' }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: 'Something Else' })).not.toBeInTheDocument()
   })
 
@@ -107,17 +113,24 @@ describe('App', () => {
     const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
     const { unmount } = render(<App />)
     const passed = screen.getByRole('region', { name: 'Passed' })
-    fireEvent.dragStart(column('Screening').getByRole('article', { name: 'Harbour Dental Group' }), { dataTransfer })
+    fireEvent.dragStart(
+      column('Screening').getByRole('article', { name: 'Harbour Dental Group' }),
+      { dataTransfer },
+    )
     fireEvent.dragOver(passed, { dataTransfer })
     fireEvent.drop(passed, { dataTransfer })
 
-    expect(column('Passed').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+    expect(
+      column('Passed').getByRole('article', { name: 'Harbour Dental Group' }),
+    ).toBeInTheDocument()
     expect(column('Screening').getByText('No deals')).toBeInTheDocument()
     expect(screen.getByText('3 active deals · £185m in pipeline')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Moved Harbour Dental Group to Passed')
     unmount()
 
     render(<App />)
-    expect(column('Passed').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+    expect(
+      column('Passed').getByRole('article', { name: 'Harbour Dental Group' }),
+    ).toBeInTheDocument()
   })
 })

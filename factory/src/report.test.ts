@@ -106,7 +106,13 @@ describe('buildComment', () => {
   })
 
   it('renders the failure reason in a code block when the turn failed', () => {
-    const doc = buildComment('build', result({ status: 'failed', reason: 'out of scope' }), null, null, null)
+    const doc = buildComment(
+      'build',
+      result({ status: 'failed', reason: 'out of scope' }),
+      null,
+      null,
+      null,
+    )
     expect(textOf(doc)).toContain('out of scope')
   })
 
@@ -146,7 +152,7 @@ describe('buildComment', () => {
 
   // The whole point of the split: the criteria say what "done" means, the steps
   // say how you find out. A single numbered list cannot do both.
-  it('bullets the criteria and numbers each criterion\'s steps separately', () => {
+  it("bullets the criteria and numbers each criterion's steps separately", () => {
     const doc = buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null)
 
     const bullets = doc.content.filter((n) => n.type === 'bulletList')
@@ -168,7 +174,11 @@ describe('buildComment', () => {
     const bold = doc.content
       .filter((n) => n.type === 'paragraph')
       .flatMap((n) => (n['content'] as Array<Record<string, unknown>>) ?? [])
-      .filter((n) => Array.isArray(n['marks']) && (n['marks'] as Array<{ type: string }>)[0]?.type === 'strong')
+      .filter(
+        (n) =>
+          Array.isArray(n['marks']) &&
+          (n['marks'] as Array<{ type: string }>)[0]?.type === 'strong',
+      )
       .map((n) => n['text'])
     expect(bold).toEqual(CRITERIA.map((c) => c.criterion))
   })
@@ -290,14 +300,18 @@ describe('buildComment', () => {
   // the factory sets Done itself. Telling a reviewer otherwise sends them to
   // look for a column that does not exist.
   it('tells a build reviewer to merge, not to drag the card', () => {
-    const text = textOf(buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null))
+    const text = textOf(
+      buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null),
+    )
     expect(text).toContain('What happens next')
     expect(text).toContain('approve and merge the pull request')
     expect(text).not.toContain('Ready for deploy')
   })
 
   it('tells a design reviewer which column moves it on', () => {
-    const text = textOf(buildComment('design', result({ acceptance_criteria: CRITERIA }), null, null, null))
+    const text = textOf(
+      buildComment('design', result({ acceptance_criteria: CRITERIA }), null, null, null),
+    )
     expect(text).toContain('"Ready for build"')
   })
 

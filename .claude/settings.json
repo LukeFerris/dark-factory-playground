@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v git-ai >/dev/null 2>&1 && git-ai checkpoint claude --hook-input stdin || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v git-ai >/dev/null 2>&1 && git-ai checkpoint claude --hook-input stdin || true"
+          }
+        ]
+      }
+    ]
+  }
+}

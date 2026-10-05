@@ -186,7 +186,11 @@ describe('the card comment a stuck merge turns into', () => {
   // imply one tried and failed — it asks for a person on the branch instead.
   it('says plainly that a machinery conflict needs a person', () => {
     const result = mergeQuestionResult(
-      state({ state: 'refused', conflicts: ['factory/src/validate.ts'], denied: ['factory/src/validate.ts'] }),
+      state({
+        state: 'refused',
+        conflicts: ['factory/src/validate.ts'],
+        denied: ['factory/src/validate.ts'],
+      }),
       ['The conflict is in factory/src/validate.ts.'],
       null,
     )

@@ -51,7 +51,11 @@ function comment(over: Partial<jira.JiraComment>): jira.JiraComment {
 }
 
 function move(created: string, from: string, to: string): jira.ChangeEntry {
-  return { authorId: FACTORY, created, items: [{ field: 'status', to: null, toString: to, fromString: from }] }
+  return {
+    authorId: FACTORY,
+    created,
+    items: [{ field: 'status', to: null, toString: to, fromString: from }],
+  }
 }
 
 describe('what counts as "stop"', () => {
@@ -59,7 +63,9 @@ describe('what counts as "stop"', () => {
   // what makes it this command.
   it('is a mention of the factory with "stop" as the first word', () => {
     for (const text of [' stop', ' Stop.', ', stop please', ' STOP', '  —stop']) {
-      expect(isStopCommand(comment({ mentions: [FACTORY], bodyWithoutMentions: text }), FACTORY)).toBe(true)
+      expect(
+        isStopCommand(comment({ mentions: [FACTORY], bodyWithoutMentions: text }), FACTORY),
+      ).toBe(true)
     }
   })
 
@@ -88,7 +94,9 @@ describe('where a card goes when it is let go', () => {
 
   it('goes back where it came from', () => {
     expect(returnStatus('Building', { since: 'x', from: 'In review' })).toBe('In review')
-    expect(returnStatus('Designing', { since: 'x', from: 'Blocked on architect' })).toBe('Blocked on architect')
+    expect(returnStatus('Designing', { since: 'x', from: 'Blocked on architect' })).toBe(
+      'Blocked on architect',
+    )
   })
 
   // A history that says nothing, or says it came from the other locked status,
@@ -251,7 +259,11 @@ function stub(cards: Record<string, Card>, runs: FakeRun[] = []): Seen {
 
     http.get(`${BASE}/rest/api/3/issue/:key/transitions`, () =>
       HttpResponse.json({
-        transitions: STATUSES.map((name, i) => ({ id: String(i), name: `to ${name}`, to: { name } })),
+        transitions: STATUSES.map((name, i) => ({
+          id: String(i),
+          name: `to ${name}`,
+          to: { name },
+        })),
       }),
     ),
 
@@ -269,7 +281,8 @@ function stub(cards: Record<string, Card>, runs: FakeRun[] = []): Seen {
         key: params['key'] as string,
         fields: {
           status: { name: c.status },
-          assignee: c.assignee === undefined || c.assignee === null ? null : { accountId: c.assignee },
+          assignee:
+            c.assignee === undefined || c.assignee === null ? null : { accountId: c.assignee },
         },
       })
     }),
@@ -311,13 +324,21 @@ function stub(cards: Record<string, Card>, runs: FakeRun[] = []): Seen {
 
 const noWait = async (): Promise<void> => {}
 
-const stopFromLuke = comment({ id: '40', authorId: LUKE, mentions: [FACTORY], bodyWithoutMentions: ' stop' })
+const stopFromLuke = comment({
+  id: '40',
+  authorId: LUKE,
+  mentions: [FACTORY],
+  bodyWithoutMentions: ' stop',
+})
 
 function building(over: Partial<Card> = {}): Card {
   return {
     status: 'Building',
     assignee: FACTORY,
-    comments: [comment({ id: '30', authorId: FACTORY, bodyWithoutMentions: 'build turn 2 started' }), stopFromLuke],
+    comments: [
+      comment({ id: '30', authorId: FACTORY, bodyWithoutMentions: 'build turn 2 started' }),
+      stopFromLuke,
+    ],
     history: [move('2026-10-05T09:58:00.000+0000', 'In review', 'Building')],
     ...over,
   }
@@ -326,7 +347,9 @@ function building(over: Partial<Card> = {}): Card {
 describe('stopping a turn', () => {
   it('cancels the run, waits for it, and gives the card back to whoever said stop', async () => {
     const cards = { 'DF-4': building() }
-    const runs: FakeRun[] = [{ id: 7, key: 'DF-4', workflow: 'build-turn.yml', status: 'in_progress', cancelsAfter: 2 }]
+    const runs: FakeRun[] = [
+      { id: 7, key: 'DF-4', workflow: 'build-turn.yml', status: 'in_progress', cancelsAfter: 2 },
+    ]
     const seen = stub(cards, runs)
 
     expect(await stop({ cfg, key: 'DF-4', sleep: noWait })).toBe('stopped')
@@ -342,9 +365,10 @@ describe('stopping a turn', () => {
   // Moving first would leave the card in a Ready column still assigned to the
   // factory for a moment — which is exactly how a card is sent in.
   it('assigns before it moves, and marks the comment before either', async () => {
-    const seen = stub({ 'DF-4': building({ history: [move('t', 'Ready for build', 'Building')] }) }, [
-      { id: 7, key: 'DF-4', workflow: 'build-start.yml', status: 'in_progress' },
-    ])
+    const seen = stub(
+      { 'DF-4': building({ history: [move('t', 'Ready for build', 'Building')] }) },
+      [{ id: 7, key: 'DF-4', workflow: 'build-start.yml', status: 'in_progress' }],
+    )
 
     await stop({ cfg, key: 'DF-4', sleep: noWait })
 
@@ -358,12 +382,24 @@ describe('stopping a turn', () => {
   })
 
   it('force-cancels a run that will not stop', async () => {
-    const runs: FakeRun[] = [{ id: 9, key: 'DF-4', workflow: 'build-turn.yml', status: 'in_progress', cancelsAfter: Infinity }]
+    const runs: FakeRun[] = [
+      {
+        id: 9,
+        key: 'DF-4',
+        workflow: 'build-turn.yml',
+        status: 'in_progress',
+        cancelsAfter: Infinity,
+      },
+    ]
     const seen = stub({ 'DF-4': building() }, runs)
 
     await stop({ cfg, key: 'DF-4', sleep: noWait, waitMs: 10, pollMs: 5 })
 
-    expect(seen.gh.some((a) => a[0] === 'api' && a[3]?.endsWith('/actions/runs/9/force-cancel') === true)).toBe(true)
+    expect(
+      seen.gh.some(
+        (a) => a[0] === 'api' && a[3]?.endsWith('/actions/runs/9/force-cancel') === true,
+      ),
+    ).toBe(true)
     expect(seen.writes).toContain('move DF-4 In review')
   })
 
@@ -408,7 +444,11 @@ describe('stopping a turn', () => {
   })
 
   it('does nothing when the mention was not a stop', async () => {
-    const other = comment({ id: '41', mentions: [FACTORY], bodyWithoutMentions: ' also make it blue' })
+    const other = comment({
+      id: '41',
+      mentions: [FACTORY],
+      bodyWithoutMentions: ' also make it blue',
+    })
     const seen = stub({ 'DF-4': building({ comments: [stopFromLuke, other] }) })
     expect(await stop({ cfg, key: 'DF-4', sleep: noWait })).toBe('not-a-stop')
     expect(seen.writes).toEqual([])
@@ -416,7 +456,11 @@ describe('stopping a turn', () => {
 
   // A stop from before the factory last spoke was for an earlier turn.
   it('does nothing about a stop the factory has spoken since', async () => {
-    const after = comment({ id: '50', authorId: FACTORY, bodyWithoutMentions: 'build turn 3 started' })
+    const after = comment({
+      id: '50',
+      authorId: FACTORY,
+      bodyWithoutMentions: 'build turn 3 started',
+    })
     const seen = stub({ 'DF-4': building({ comments: [stopFromLuke, after] }) })
     expect(await stop({ cfg, key: 'DF-4', sleep: noWait })).toBe('not-a-stop')
     expect(seen.writes).toEqual([])
@@ -431,7 +475,9 @@ describe('stopping a turn', () => {
   })
 
   it('writes nothing on a dry run', async () => {
-    const seen = stub({ 'DF-4': building() }, [{ id: 7, key: 'DF-4', workflow: 'build-turn.yml', status: 'in_progress' }])
+    const seen = stub({ 'DF-4': building() }, [
+      { id: 7, key: 'DF-4', workflow: 'build-turn.yml', status: 'in_progress' },
+    ])
     await stop({ cfg, key: 'DF-4', dryRun: true, sleep: noWait })
     expect(seen.writes).toEqual([])
     expect(seen.gh.filter((a) => a[1] !== 'list')).toEqual([])
@@ -445,13 +491,22 @@ describe('letting go of abandoned cards', () => {
 
   it('lets go of a locked card with no run, back to whoever sent it in', async () => {
     const cards = {
-      'DF-4': { status: 'Designing', assignee: FACTORY, previous: ANA, history: [move(longAgo, 'Ready for design', 'Designing')] },
+      'DF-4': {
+        status: 'Designing',
+        assignee: FACTORY,
+        previous: ANA,
+        history: [move(longAgo, 'Ready for design', 'Designing')],
+      },
     }
     const seen = stub(cards)
 
     expect(await releaseOrphans({ cfg, projectKey: 'DF', now })).toEqual(['DF-4'])
 
-    expect(seen.writes).toEqual([`assign DF-4 ${ANA}`, 'move DF-4 Ready for design', 'comment DF-4'])
+    expect(seen.writes).toEqual([
+      `assign DF-4 ${ANA}`,
+      'move DF-4 Ready for design',
+      'comment DF-4',
+    ])
     expect(seen.comments[0]?.text).toContain('Let go of this card.')
   })
 
@@ -473,13 +528,17 @@ describe('letting go of abandoned cards', () => {
   // The poller moves a card, then dispatches; the run takes a moment to be
   // listed. That gap is not an orphan.
   it('leaves a card that was only just moved in', async () => {
-    const seen = stub({ 'DF-4': { status: 'Building', history: [move(justNow, 'In review', 'Building')] } })
+    const seen = stub({
+      'DF-4': { status: 'Building', history: [move(justNow, 'In review', 'Building')] },
+    })
     expect(await releaseOrphans({ cfg, projectKey: 'DF', now })).toEqual([])
     expect(seen.writes).toEqual([])
   })
 
   it('writes nothing on a dry run', async () => {
-    const seen = stub({ 'DF-4': { status: 'Building', history: [move(longAgo, 'In review', 'Building')] } })
+    const seen = stub({
+      'DF-4': { status: 'Building', history: [move(longAgo, 'In review', 'Building')] },
+    })
     expect(await releaseOrphans({ cfg, projectKey: 'DF', now, dryRun: true })).toEqual([])
     expect(seen.writes).toEqual([])
   })

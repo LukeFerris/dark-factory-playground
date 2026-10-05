@@ -16,6 +16,25 @@
     "test": "npm run test --workspaces --if-present",
     "e2e": "npm run e2e --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "factory": "npm run --silent factory --workspace @factory/cli --"
+    "factory": "npm run --silent factory --workspace @factory/cli --",
+    "test:coverage": "vitest run --coverage",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml,css,html}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml,css,html}\"",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.9.9"
+  },
+  "lint-staged": {
+    "*.{js,mjs,json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
+  },
+  "overrides": {
+    "eslint-plugin-sonarjs": {
+      "minimatch": "^10.2.5"
+    }
   }
 }

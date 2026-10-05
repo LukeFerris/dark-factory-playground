@@ -36,7 +36,12 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
   }
 
   return (
-    <form className="add-deal" onSubmit={handleSubmit} noValidate aria-labelledby="add-deal-heading">
+    <form
+      className="add-deal"
+      onSubmit={handleSubmit}
+      noValidate
+      aria-labelledby="add-deal-heading"
+    >
       <h2 id="add-deal-heading" className="add-deal__title">
         New opportunity
       </h2>
@@ -59,7 +64,11 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
         </div>
         <div className="field">
           <label htmlFor="deal-sector">Sector</label>
-          <input id="deal-sector" value={sector} onChange={(event) => setSector(event.target.value)} />
+          <input
+            id="deal-sector"
+            value={sector}
+            onChange={(event) => setSector(event.target.value)}
+          />
         </div>
         <div className="field field--narrow">
           <label htmlFor="deal-size">Deal size (£m)</label>

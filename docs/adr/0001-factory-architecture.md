@@ -25,7 +25,7 @@ allow-lists. The design stage writes a document and cannot execute anything; the
 build stage implements an approved document.
 
 The gate matters more than the split. A design is cheap to read and cheap to
-reject; an implementation is neither. Putting a human at *Design review* means
+reject; an implementation is neither. Putting a human at _Design review_ means
 the expensive stage starts from something a person has agreed to.
 
 ### A human grants every build turn
@@ -86,7 +86,7 @@ while it runs.
 Webhooks would be faster and would need a public endpoint, a shared secret, and
 something to run it. Polling needs none of those, and latency here is largely
 irrelevant: the next step takes several minutes and the one after it waits for a
-human. The poller claims a card (moves it out of the waiting status) *before*
+human. The poller claims a card (moves it out of the waiting status) _before_
 dispatching, so a failed dispatch leaves the card visibly stuck rather than
 handing it to two agents on the next tick.
 
@@ -118,7 +118,7 @@ drift apart.
 Validation failure **overwrites** `result.json` with a synthetic `failed`
 result naming the problem, so the reporting step still has something coherent to
 put on the card. A rejected turn that said nothing would leave a card stuck in
-*Building* with nobody told, which is worse than a wrong answer.
+_Building_ with nobody told, which is worse than a wrong answer.
 
 ### TypeScript for the factory scripts
 
@@ -139,7 +139,7 @@ board displays and what people talk about. `factory jira-transition` asks Jira
 for available transitions and picks the one whose destination matches by name.
 
 The generated `Factory` workflow gives every status a global transition. That is
-not laziness: a failed turn must reach *Blocked on engineer* from wherever the
+not laziness: a failed turn must reach _Blocked on engineer_ from wherever the
 card is, and a tightly drawn workflow converts that into an error after the turn
 has already done its work. The gate on this pipeline is the PR review, not the
 Jira workflow.

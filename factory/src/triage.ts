@@ -371,11 +371,7 @@ export function addressedTo(
 }
 
 /** The factory's own most recent comment, for context. '' if it has never spoken. */
-async function lastFactoryComment(
-  cfg: jira.JiraConfig,
-  key: string,
-  me: string,
-): Promise<string> {
+async function lastFactoryComment(cfg: jira.JiraConfig, key: string, me: string): Promise<string> {
   const thread = await jira.getComments(cfg, key)
   for (let i = thread.length - 1; i >= 0; i -= 1) {
     const comment = thread[i] as jira.JiraComment
@@ -429,7 +425,9 @@ async function act(
   try {
     await jira.transitionTo(cfg, key, route.status)
   } catch (error) {
-    console.error(`::warning::could not move ${key} to ${route.status}: ${(error as Error).message}`)
+    console.error(
+      `::warning::could not move ${key} to ${route.status}: ${(error as Error).message}`,
+    )
     return false
   }
 

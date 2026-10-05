@@ -153,7 +153,10 @@ export function activeRuns(): Map<string, CardRun[]> {
       if (run.status === 'completed') continue
       const key = run.displayTitle.split(' ')[0] ?? ''
       if (key === '') continue
-      byKey.set(key, [...(byKey.get(key) ?? []), { id: run.databaseId, url: run.url, status: run.status }])
+      byKey.set(key, [
+        ...(byKey.get(key) ?? []),
+        { id: run.databaseId, url: run.url, status: run.status },
+      ])
     }
   }
   return byKey
@@ -182,7 +185,9 @@ async function letGo(
 }
 
 function backWith(handTo: string): adf.AdfNode[] {
-  return handTo === '' ? [adf.text('Nobody is assigned.')] : [adf.text('It is with '), adf.mention(handTo), adf.text('.')]
+  return handTo === ''
+    ? [adf.text('Nobody is assigned.')]
+    : [adf.text('It is with '), adf.mention(handTo), adf.text('.')]
 }
 
 export function stoppedComment(
@@ -197,7 +202,11 @@ export function stoppedComment(
       : adf.text(`I cancelled the run${runs.length === 1 ? '' : 's'} working on it. `)
   const where = stillLocked
     ? [adf.text(`The card is back in ${to}. `), ...backWith(handTo)]
-    : [adf.text('The turn had already finished and moved the card itself, so I have left it where it is.')]
+    : [
+        adf.text(
+          'The turn had already finished and moved the card itself, so I have left it where it is.',
+        ),
+      ]
 
   const blocks: adf.AdfNode[] = [
     adf.paragraph(adf.strong('Stopped, as asked.'), adf.text(' '), cancelled, ...where),
@@ -208,8 +217,11 @@ export function stoppedComment(
       ),
     ),
   ]
-  const links = runs.map((run, i) => adf.link(runs.length === 1 ? 'Cancelled run' : `Cancelled run ${i + 1}`, run.url))
-  if (links.length > 0) blocks.push(adf.paragraph(...links.flatMap((l, i) => (i === 0 ? [l] : [adf.text('  ·  '), l]))))
+  const links = runs.map((run, i) =>
+    adf.link(runs.length === 1 ? 'Cancelled run' : `Cancelled run ${i + 1}`, run.url),
+  )
+  if (links.length > 0)
+    blocks.push(adf.paragraph(...links.flatMap((l, i) => (i === 0 ? [l] : [adf.text('  ·  '), l]))))
   return adf.doc(...blocks)
 }
 
@@ -224,7 +236,11 @@ export function orphanComment(status: string, to: string, handTo: string): adf.A
       ),
       ...backWith(handTo),
     ),
-    adf.paragraph(adf.text('The Actions tab has the run that died. To try again, send the card in the usual way.')),
+    adf.paragraph(
+      adf.text(
+        'The Actions tab has the run that died. To try again, send the card in the usual way.',
+      ),
+    ),
   ]
   const run = runUrl()
   if (run !== null) blocks.push(adf.paragraph(adf.link('This check', run)))
@@ -268,7 +284,9 @@ export async function stop(options: StopOptions): Promise<StopOutcome> {
   const comment = addressedTo(await jira.recentComments(cfg, key, 20), me)
   if (comment === null || !isStopCommand(comment, me)) return 'not-a-stop'
 
-  const mark = (await jira.getIssueProperty(cfg, key, TRIAGE_PROPERTY)) as { commentId?: string } | null
+  const mark = (await jira.getIssueProperty(cfg, key, TRIAGE_PROPERTY)) as {
+    commentId?: string
+  } | null
   if (mark?.commentId === comment.id) return 'already-handled'
 
   const runs = activeRuns().get(key) ?? []
@@ -316,13 +334,22 @@ async function waitForRuns(
   for (let waited = 0; pending.length > 0; waited += pollMs) {
     pending = pending.filter(
       (run) =>
-        ghJson<{ status: string }>(['run', 'view', String(run.id), '--repo', repoSlug(), '--json', 'status']).status !==
-        'completed',
+        ghJson<{ status: string }>([
+          'run',
+          'view',
+          String(run.id),
+          '--repo',
+          repoSlug(),
+          '--json',
+          'status',
+        ]).status !== 'completed',
     )
     if (pending.length === 0) return
     if (waited >= waitMs) {
       if (forced) {
-        console.error(`::warning::${pending.length} run(s) still not finished; letting go of the card anyway`)
+        console.error(
+          `::warning::${pending.length} run(s) still not finished; letting go of the card anyway`,
+        )
         return
       }
       for (const run of pending) {
@@ -354,7 +381,9 @@ export async function releaseOrphans(options: OrphanOptions): Promise<string[]> 
   const { cfg, projectKey } = options
   const now = options.now ?? Date.now()
   const statuses = LOCKED_STATUSES.map((s) => `"${s}"`).join(', ')
-  const cards = await jira.search(cfg, `project = ${projectKey} AND status IN (${statuses})`, ['status'])
+  const cards = await jira.search(cfg, `project = ${projectKey} AND status IN (${statuses})`, [
+    'status',
+  ])
   if (cards.length === 0) return []
 
   const runs = activeRuns()

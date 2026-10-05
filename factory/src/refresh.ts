@@ -265,14 +265,20 @@ export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> 
 
   if (state.state === 'refused') {
     await say(options, refusedComment(because, state, pr.number, runUrl()), 'Blocked on engineer')
-    return { state: 'refused', detail: `${key} conflicts in ${state.denied.join(', ')}; a human has it.` }
+    return {
+      state: 'refused',
+      detail: `${key} conflicts in ${state.denied.join(', ')}; a human has it.`,
+    }
   }
 
   if (state.state === 'conflicted') {
     abortMerge()
     const reason = `Merging main into this branch conflicts in ${state.conflicts.join(', ')}.`
     await handToBuild(options, pr.number, reason)
-    return { state: 'handed-to-build', detail: `${key} conflicts in ${state.conflicts.join(', ')}.` }
+    return {
+      state: 'handed-to-build',
+      detail: `${key} conflicts in ${state.conflicts.join(', ')}.`,
+    }
   }
 
   // Merged cleanly. Whether that means anything is the next question.

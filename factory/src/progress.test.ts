@@ -156,7 +156,9 @@ describe('the links a turn offers', () => {
     const previous = process.env['AZURE_PREVIEW_LAUNCHER']
     process.env['AZURE_PREVIEW_LAUNCHER'] = 'https://launch.example'
     try {
-      const links = turnLinks(meta({ preview_url: 'https://df-preview-pr-20.azurecontainerapps.io' }))
+      const links = turnLinks(
+        meta({ preview_url: 'https://df-preview-pr-20.azurecontainerapps.io' }),
+      )
       const preview = links.find((l) => l.globalId === LINK_IDS.preview)
       expect(preview?.title).toBe('Preview')
       expect(preview?.url.startsWith('https://launch.example')).toBe(true)
@@ -191,7 +193,10 @@ describe('the links a turn offers', () => {
       http.post(`${BASE}/rest/api/3/issue/:key/remotelink`, async ({ request }) => {
         const body = (await request.json()) as { globalId: string; object: Record<string, string> }
         if (body.globalId === LINK_IDS.pr) return new HttpResponse('nope', { status: 500 })
-        seen.links.push({ globalId: body.globalId, ...(body.object as { title: string; url: string }) })
+        seen.links.push({
+          globalId: body.globalId,
+          ...(body.object as { title: string; url: string }),
+        })
         return HttpResponse.json({ id: 1 }, { status: 201 })
       }),
     )
@@ -229,8 +234,9 @@ describe('the links a turn offers', () => {
   it('removes a link without complaining about a card that never had it', async () => {
     const seen = stub({ assignee: '' })
     server.use(
-      http.delete(`${BASE}/rest/api/3/issue/:key/remotelink`, () =>
-        new HttpResponse(null, { status: 404 }),
+      http.delete(
+        `${BASE}/rest/api/3/issue/:key/remotelink`,
+        () => new HttpResponse(null, { status: 404 }),
       ),
     )
 
@@ -350,8 +356,9 @@ describe('holding the card while a turn runs', () => {
   it('warns and carries on when Jira will not allow the assignment', async () => {
     stub({ assignee: '' })
     server.use(
-      http.put(`${BASE}/rest/api/3/issue/:key/assignee`, () =>
-        new HttpResponse('no permission', { status: 400 }),
+      http.put(
+        `${BASE}/rest/api/3/issue/:key/assignee`,
+        () => new HttpResponse('no permission', { status: 400 }),
       ),
     )
 

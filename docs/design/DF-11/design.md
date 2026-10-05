@@ -104,13 +104,13 @@ this card.
 
 ## Components affected
 
-| File | Change |
-| --- | --- |
-| `app/src/components/PipelineBoard.tsx` | `PipelineBoard`: a `dragged` ref, `dropTarget` state, and `onDragOver`/`onDragLeave`/`onDrop` on each column section. Adds `column--drop-target` to the highlighted section. `DealCard`: new props `onDragStart(deal: Deal)` and `onDragEnd()`; `draggable={!editing}` on the article with `dragstart`/`dragend` handlers. No change to the public `PipelineBoardProps` |
-| `app/src/components/PipelineBoard.test.tsx` | New drag-and-drop cases (below) |
-| `app/src/App.test.tsx` | One new integration case: a drop moves the deal, updates the summary and announces it |
-| `app/src/index.css` | `.column--drop-target` (dashed accent outline, tinted background) and `cursor: grab` on draggable cards (`.deal[draggable='true']`) |
-| `app/e2e/pipeline.spec.ts` | Replaced with DF-11's walkthrough, one `uatStep` per flattened step below, following the file's existing pattern |
+| File                                        | Change                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/src/components/PipelineBoard.tsx`      | `PipelineBoard`: a `dragged` ref, `dropTarget` state, and `onDragOver`/`onDragLeave`/`onDrop` on each column section. Adds `column--drop-target` to the highlighted section. `DealCard`: new props `onDragStart(deal: Deal)` and `onDragEnd()`; `draggable={!editing}` on the article with `dragstart`/`dragend` handlers. No change to the public `PipelineBoardProps` |
+| `app/src/components/PipelineBoard.test.tsx` | New drag-and-drop cases (below)                                                                                                                                                                                                                                                                                                                                         |
+| `app/src/App.test.tsx`                      | One new integration case: a drop moves the deal, updates the summary and announces it                                                                                                                                                                                                                                                                                   |
+| `app/src/index.css`                         | `.column--drop-target` (dashed accent outline, tinted background) and `cursor: grab` on draggable cards (`.deal[draggable='true']`)                                                                                                                                                                                                                                     |
+| `app/e2e/pipeline.spec.ts`                  | Replaced with DF-11's walkthrough, one `uatStep` per flattened step below, following the file's existing pattern                                                                                                                                                                                                                                                        |
 
 Unchanged: `useDeals.ts`, `types.ts`, `App.tsx`, `EditDealForm.tsx`. No new
 dependencies. No change to the stored data or its storage key.

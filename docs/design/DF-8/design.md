@@ -55,14 +55,14 @@ pipeline**.
 
 **The data.** A deal has:
 
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `id` | string | yes | Generated with `crypto.randomUUID()` |
-| `company` | string | yes | Trimmed; blank is rejected |
-| `sector` | string | no | Free text, e.g. "Healthcare" |
-| `stage` | one of the stages below | yes | New deals start at "Sourcing" |
-| `size` | number, in £m | no | Shown as "£45m" (decimals allowed, shown without trailing zeros, e.g. "£12.5m"); must be a positive number if given; a card with no size shows no size |
-| `owner` | string | no | Free text name of the partner or associate |
+| Field     | Type                    | Required | Notes                                                                                                                                                  |
+| --------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`      | string                  | yes      | Generated with `crypto.randomUUID()`                                                                                                                   |
+| `company` | string                  | yes      | Trimmed; blank is rejected                                                                                                                             |
+| `sector`  | string                  | no       | Free text, e.g. "Healthcare"                                                                                                                           |
+| `stage`   | one of the stages below | yes      | New deals start at "Sourcing"                                                                                                                          |
+| `size`    | number, in £m           | no       | Shown as "£45m" (decimals allowed, shown without trailing zeros, e.g. "£12.5m"); must be a positive number if given; a card with no size shows no size |
+| `owner`   | string                  | no       | Free text name of the partner or associate                                                                                                             |
 
 Stages, in order: **Sourcing**, **Screening**, **Due diligence**,
 **Investment committee**, **Closed**, **Passed**. "Passed" is a terminal stage
@@ -103,25 +103,25 @@ router, because there is one screen. No new dependencies.
 
 ## Components affected
 
-| File | Change |
-| --- | --- |
-| `app/src/components/Hello.tsx` | Deleted |
-| `app/src/components/Hello.test.tsx` | Deleted |
-| `app/src/hooks/useGreeting.ts` | Deleted (the `hooks/` directory is left empty and goes with it) |
-| `app/src/crm/types.ts` | New. `Deal` type, `STAGES` constant, `Stage` type |
-| `app/src/crm/seed.ts` | New. The six sample deals |
-| `app/src/crm/useDeals.ts` | New. Hook owning the deals array: load from storage (seed on absent or corrupt), `addDeal`, `moveDeal`, save on change |
-| `app/src/crm/useDeals.test.ts` | New |
-| `app/src/components/PipelineSummary.tsx` | New. Header summary line, derived from deals |
-| `app/src/components/AddDealForm.tsx` | New. The form and its validation |
-| `app/src/components/AddDealForm.test.tsx` | New |
-| `app/src/components/PipelineBoard.tsx` | New. Columns and deal cards with the stage select |
-| `app/src/components/PipelineBoard.test.tsx` | New |
-| `app/src/App.tsx` | Rewritten: header, form, board; calls `useDeals` |
-| `app/src/App.test.tsx` | Rewritten for the new screen |
-| `app/src/index.css` | Rewritten with the palette and layout above |
-| `app/src/index.css.test.ts` | Updated: drop the blue assertions, assert the new body background and text colour; keep the import check |
-| `app/index.html` | `<title>` becomes "Deal Pipeline" |
+| File                                        | Change                                                                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `app/src/components/Hello.tsx`              | Deleted                                                                                                                |
+| `app/src/components/Hello.test.tsx`         | Deleted                                                                                                                |
+| `app/src/hooks/useGreeting.ts`              | Deleted (the `hooks/` directory is left empty and goes with it)                                                        |
+| `app/src/crm/types.ts`                      | New. `Deal` type, `STAGES` constant, `Stage` type                                                                      |
+| `app/src/crm/seed.ts`                       | New. The six sample deals                                                                                              |
+| `app/src/crm/useDeals.ts`                   | New. Hook owning the deals array: load from storage (seed on absent or corrupt), `addDeal`, `moveDeal`, save on change |
+| `app/src/crm/useDeals.test.ts`              | New                                                                                                                    |
+| `app/src/components/PipelineSummary.tsx`    | New. Header summary line, derived from deals                                                                           |
+| `app/src/components/AddDealForm.tsx`        | New. The form and its validation                                                                                       |
+| `app/src/components/AddDealForm.test.tsx`   | New                                                                                                                    |
+| `app/src/components/PipelineBoard.tsx`      | New. Columns and deal cards with the stage select                                                                      |
+| `app/src/components/PipelineBoard.test.tsx` | New                                                                                                                    |
+| `app/src/App.tsx`                           | Rewritten: header, form, board; calls `useDeals`                                                                       |
+| `app/src/App.test.tsx`                      | Rewritten for the new screen                                                                                           |
+| `app/src/index.css`                         | Rewritten with the palette and layout above                                                                            |
+| `app/src/index.css.test.ts`                 | Updated: drop the blue assertions, assert the new body background and text colour; keep the import check               |
+| `app/index.html`                            | `<title>` becomes "Deal Pipeline"                                                                                      |
 
 ## State and data flow
 
