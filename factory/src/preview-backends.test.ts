@@ -42,6 +42,7 @@ const prView = { headRefOid: 'abc123', body: `Prose.\n\n${renderFactoryBlock(blo
 
 beforeEach(() => {
   vi.stubEnv('GITHUB_REPOSITORY', 'Acme/Dark-Factory')
+  vi.stubEnv('GITHUB_ACTOR', '')
   vi.stubEnv('AZURE_PREVIEW_LAUNCHER', '')
   vi.stubEnv('AZURE_PREVIEW_PREFIX', '')
   vi.stubEnv('GH_TOKEN', 'ghs_token')
