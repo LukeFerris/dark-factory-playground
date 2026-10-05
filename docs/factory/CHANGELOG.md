@@ -9,6 +9,18 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-05
 
+### A build turn from review now pushes to its branch
+
+build-turn.yml checks the PR branch out itself and never calls
+`prepare-branch`, the only thing that recorded the branch in the turn's
+metadata. So `publish` ran `git push --set-upstream origin ''` and failed. It
+was first seen on DF-14, the first build turn sent back from review: the agent
+ran and the report reached the card, but the build log commit was never
+pushed. `gather` now records the checked-out branch. `publish` also falls
+back to the checked-out branch, because in a build turn gather runs the card
+branch's code from *before* main is merged in, so a card already in flight
+still has the old gather.
+
 ### Cards lock while the factory works them, and "@Enki stop" stops a turn
 
 While a turn has a card, only the factory can move it or reassign it. Jira
