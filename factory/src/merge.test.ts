@@ -15,28 +15,28 @@ import {
   type MergeResult,
   type MergeState,
 } from './merge.ts'
+import { mergeState } from './merge.stub.ts'
 
 /**
  * The parts of the merge that do not touch git.
  *
  * `attemptMerge` and the committing half of `finishMerge` drive a real
- * repository and are not tested here — they are covered by running the thing.
- * What is tested is everything that decides what a human ends up reading: the
+ * repository, and are tested against one in `merge-git.test.ts`. What is tested
+ * here is everything that decides what a human ends up reading: the
  * brief the resolving agent is given, how a missing or malformed answer from it
  * is interpreted, and the card comment that comes out the other end.
  */
 
-const state = (over: Partial<MergeState> = {}): MergeState => ({
+/** A branch three commits behind main, conflicting in the stylesheet. */
+const conflicted: Partial<MergeState> = {
   branch: 'card/DF-5-add-a-greeting',
   state: 'conflicted',
   behind: 3,
   conflicts: ['app/src/index.css'],
-  denied: [],
   before: '1111111111111111111111111111111111111111',
   main: '2222222222222222222222222222222222222222',
   incoming: ['abc1234 DF-7: paint it blue'],
-  ...over,
-})
+}
 
 afterEach(() => {
   rmSync(MERGE_RESULT_PATH, { force: true })
@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe('the brief the resolving agent is given', () => {
   it('names the card, the files and the two sides to compare', () => {
-    const brief = conflictBrief(state(), 'DF-5', 'Add a greeting')
+    const brief = conflictBrief(mergeState(conflicted), 'DF-5', 'Add a greeting')
 
     expect(brief).toContain('card/DF-5-add-a-greeting')
     expect(brief).toContain('DF-5 — Add a greeting')
@@ -57,13 +57,13 @@ describe('the brief the resolving agent is given', () => {
   })
 
   it('says so rather than showing an empty list when main only brought merges', () => {
-    expect(conflictBrief(state({ incoming: [] }), 'DF-5', 'Add a greeting')).toContain(
-      '_(merges only)_',
-    )
+    expect(
+      conflictBrief(mergeState({ ...conflicted, incoming: [] }), 'DF-5', 'Add a greeting'),
+    ).toContain('_(merges only)_')
   })
 
   it('tells the agent the rest of the tree is not its business', () => {
-    expect(conflictBrief(state(), 'DF-5', 'Add a greeting')).toContain(
+    expect(conflictBrief(mergeState(conflicted), 'DF-5', 'Add a greeting')).toContain(
       'Nothing else in the tree is yours to change.',
     )
   })
@@ -121,7 +121,10 @@ describe('finishing a merge the agent gave up on', () => {
   })
 
   it('does not commit, and carries the agent’s reason through', () => {
-    const outcome = finishMerge(state(), gaveUp('Main sets the background blue; this branch pink.'))
+    const outcome = finishMerge(
+      mergeState(conflicted),
+      gaveUp('Main sets the background blue; this branch pink.'),
+    )
 
     expect(outcome.ok).toBe(false)
     expect(outcome.sha).toBeNull()
@@ -129,7 +132,7 @@ describe('finishing a merge the agent gave up on', () => {
   })
 
   it('still has something to say when the agent gave no reason', () => {
-    const outcome = finishMerge(state(), gaveUp('   '))
+    const outcome = finishMerge(mergeState(conflicted), gaveUp('   '))
 
     expect(outcome.ok).toBe(false)
     expect(outcome.problems[0]).toContain('could not decide')
@@ -138,7 +141,7 @@ describe('finishing a merge the agent gave up on', () => {
 
 describe('the card comment a stuck merge turns into', () => {
   it('is a result the rest of the pipeline can already handle', () => {
-    const result = mergeQuestionResult(state(), ['the agent could not decide'], null)
+    const result = mergeQuestionResult(mergeState(conflicted), ['the agent could not decide'], null)
 
     // `report --stage build` reads this file and maps `question` to Blocked on
     // engineer. If it stopped parsing, the merge flow would fail silently at the
@@ -148,7 +151,7 @@ describe('the card comment a stuck merge turns into', () => {
   })
 
   it('asks about the specific conflict when the agent did not ask anything', () => {
-    const result = mergeQuestionResult(state(), ['it could not decide'], null)
+    const result = mergeQuestionResult(mergeState(conflicted), ['it could not decide'], null)
 
     expect(result.questions).toHaveLength(1)
     expect(result.questions[0]?.question).toContain('app/src/index.css')
@@ -156,7 +159,7 @@ describe('the card comment a stuck merge turns into', () => {
   })
 
   it('prefers the agent’s own questions, which are about the actual choice', () => {
-    const result = mergeQuestionResult(state(), ['it could not decide'], {
+    const result = mergeQuestionResult(mergeState(conflicted), ['it could not decide'], {
       status: 'unresolved',
       summary: 'Two different backgrounds.',
       notes: ['both sides rewrote the same rule'],
@@ -176,7 +179,7 @@ describe('the card comment a stuck merge turns into', () => {
   })
 
   it('reassures the reader that nothing was left half-merged', () => {
-    const result = mergeQuestionResult(state(), ['it could not decide'], null)
+    const result = mergeQuestionResult(mergeState(conflicted), ['it could not decide'], null)
 
     expect(result.context).toContain('the branch is exactly as it was')
     expect(result.context).toContain('3 commit(s) ahead')
@@ -186,7 +189,8 @@ describe('the card comment a stuck merge turns into', () => {
   // imply one tried and failed — it asks for a person on the branch instead.
   it('says plainly that a machinery conflict needs a person', () => {
     const result = mergeQuestionResult(
-      state({
+      mergeState({
+        ...conflicted,
         state: 'refused',
         conflicts: ['factory/src/validate.ts'],
         denied: ['factory/src/validate.ts'],

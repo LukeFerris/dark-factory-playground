@@ -82,6 +82,26 @@ const canRender =
     spawnSync('ffmpeg', ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout ?? '',
   )
 
+/** The width and height of a video's first stream, as ffprobe prints them. */
+function canvasOf(video: string): string {
+  const probe = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=width,height',
+      '-of',
+      'csv=p=0',
+      video,
+    ],
+    { encoding: 'utf8' },
+  )
+  return probe.stdout.trim()
+}
+
 afterEach(() => {
   while (dirs.length > 0) rmSync(dirs.pop() as string, { recursive: true, force: true })
 })
@@ -234,7 +254,9 @@ describe('buildSlides', () => {
     },
     60_000,
   )
+})
 
+describe('buildSlides, rendering for real', () => {
   it.skipIf(!canRender)(
     'renders one video from the screenshots it has',
     () => {
@@ -253,22 +275,7 @@ describe('buildSlides', () => {
 
       // The canvas is fixed, and the concat demuxer only copies streams, so what
       // comes out is what every slide was padded to.
-      const probe = spawnSync(
-        'ffprobe',
-        [
-          '-v',
-          'error',
-          '-select_streams',
-          'v:0',
-          '-show_entries',
-          'stream=width,height',
-          '-of',
-          'csv=p=0',
-          out,
-        ],
-        { encoding: 'utf8' },
-      )
-      expect(probe.stdout.trim()).toBe('1280,980')
+      expect(canvasOf(out)).toBe('1280,980')
     },
     120_000,
   )
@@ -282,22 +289,7 @@ describe('buildSlides', () => {
 
       expect(buildSlides({ result: result(), dir, out }).ok).toBe(true)
 
-      const probe = spawnSync(
-        'ffprobe',
-        [
-          '-v',
-          'error',
-          '-select_streams',
-          'v:0',
-          '-show_entries',
-          'stream=width,height',
-          '-of',
-          'csv=p=0',
-          out,
-        ],
-        { encoding: 'utf8' },
-      )
-      expect(probe.stdout.trim()).toBe('1280,980')
+      expect(canvasOf(out)).toBe('1280,980')
     },
     120_000,
   )

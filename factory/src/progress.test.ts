@@ -167,7 +167,10 @@ describe('the links a turn offers', () => {
       else process.env['AZURE_PREVIEW_LAUNCHER'] = previous
     }
   })
+})
 
+/** Writing the rows, and taking them away again. */
+describe('writing the links to the card', () => {
   /**
    * The identity of a remote link is issue + globalId. If these drifted between
    * turns, every build turn would add a row instead of replacing one — which is
@@ -314,6 +317,21 @@ describe('holding the card while a turn runs', () => {
     expect(seen.saves).toEqual([{ previous: '' }])
   })
 
+  it('warns and carries on when Jira will not allow the assignment', async () => {
+    stub({ assignee: '' })
+    server.use(
+      http.put(
+        `${BASE}/rest/api/3/issue/:key/assignee`,
+        () => new HttpResponse('no permission', { status: 400 }),
+      ),
+    )
+
+    await expect(claimCard(cfg, 'DF-7')).resolves.toBeUndefined()
+  })
+})
+
+/** The other end of the turn: the card goes back to whoever sent it in. */
+describe('handing the card back', () => {
   it('hands the card back at the end of the turn', async () => {
     const seen = stub({ assignee: FACTORY, saved: { previous: HUMAN } })
 
@@ -351,18 +369,6 @@ describe('holding the card while a turn runs', () => {
   it('has nobody to hand back to when nothing was recorded', async () => {
     stub({ assignee: FACTORY })
     expect(await handBackTarget(cfg, 'DF-7')).toBe('')
-  })
-
-  it('warns and carries on when Jira will not allow the assignment', async () => {
-    stub({ assignee: '' })
-    server.use(
-      http.put(
-        `${BASE}/rest/api/3/issue/:key/assignee`,
-        () => new HttpResponse('no permission', { status: 400 }),
-      ),
-    )
-
-    await expect(claimCard(cfg, 'DF-7')).resolves.toBeUndefined()
   })
 })
 

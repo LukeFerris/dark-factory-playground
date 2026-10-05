@@ -162,6 +162,13 @@ export function activeRuns(): Map<string, CardRun[]> {
   return byKey
 }
 
+/** Where a card that is let go goes, who to, and what it says on the way. */
+interface Release {
+  to: string
+  handTo: string
+  body: adf.AdfDoc
+}
+
 /**
  * Lets go of a locked card: hands it over, moves it out, says why.
  *
@@ -170,13 +177,8 @@ export function activeRuns(): Map<string, CardRun[]> {
  * Ready column still assigned to the factory, which is precisely what starts a
  * new turn.
  */
-async function letGo(
-  cfg: jira.JiraConfig,
-  key: string,
-  to: string,
-  handTo: string,
-  body: adf.AdfDoc,
-): Promise<void> {
+async function letGo(cfg: jira.JiraConfig, key: string, release: Release): Promise<void> {
+  const { to, handTo, body } = release
   await jira.assign(cfg, key, handTo)
   await jira.transitionTo(cfg, key, to)
   await jira.addComment(cfg, key, body).catch((error: Error) => {
@@ -274,20 +276,8 @@ export type StopOutcome = 'not-locked' | 'not-a-stop' | 'already-handled' | 'sto
  */
 export async function stop(options: StopOptions): Promise<StopOutcome> {
   const { cfg, key } = options
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)))
-
-  const issue = await jira.getIssue(cfg, key)
-  const status = (issue.fields['status'] as { name?: string } | undefined)?.name ?? ''
-  if (!isLocked(status)) return 'not-locked'
-
-  const me = await jira.myAccountId(cfg)
-  const comment = addressedTo(await jira.recentComments(cfg, key, 20), me)
-  if (comment === null || !isStopCommand(comment, me)) return 'not-a-stop'
-
-  const mark = (await jira.getIssueProperty(cfg, key, TRIAGE_PROPERTY)) as {
-    commentId?: string
-  } | null
-  if (mark?.commentId === comment.id) return 'already-handled'
+  const comment = await stopRequest(cfg, key)
+  if (typeof comment === 'string') return comment
 
   const runs = activeRuns().get(key) ?? []
   if (options.dryRun === true) {
@@ -301,19 +291,67 @@ export async function stop(options: StopOptions): Promise<StopOutcome> {
     at: new Date().toISOString(),
   })
 
+  await cancelRuns(runs, options)
+  await handBackStopped(cfg, key, comment, runs)
+  return 'stopped'
+}
+
+/** The status a card is in, or '' if Jira did not say. */
+function statusOf(issue: jira.JiraIssue): string {
+  return (issue.fields['status'] as { name?: string } | undefined)?.name ?? ''
+}
+
+/**
+ * The stop comment to act on, or the outcome that says why there is none.
+ *
+ * Checked in this order: the card is still locked, the newest comment
+ * addressed to the factory is a stop, and triage's mark does not already name
+ * it.
+ */
+async function stopRequest(
+  cfg: jira.JiraConfig,
+  key: string,
+): Promise<jira.JiraComment | StopOutcome> {
+  const issue = await jira.getIssue(cfg, key)
+  if (!isLocked(statusOf(issue))) return 'not-locked'
+
+  const me = await jira.myAccountId(cfg)
+  const comment = addressedTo(await jira.recentComments(cfg, key, 20), me)
+  if (comment === null || !isStopCommand(comment, me)) return 'not-a-stop'
+
+  const mark = (await jira.getIssueProperty(cfg, key, TRIAGE_PROPERTY)) as {
+    commentId?: string
+  } | null
+  if (mark?.commentId === comment.id) return 'already-handled'
+  return comment
+}
+
+/** Cancels every run on the card and waits for them to be gone. */
+async function cancelRuns(runs: CardRun[], options: StopOptions): Promise<void> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)))
   for (const run of runs) gh(['run', 'cancel', String(run.id), '--repo', repoSlug()])
   await waitForRuns(runs, options.waitMs ?? 180_000, options.pollMs ?? 5_000, sleep)
+}
 
-  const now = await jira.getIssue(cfg, key)
-  const statusNow = (now.fields['status'] as { name?: string } | undefined)?.name ?? ''
+/**
+ * Gives a stopped card back, or only says so if the turn already moved it.
+ *
+ * Reads the card again: the cancelled run may have reported in the meantime.
+ */
+async function handBackStopped(
+  cfg: jira.JiraConfig,
+  key: string,
+  comment: jira.JiraComment,
+  runs: CardRun[],
+): Promise<void> {
+  const statusNow = statusOf(await jira.getIssue(cfg, key))
   const stillLocked = isLocked(statusNow)
   const to = returnStatus(statusNow, holdFrom(await jira.changelog(cfg, key)))
   const body = stoppedComment(to, comment.authorId, runs, stillLocked)
 
   // The person who said stop gets the card: they have just taken it back.
-  if (stillLocked) await letGo(cfg, key, to, comment.authorId, body)
+  if (stillLocked) await letGo(cfg, key, { to, handTo: comment.authorId, body })
   else await jira.addComment(cfg, key, body)
-  return 'stopped'
 }
 
 /**
@@ -403,7 +441,7 @@ export async function releaseOrphans(options: OrphanOptions): Promise<string[]> 
         console.log(`release-orphans --dry-run: would let go of ${card.key} into ${to}`)
         continue
       }
-      await letGo(cfg, card.key, to, handTo, orphanComment(status, to, handTo))
+      await letGo(cfg, card.key, { to, handTo, body: orphanComment(status, to, handTo) })
       released.push(card.key)
     } catch (error) {
       console.error(`::warning::could not let go of ${card.key}: ${(error as Error).message}`)

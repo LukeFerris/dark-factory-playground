@@ -239,30 +239,35 @@ export function previewDown(prNumber: number, dryRun = false): void {
 
   deactivateDeployments('preview')
 
-  if (backend === 'azure') {
-    const config = azureConfig()
-    const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
+  if (backend === 'azure') downAzure(prNumber)
+  else downGhcr(prNumber)
+}
 
-    // Two independent attempts, not one block. A Container App that outlives
-    // its PR bills by the hour; an image tag that outlives its PR only bills
-    // for storage. Losing the first is much worse than losing the second, so
-    // neither failure is allowed to skip the other.
-    try {
-      deletePreviewApp(config, prNumber, prefix)
-      console.log(`preview-down: deleted the Container App for PR #${prNumber}`)
-    } catch (error) {
-      console.error(`preview-down: could not delete the Container App: ${(error as Error).message}`)
-    }
-    try {
-      deletePreviewImage(config, prNumber)
-      console.log(`preview-down: deleted the pr-${prNumber} image tag`)
-    } catch (error) {
-      console.error(`preview-down: could not delete the image tag: ${(error as Error).message}`)
-    }
-    return
+/** Deletes the PR's Container App and its image tag from the registry. */
+function downAzure(prNumber: number): void {
+  const config = azureConfig()
+  const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
+
+  // Two independent attempts, not one block. A Container App that outlives
+  // its PR bills by the hour; an image tag that outlives its PR only bills
+  // for storage. Losing the first is much worse than losing the second, so
+  // neither failure is allowed to skip the other.
+  try {
+    deletePreviewApp(config, prNumber, prefix)
+    console.log(`preview-down: deleted the Container App for PR #${prNumber}`)
+  } catch (error) {
+    console.error(`preview-down: could not delete the Container App: ${(error as Error).message}`)
   }
+  try {
+    deletePreviewImage(config, prNumber)
+    console.log(`preview-down: deleted the pr-${prNumber} image tag`)
+  } catch (error) {
+    console.error(`preview-down: could not delete the image tag: ${(error as Error).message}`)
+  }
+}
 
-  // Find the GHCR version tagged pr-<N> and delete just that one.
+/** Finds the GHCR version tagged pr-<N> and deletes just that one. */
+function downGhcr(prNumber: number): void {
   try {
     const versionsPath = packageVersionsPath()
     const versions = ghJson<Array<{ id: number; metadata?: { container?: { tags?: string[] } } }>>([

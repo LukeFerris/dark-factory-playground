@@ -181,6 +181,123 @@ export const STATUS_TRANSITIONS: Record<Stage, Record<ResultStatus, string | nul
   },
 }
 
+/*
+ * The JSON Schema emitted to .agent/result.schema.json, hand-written from the
+ * zod above. Built from small pieces so each field's shape sits next to the
+ * words the agent reads about it. Key order is part of the output — CI diffs
+ * the emitted file — so each piece writes its keys in the order the file has
+ * them.
+ */
+
+/** A list of plain strings, empty unless the agent has something to say. */
+function stringList(description: string): Record<string, unknown> {
+  return { type: 'array', items: { type: 'string' }, default: [], description }
+}
+
+/** A list of objects, each closed to the properties given and requiring some of them. */
+function objectList(
+  required: string[],
+  properties: Record<string, unknown>,
+  description: string,
+): Record<string, unknown> {
+  return {
+    type: 'array',
+    default: [],
+    items: { type: 'object', additionalProperties: false, required, properties },
+    description,
+  }
+}
+
+function criteriaProperty(): Record<string, unknown> {
+  return objectList(
+    ['criterion', 'steps'],
+    {
+      criterion: {
+        type: 'string',
+        minLength: 1,
+        description:
+          'What must be true when the card is done. An outcome a reviewer can agree or disagree with, not an action and not an implementation detail.',
+      },
+      steps: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        description:
+          'The exact browser actions that prove this one criterion, in order, with the app already open. The last one is an observation, not an action.',
+      },
+    },
+    'The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review.',
+  )
+}
+
+function answersProperty(): Record<string, unknown> {
+  return objectList(
+    ['question', 'answer'],
+    {
+      question: {
+        type: 'string',
+        minLength: 1,
+        description: 'The question as it was asked on the card, so the reader recognises it.',
+      },
+      answer: {
+        type: 'string',
+        minLength: 1,
+        description:
+          'What the human said and what this turn did about it. Taken from their reply, never invented.',
+      },
+    },
+    'Questions answered on the card since the last turn. Empty on a first turn, and empty when nothing was answered.',
+  )
+}
+
+function questionsProperty(): Record<string, unknown> {
+  return objectList(
+    ['question'],
+    {
+      question: { type: 'string', minLength: 1 },
+      context: { type: 'string', default: '' },
+      options: { type: 'array', items: { type: 'string' }, default: [] },
+    },
+    'Required when status is blocked or question.',
+  )
+}
+
+function resultProperties(): Record<string, unknown> {
+  return {
+    status: {
+      enum: ResultStatus.options,
+      description:
+        'ready_for_review: the turn finished the work. blocked (design) / question (build): a human must answer before continuing. continue: more turns needed. failed: the turn could not complete.',
+    },
+    summary: {
+      type: 'string',
+      minLength: 1,
+      description: 'First line becomes the commit message subject. Always required.',
+    },
+    context: {
+      type: 'string',
+      default: '',
+      description:
+        'One or two lines of background for the Jira comment: why this shape, and where to read the detail. Not a restatement of summary.',
+    },
+    acceptance_criteria: criteriaProperty(),
+    out_of_scope: stringList(
+      "What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader's terms. Leave empty rather than padding it.",
+    ),
+    answers: answersProperty(),
+    artifacts: stringList('Repo-relative paths this turn produced or changed.'),
+    questions: questionsProperty(),
+    assumptions: stringList(
+      'Decisions taken without asking. Surfaced on the PR and the Jira card.',
+    ),
+    reason: {
+      type: 'string',
+      default: '',
+      description: 'Required when status is failed.',
+    },
+  }
+}
+
 /** JSON Schema emitted to .agent/result.schema.json, hand-written from the zod above. */
 export function toJsonSchema(): unknown {
   return {
@@ -192,112 +309,6 @@ export function toJsonSchema(): unknown {
     type: 'object',
     additionalProperties: false,
     required: ['status', 'summary'],
-    properties: {
-      status: {
-        enum: ResultStatus.options,
-        description:
-          'ready_for_review: the turn finished the work. blocked (design) / question (build): a human must answer before continuing. continue: more turns needed. failed: the turn could not complete.',
-      },
-      summary: {
-        type: 'string',
-        minLength: 1,
-        description: 'First line becomes the commit message subject. Always required.',
-      },
-      context: {
-        type: 'string',
-        default: '',
-        description:
-          'One or two lines of background for the Jira comment: why this shape, and where to read the detail. Not a restatement of summary.',
-      },
-      acceptance_criteria: {
-        type: 'array',
-        default: [],
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['criterion', 'steps'],
-          properties: {
-            criterion: {
-              type: 'string',
-              minLength: 1,
-              description:
-                'What must be true when the card is done. An outcome a reviewer can agree or disagree with, not an action and not an implementation detail.',
-            },
-            steps: {
-              type: 'array',
-              items: { type: 'string' },
-              minItems: 1,
-              description:
-                'The exact browser actions that prove this one criterion, in order, with the app already open. The last one is an observation, not an action.',
-            },
-          },
-        },
-        description:
-          'The acceptance criteria, each paired with the steps that prove it. Required when status is ready_for_review.',
-      },
-      out_of_scope: {
-        type: 'array',
-        items: { type: 'string' },
-        default: [],
-        description:
-          "What a reviewer might expect from this card and will not find: deliberate exclusions, and known issues being handled separately. One plain sentence each, in the reader's terms. Leave empty rather than padding it.",
-      },
-      answers: {
-        type: 'array',
-        default: [],
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['question', 'answer'],
-          properties: {
-            question: {
-              type: 'string',
-              minLength: 1,
-              description: 'The question as it was asked on the card, so the reader recognises it.',
-            },
-            answer: {
-              type: 'string',
-              minLength: 1,
-              description:
-                'What the human said and what this turn did about it. Taken from their reply, never invented.',
-            },
-          },
-        },
-        description:
-          'Questions answered on the card since the last turn. Empty on a first turn, and empty when nothing was answered.',
-      },
-      artifacts: {
-        type: 'array',
-        items: { type: 'string' },
-        default: [],
-        description: 'Repo-relative paths this turn produced or changed.',
-      },
-      questions: {
-        type: 'array',
-        default: [],
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['question'],
-          properties: {
-            question: { type: 'string', minLength: 1 },
-            context: { type: 'string', default: '' },
-            options: { type: 'array', items: { type: 'string' }, default: [] },
-          },
-        },
-        description: 'Required when status is blocked or question.',
-      },
-      assumptions: {
-        type: 'array',
-        items: { type: 'string' },
-        default: [],
-        description: 'Decisions taken without asking. Surfaced on the PR and the Jira card.',
-      },
-      reason: {
-        type: 'string',
-        default: '',
-        description: 'Required when status is failed.',
-      },
-    },
+    properties: resultProperties(),
   }
 }

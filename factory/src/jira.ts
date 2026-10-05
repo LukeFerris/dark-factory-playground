@@ -1,77 +1,24 @@
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
-import { required } from './env.ts'
 import type { AdfDoc } from './adf.ts'
+import { adfToText, mentionedIds, textWithoutMentions } from './jira-adf.ts'
+import {
+  JiraAuthError,
+  JiraNotFoundError,
+  JiraTransitionError,
+  authHeader,
+  call,
+  type JiraConfig,
+} from './jira-http.ts'
 
-/** Thrown for a 401/403 from Jira, so the CLI can exit 2 rather than 1. */
-export class JiraAuthError extends Error {}
-/**
- * Thrown for a 404.
- *
- * Its own class because absence is routine for some of what the factory asks
- * for — an issue property no card has ever had, a link it is removing for the
- * second time — and "it is not there" should be distinguishable from "Jira
- * broke" without reading the message.
- */
-export class JiraNotFoundError extends Error {}
-/** Thrown when a named transition is not available from the card's current status. */
-export class JiraTransitionError extends Error {}
-
-export interface JiraConfig {
-  base: string
-  user: string
-  token: string
-}
-
-export function configFromEnv(): JiraConfig {
-  return {
-    base: required('JIRA_BASE').replace(/\/+$/, ''),
-    user: required('JIRA_USER'),
-    token: required('JIRA_TOKEN'),
-  }
-}
-
-function authHeader(cfg: JiraConfig): string {
-  return `Basic ${Buffer.from(`${cfg.user}:${cfg.token}`).toString('base64')}`
-}
-
-async function call(
-  cfg: JiraConfig,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<unknown> {
-  // DELETE carries no body and still has to declare a content type: Jira answers
-  // 415 Unsupported Media Type without one. Found by calling it, not by reading
-  // the docs, which say nothing about it — so this is load-bearing and pinned by
-  // a test rather than left to look like a redundant header.
-  const declaresType = body !== undefined || method === 'DELETE'
-
-  const response = await fetch(`${cfg.base}${path}`, {
-    method,
-    headers: {
-      Authorization: authHeader(cfg),
-      Accept: 'application/json',
-      ...(declaresType ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
-
-  if (response.status === 401 || response.status === 403) {
-    throw new JiraAuthError(
-      `Jira rejected the credentials (${response.status}) on ${method} ${path}. ` +
-        `Check JIRA_USER and JIRA_TOKEN.`,
-    )
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    const message = `Jira ${method} ${path} failed: ${response.status} ${detail.slice(0, 500)}`
-    throw response.status === 404 ? new JiraNotFoundError(message) : new Error(message)
-  }
-  if (response.status === 204) return null
-  const raw = await response.text()
-  return raw === '' ? null : JSON.parse(raw)
-}
+export {
+  JiraAuthError,
+  JiraNotFoundError,
+  JiraTransitionError,
+  configFromEnv,
+  type JiraConfig,
+} from './jira-http.ts'
+export { adfToText, mentionedIds } from './jira-adf.ts'
 
 export interface JiraIssue {
   key: string
@@ -224,7 +171,7 @@ function toComment(c: Record<string, unknown>): JiraComment {
     created: (c['created'] as string) ?? '',
     body: adfToText(c['body']),
     mentions: mentionedIds(c['body']),
-    bodyWithoutMentions: flatten(c['body'], false),
+    bodyWithoutMentions: textWithoutMentions(c['body']),
   }
 }
 
@@ -522,42 +469,4 @@ export async function transitionTo(
   await call(cfg, 'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
     transition: { id: match.id },
   })
-}
-
-/** Flattens an ADF document to plain text, for putting card content in a prompt. */
-export function adfToText(node: unknown): string {
-  return flatten(node, true)
-}
-
-function flatten(node: unknown, mentions: boolean): string {
-  if (node === null || node === undefined) return ''
-  if (typeof node === 'string') return node
-
-  const n = node as Record<string, unknown>
-  if (n['type'] === 'text' && typeof n['text'] === 'string') return n['text']
-  if (n['type'] === 'mention') {
-    if (!mentions) return ''
-    const label = (n['attrs'] as { text?: unknown } | undefined)?.text
-    return typeof label === 'string' && label !== '' ? label : '@someone'
-  }
-
-  const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
-  const joiner =
-    n['type'] === 'paragraph' || n['type'] === 'heading' || n['type'] === 'listItem' ? '' : ''
-  const inner = children.map((child) => flatten(child, mentions)).join(joiner)
-
-  if (n['type'] === 'paragraph' || n['type'] === 'heading') return `${inner}\n`
-  if (n['type'] === 'listItem') return `- ${inner.trim()}\n`
-  if (n['type'] === 'hardBreak') return '\n'
-  return inner
-}
-
-/** Every account id @mentioned anywhere in an ADF document, in order. */
-export function mentionedIds(node: unknown): string[] {
-  if (node === null || typeof node !== 'object') return []
-  const n = node as Record<string, unknown>
-  const id = (n['attrs'] as { id?: unknown } | undefined)?.id
-  const own = n['type'] === 'mention' && typeof id === 'string' && id !== '' ? [id] : []
-  const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
-  return [...own, ...children.flatMap(mentionedIds)]
 }

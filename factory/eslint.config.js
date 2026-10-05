@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
+import { gates } from '../eslint.gates.js'
 
 export default tseslint.config(
   { ignores: ['node_modules', 'bin'] },
@@ -16,4 +17,5 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },
+  { files: ['src/**/*.ts'], ...gates },
 )

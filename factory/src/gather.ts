@@ -92,25 +92,8 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   // every design round count double. Dropped here, once, for both uses below.
   const conversation = comments.filter((c) => !(isOurs(c) && isStartComment(c.body)))
 
-  const summary = (issue.fields['summary'] as string) ?? '(no summary)'
-  const description = jira.adfToText(issue.fields['description']).trim()
-  const criteria = await acceptanceCriteria(cfg, issue.fields)
-  const parent = issue.fields['parent'] as { fields?: { summary?: string } } | undefined
-  const epic = parent?.fields?.summary ?? ''
-
-  const lines: string[] = [`# ${options.key}: ${summary}`, '', `Stage: **${options.stage}**`]
-  if (epic !== '') lines.push(`Epic: ${epic}`)
-  lines.push('', '## Description', '', description === '' ? '_(none given)_' : description)
-
-  lines.push('', '## Acceptance criteria', '', criteria === '' ? '_(none given)_' : criteria)
-
-  if (conversation.length > 0) {
-    lines.push('', '## Card comments (oldest first)', '')
-    for (const c of conversation) {
-      const who = isOurs(c) ? `${c.author} — you, on an earlier turn` : c.author
-      lines.push(`### ${who} — ${c.created}`, '', c.body.trim(), '')
-    }
-  }
+  const lines = await describeCard(cfg, issue, options)
+  appendConversation(lines, conversation, isOurs)
 
   // Build turns need the PR thread; that is where the human grants each turn
   // and leaves review feedback. A design turn has no thread to read — its
@@ -138,6 +121,40 @@ export async function gather(options: GatherOptions): Promise<Meta> {
   }
   writeMeta(meta)
   return meta
+}
+
+/** The top of the task file: the card's title, epic, description and acceptance criteria. */
+async function describeCard(
+  cfg: jira.JiraConfig,
+  issue: jira.JiraIssue,
+  options: GatherOptions,
+): Promise<string[]> {
+  const summary = (issue.fields['summary'] as string) ?? '(no summary)'
+  const description = jira.adfToText(issue.fields['description']).trim()
+  const criteria = await acceptanceCriteria(cfg, issue.fields)
+  const parent = issue.fields['parent'] as { fields?: { summary?: string } } | undefined
+  const epic = parent?.fields?.summary ?? ''
+
+  const lines: string[] = [`# ${options.key}: ${summary}`, '', `Stage: **${options.stage}**`]
+  if (epic !== '') lines.push(`Epic: ${epic}`)
+  lines.push('', '## Description', '', description === '' ? '_(none given)_' : description)
+
+  lines.push('', '## Acceptance criteria', '', criteria === '' ? '_(none given)_' : criteria)
+  return lines
+}
+
+/** The card's comments, oldest first, with the factory's own marked as the agent's. */
+function appendConversation(
+  lines: string[],
+  conversation: jira.JiraComment[],
+  isOurs: (c: jira.JiraComment) => boolean,
+): void {
+  if (conversation.length === 0) return
+  lines.push('', '## Card comments (oldest first)', '')
+  for (const c of conversation) {
+    const who = isOurs(c) ? `${c.author} — you, on an earlier turn` : c.author
+    lines.push(`### ${who} — ${c.created}`, '', c.body.trim(), '')
+  }
 }
 
 const FACTORY_MARKER = '<!-- factory-turn'
