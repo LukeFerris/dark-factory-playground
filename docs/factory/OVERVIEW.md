@@ -78,6 +78,20 @@ pull request, the preview, and the live URL once it ships — goes on as
 **remote links**, one row each, replaced in place as they change, rather than a
 fresh comment per turn that the reader has to date-sort to use.
 
+### A card the factory is working is locked
+
+While a turn runs, the card sits in *Designing* or *Building*. Jira lets only
+the factory move a card out of those statuses or reassign it. A person
+dragging it elsewhere, an admin included, gets a refusal. That keeps one card
+in one pair of hands: a drag can't start a second turn on a branch the first is
+still writing, or be quietly overwritten when the first one reports. Runs on
+the same card queue behind each other. To take a card back mid-turn, comment
+"@Enki stop" on it: the run is cancelled and the card returns to where it was,
+assigned to you. A run that dies without reporting has its card let go
+automatically by the next poll.
+[ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md) has the
+reasoning.
+
 ### Comments are the third entrance
 
 Dragging a card is not the only way to start work. Wherever the factory has
@@ -125,7 +139,7 @@ rather than saying "merge conflict".
 | `app/` | The example React 19 + TypeScript app the factory writes features into |
 | `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
 | `.agent/` | The agent boundary: the three manuals, and the in/out directories |
-| `.github/workflows/` | Eight workflows: the poller, design, build start/setup/turn/teardown, refresh, and production |
+| `.github/workflows/` | Ten workflows: the poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production |
 | `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts |
 | `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
 | `docs/design/<KEY>/` | One directory per card: the design, and the build log |

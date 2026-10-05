@@ -127,6 +127,8 @@ export interface ChangeItem {
   to: string | null
   /** The display form: a name for `assignee` and `status`. */
   toString: string | null
+  /** The display form of the old value: where a status change came from. */
+  fromString: string | null
 }
 
 export interface ChangeEntry {
@@ -164,6 +166,7 @@ export async function changelog(cfg: JiraConfig, key: string): Promise<ChangeEnt
           field: item.field,
           to: item.to ?? null,
           toString: item.toString ?? null,
+          fromString: item.fromString ?? null,
         })),
       })
     }
@@ -203,6 +206,13 @@ export interface JiraComment {
    * one for it to act on.
    */
   mentions: string[]
+  /**
+   * The body with every @mention left out: what was said, not to whom.
+   *
+   * "@Enki stop" is a command because of the word after the mention, and the
+   * mention's display name is whatever the account is called this week.
+   */
+  bodyWithoutMentions: string
 }
 
 function toComment(c: Record<string, unknown>): JiraComment {
@@ -214,6 +224,7 @@ function toComment(c: Record<string, unknown>): JiraComment {
     created: (c['created'] as string) ?? '',
     body: adfToText(c['body']),
     mentions: mentionedIds(c['body']),
+    bodyWithoutMentions: flatten(c['body'], false),
   }
 }
 
@@ -515,12 +526,17 @@ export async function transitionTo(
 
 /** Flattens an ADF document to plain text, for putting card content in a prompt. */
 export function adfToText(node: unknown): string {
+  return flatten(node, true)
+}
+
+function flatten(node: unknown, mentions: boolean): string {
   if (node === null || node === undefined) return ''
   if (typeof node === 'string') return node
 
   const n = node as Record<string, unknown>
   if (n['type'] === 'text' && typeof n['text'] === 'string') return n['text']
   if (n['type'] === 'mention') {
+    if (!mentions) return ''
     const label = (n['attrs'] as { text?: unknown } | undefined)?.text
     return typeof label === 'string' && label !== '' ? label : '@someone'
   }
@@ -528,7 +544,7 @@ export function adfToText(node: unknown): string {
   const children = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
   const joiner =
     n['type'] === 'paragraph' || n['type'] === 'heading' || n['type'] === 'listItem' ? '' : ''
-  const inner = children.map(adfToText).join(joiner)
+  const inner = children.map((child) => flatten(child, mentions)).join(joiner)
 
   if (n['type'] === 'paragraph' || n['type'] === 'heading') return `${inner}\n`
   if (n['type'] === 'listItem') return `- ${inner.trim()}\n`

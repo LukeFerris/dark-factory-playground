@@ -7,6 +7,8 @@ name: factory design
 # The Agent step holds ANTHROPIC_API_KEY and nothing else. Everything that can
 # write to GitHub or Jira runs in a later step with its own env block.
 
+run-name: ${{ inputs.key }} design turn
+
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: factory-design-${{ inputs.key }}
+  group: factory-card-${{ inputs.key }}
   cancel-in-progress: false
 
 jobs:
@@ -142,10 +144,11 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           npm run --silent factory -- publish --stage design
 
-      # Always runs: a rejected turn still has to land on the card, otherwise it
-      # sits in "Designing" with nobody told why.
+      # Runs on failure too: a rejected turn still has to land on the card,
+      # otherwise it sits in "Designing" with nobody told why. Not on
+      # cancellation, which is a stop — `factory stop` reports that itself.
       - name: Report
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           JIRA_BASE: ${{ vars.JIRA_BASE }}

@@ -219,6 +219,12 @@ jobs:
             # shell. A failure inside one card is a warning, not an exit.
             npm run --silent factory -- triage || \
               echo "::warning::the triage pass failed; the next one will pick up the same comments"
+
+            # A card in Designing or Building can only be moved by the factory
+            # (ADR 0007), so one whose run died without reporting is stuck
+            # there until something here lets it go.
+            npm run --silent factory -- release-orphans || \
+              echo "::warning::the orphan check failed; the next pass will look again"
             echo "::endgroup::"
 
             # Stop when the next pass would run past the window. The token is

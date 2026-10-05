@@ -158,6 +158,7 @@ describe('isAnswered', () => {
     created: '2026-09-23T10:00:00.000+0000',
     body,
     mentions: [],
+    bodyWithoutMentions: body,
   })
 
   it('is false when the newest comment is the factory\'s own question', () => {
@@ -368,5 +369,45 @@ describe('mentions', () => {
   // to reads like a note between people.
   it('keeps the mention in the text', () => {
     expect(jira.adfToText(doc)).toBe('@Enki [bot] please look\n@someone\n')
+  })
+
+  // "@Enki stop" is a command because of the word after the mention, and the
+  // mention's display name is whatever the account is called this week.
+  it('can leave the mentions out, for reading what was said rather than to whom', async () => {
+    server.use(
+      http.get(`${BASE}/rest/api/3/issue/DF-3/comment`, () =>
+        HttpResponse.json({
+          comments: [{ id: '1', author: { displayName: 'Luke', accountId: '557058:human' }, created: 'x', body: doc }],
+        }),
+      ),
+    )
+    const [only] = await jira.recentComments(cfg, 'DF-3', 1)
+    expect(only?.bodyWithoutMentions).toBe(' please look\n\n')
+    expect(only?.body).toBe('@Enki [bot] please look\n@someone\n')
+  })
+})
+
+describe('changelog', () => {
+  // Where the card was before the factory took it is where it goes back to on
+  // a stop, so the history has to keep both ends of a move.
+  it('keeps where a status change came from as well as where it went', async () => {
+    server.use(
+      http.get(`${BASE}/rest/api/3/issue/DF-3/changelog`, () =>
+        HttpResponse.json({
+          values: [
+            {
+              author: { accountId: '712020:factory' },
+              created: '2026-10-05T10:00:00.000+0000',
+              items: [{ field: 'status', to: '400', toString: 'Building', from: '10016', fromString: 'In review' }],
+            },
+            { author: { accountId: 'a' }, created: 'y', items: [{ field: 'labels', toString: 'x' }] },
+          ],
+          isLast: true,
+        }),
+      ),
+    )
+    const [moved, labelled] = await jira.changelog(cfg, 'DF-3')
+    expect(moved?.items[0]).toEqual({ field: 'status', to: '400', toString: 'Building', fromString: 'In review' })
+    expect(labelled?.items[0]?.fromString).toBeNull()
   })
 })

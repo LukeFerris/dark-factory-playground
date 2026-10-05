@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 #
-# jira-triggers.sh — create the five Jira Automation flows that start the
-# factory poller. See docs/factory/JIRA-TRIGGERS.md for why they exist.
+# jira-triggers.sh — create the six Jira Automation flows that start the
+# factory. See docs/factory/JIRA-TRIGGERS.md for why they exist.
 #
 #   Factory: card ready     a card assigned to the factory moved to a Ready column
 #   Factory: card assigned  a card in a Ready column was assigned to the factory
 #   Factory: new comment    a person commented on a card blocked on a question
 #   Factory: mentioned      a comment on a card in review @mentions the factory
+#   Factory: stop           a comment on a card the factory is working @mentions it
 #   Factory: sweep          every 30 minutes, if the factory has a card waiting
+#                           or a card locked
 #
-# Each flow POSTs to poller.yml's workflow-dispatch endpoint with
-# FACTORY_DISPATCH_PAT, a fine-grained PAT with Actions: write on this
-# repository only. The PAT is sent as a secure header, which Jira masks in the
-# editor and in every read of the flow.
+# Each flow POSTs to a workflow-dispatch endpoint with FACTORY_DISPATCH_PAT, a
+# fine-grained PAT with Actions: write on this repository only: stop.yml, with
+# the card's key, for the stop flow, and poller.yml for the rest. The PAT is
+# sent as a secure header, which Jira masks in the editor and in every read of
+# the flow.
 #
 # Idempotent: a flow that already exists by name is updated in place to match
 # this file, keeping its id, its audit log and its state, so a flow somebody
@@ -31,7 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/bootstrap/lib.sh"
 
 if ! parse_common_args "$@"; then
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -50,6 +53,9 @@ JIRA_BASE="${JIRA_BASE%/}"
 QUESTION_STATUSES=("Blocked on architect" "Blocked on engineer")
 REVIEW_STATUSES=("Design review" "In review")
 READY_STATUSES=("Ready for design" "Ready for build")
+# The statuses Jira locks to the factory (bootstrap/jira.sh, ADR 0007). Must
+# equal LOCKED_STATUSES in factory/src/lock.ts; poller.test.ts checks.
+LOCKED_STATUSES=("Designing" "Building")
 SWEEP_CRON='0 0/30 * * * ?'
 
 if (( DRY_RUN )); then section "DRY RUN — nothing will be changed"; fi
@@ -139,15 +145,18 @@ READY_IDS="$(jq -c --argjson s "$STATUSES" '[.[] as $n | $s[] | select(.name == 
   || die "Missing a Ready status on $JIRA_PROJECT_KEY (want: ${READY_STATUSES[*]}). Run bootstrap/jira.sh first."
 
 # Prove the PAT before handing it to Jira: Automation's only error report is a
-# rule audit log nobody is watching. A read is enough to show it can see the
-# workflow; it is not a dispatch, so this starts nothing.
-DISPATCH_URL="https://api.github.com/repos/$REPO_SLUG/actions/workflows/poller.yml/dispatches"
-pat_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-  -H "Authorization: Bearer $FACTORY_DISPATCH_PAT" -H 'Accept: application/vnd.github+json' \
-  "https://api.github.com/repos/$REPO_SLUG/actions/workflows/poller.yml")"
-[[ "$pat_status" == 200 ]] \
-  || die "FACTORY_DISPATCH_PAT cannot see poller.yml on $REPO_SLUG ($pat_status). Check its repository access."
-ok "FACTORY_DISPATCH_PAT can see poller.yml"
+# rule audit log nobody is watching. A read is enough to show it can see each
+# workflow; it is not a dispatch, so this starts nothing. stop.yml has to be on
+# main already, so this also fails a run made before that merge.
+dispatch_url() { printf 'https://api.github.com/repos/%s/actions/workflows/%s/dispatches' "$REPO_SLUG" "$1"; }
+for workflow in poller.yml stop.yml; do
+  pat_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+    -H "Authorization: Bearer $FACTORY_DISPATCH_PAT" -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/$REPO_SLUG/actions/workflows/$workflow")"
+  [[ "$pat_status" == 200 ]] \
+    || die "FACTORY_DISPATCH_PAT cannot see $workflow on $REPO_SLUG ($pat_status). Check its repository access, and that $workflow is on main."
+  ok "FACTORY_DISPATCH_PAT can see $workflow"
+done
 
 EXISTING="$(jira_get "$AUTOMATION/rule/summary?limit=100" | jq -c '[.data[] | {name, uuid, state}]')"
 
@@ -172,17 +181,22 @@ rule() {
       }}'
 }
 
-WEBHOOK="$(jq -nc --arg url "$DISPATCH_URL" --arg pat "$FACTORY_DISPATCH_PAT" '{
-  component: "ACTION", type: "jira.issue.outgoing.webhook",
-  value: {
-    url: $url, method: "POST",
-    contentType: "custom", customBody: "{\"ref\":\"main\"}", sendIssue: false,
-    responseEnabled: true, continueOnErrorEnabled: false,
-    headers: [
-      {name: "Authorization", value: ("Bearer " + $pat), headerSecure: true},
-      {name: "Accept", value: "application/vnd.github+json", headerSecure: false},
-      {name: "X-GitHub-Api-Version", value: "2022-11-28", headerSecure: false}
-    ]}}')"
+# The dispatch call. The body is a template: Automation renders smart values
+# such as {{issue.key}} in it before sending.
+webhook() {
+  jq -nc --arg url "$(dispatch_url "$1")" --arg body "$2" --arg pat "$FACTORY_DISPATCH_PAT" '{
+    component: "ACTION", type: "jira.issue.outgoing.webhook",
+    value: {
+      url: $url, method: "POST",
+      contentType: "custom", customBody: $body, sendIssue: false,
+      responseEnabled: true, continueOnErrorEnabled: false,
+      headers: [
+        {name: "Authorization", value: ("Bearer " + $pat), headerSecure: true},
+        {name: "Accept", value: "application/vnd.github+json", headerSecure: false},
+        {name: "X-GitHub-Api-Version", value: "2022-11-28", headerSecure: false}
+      ]}}'
+}
+WEBHOOK="$(webhook poller.yml '{"ref":"main"}')"
 
 jql_list() { printf '%s\n' "$@" | jq -R . | jq -sr 'map("\"" + . + "\"") | join(", ")'; }
 
@@ -218,11 +232,28 @@ MENTIONED="$(rule 'Factory: mentioned' \
     $(jq -nc --arg m "[~accountid:$BOT_ID]" '{component: "CONDITION", type: "jira.comparator.condition",
       value: {first: "{{comment.body}}", second: $m, operator: "CONTAINS"}}'), $WEBHOOK]")"
 
+# Same shape as the mentioned flow, on the other statuses. It cannot tell a stop
+# from any other mention — Automation has no "starts with" on a rendered body
+# that carries the mention first — so `factory stop` reads the comment again
+# and does nothing unless it is one. Straight to stop.yml rather than the
+# poller, because a stop is the one thing that cannot wait for a turn to end.
+STOP="$(rule 'Factory: stop' \
+  'Starts factory stop when a comment on a card in Designing or Building mentions the factory. Only a comment that starts with "stop" after the mention does anything. Managed by bootstrap/jira-triggers.sh.' \
+  '{"type": "jira.issue.event.trigger:commented", "value": {}}' \
+  "[$(jql_condition "status in ($(jql_list "${LOCKED_STATUSES[@]}"))"), $NOT_THE_FACTORY,
+    $(jq -nc --arg m "[~accountid:$BOT_ID]" '{component: "CONDITION", type: "jira.comparator.condition",
+      value: {first: "{{comment.body}}", second: $m, operator: "CONTAINS"}}'),
+    $(webhook stop.yml '{"ref":"main","inputs":{"key":"{{issue.key}}"}}')]")"
+
 # The scheduled trigger accepts only method CRON through this API; the BASIC
 # rate form the UI offers is a 500. Quartz syntax, so seconds come first.
+#
+# A locked card counts as well as a waiting one: a run that died without
+# reporting leaves its card locked, only the factory can move it, and the
+# poller's orphan check is what does.
 SWEEP="$(rule 'Factory: sweep' \
-  'Every 30 minutes, starts the factory poller if a card assigned to the factory is waiting in a Ready column. Catches dropped events. Managed by bootstrap/jira-triggers.sh.' \
-  "$(jq -nc --arg jql "project = $JIRA_PROJECT_KEY AND status in ($(jql_list "${READY_STATUSES[@]}")) AND $FACTORY_IS_ASSIGNEE" --arg cron "$SWEEP_CRON" '{
+  'Every 30 minutes, starts the factory poller if a card assigned to the factory is waiting in a Ready column, or a card is locked in Designing or Building. Catches dropped events and lets go of abandoned cards. Managed by bootstrap/jira-triggers.sh.' \
+  "$(jq -nc --arg jql "project = $JIRA_PROJECT_KEY AND ((status in ($(jql_list "${READY_STATUSES[@]}")) AND $FACTORY_IS_ASSIGNEE) OR status in ($(jql_list "${LOCKED_STATUSES[@]}")))" --arg cron "$SWEEP_CRON" '{
       type: "jira.jql.scheduled",
       value: {jql: $jql, executionMode: "jql", onlyUpdatedIssues: false,
               schedule: {method: "CRON", cronExpression: $cron}}}')" \
@@ -272,6 +303,7 @@ ensure_flow "$CARD_READY"
 ensure_flow "$CARD_ASSIGNED"
 ensure_flow "$NEW_COMMENT"
 ensure_flow "$MENTIONED"
+ensure_flow "$STOP"
 ensure_flow "$SWEEP"
 
 section "Done"

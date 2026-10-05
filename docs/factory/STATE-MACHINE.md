@@ -212,10 +212,39 @@ asked for on the branch.
 ### The other way into a build turn
 
 A human commenting on the **pull request** still grants a build turn directly,
-without going through Jira or the classifier — that path is older than triage
-and unchanged. `build-turn.yml` now has both entrances, and they run the same
-turn; see the header of that file for why the guards on the comment path cannot
-be applied to the dispatch one.
+without going through Jira or the classifier. That path is older than triage.
+`build-comment.yml` applies the four guards, reads the card's key from the PR
+title, and dispatches `build-turn.yml` with it, the same way triage does. The
+turn's first step moves the card from *In review* to *Building*, so the card is
+locked for that turn like any other (see below).
+
+## While a turn runs, the card is locked
+
+*Designing* and *Building* mean a turn has the card, and only the factory can
+move a card out of either or reassign it
+([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)). Jira
+enforces this itself, through two properties on those statuses in the Factory
+workflow. A drag by anyone else, an admin included, is refused, and the board
+will not accept the drop. Comments, fields and links stay open.
+
+Every way into a turn moves the card into one of them first: the poller from a
+*Ready* column, triage from a review or *Blocked* column, refresh from *In
+review*, and a PR-comment turn as its first step. Every run that works a card
+shares one concurrency group, `factory-card-<KEY>`, so a second run waits for
+the first to finish.
+
+There are two ways out that aren't the end of a turn:
+
+| | Started by | Card goes to | Assigned to |
+| --- | --- | --- | --- |
+| **Stop** | A comment that mentions the factory and starts with "stop", e.g. "@Enki stop" | The status it was in before the factory took it | Whoever said stop |
+| **Orphan** | A poller pass finds the card locked for over ten minutes with no unfinished run | The status it was in before the factory took it | Whoever sent it in |
+
+A stop cancels the card's runs and waits for them to end before it moves the
+card. If the turn reported first, the card has already left the lock, and the
+stop leaves it where the turn put it. Both ways out assign the card first and
+move it second, because a card in a *Ready* column assigned to the factory is
+how a turn starts.
 
 ## A turn says when it starts, and who has the card
 
@@ -369,11 +398,11 @@ for adding an admin-only escape hatch if you decide you want one after all.
 
 The factory has two identities, one per system, and neither of them is you.
 
-| | Comment on a card | Move a card | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| The Jira bot user | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
-| The factory App | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
-| You | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
+| | Comment on a card | Move a card | Move a card the factory is working | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| The Jira bot user | ✅ | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
+| The factory App | — | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
+| You | ✅ | ✅ | ❌ (comment "@Enki stop") | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
 
 Neither party can do the whole job alone, which is the point. The bot is the
 only one that can call something *Done*, and it cannot approve or merge the

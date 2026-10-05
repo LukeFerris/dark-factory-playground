@@ -10,7 +10,7 @@ anywhere else.
 
 Now Jira tells the factory when something has happened. Automation rules on the
 project POST to `poller.yml`'s dispatch endpoint; the run does one sweep and
-exits. Nothing is up between events. `bootstrap/jira-triggers.sh` creates the
+exits. One rule, the stop, posts to `stop.yml` instead. Nothing is up between events. `bootstrap/jira-triggers.sh` creates the
 rules; this document is what they are and why.
 
 **Nothing about the poller's logic changed** when the triggers arrived. It
@@ -165,14 +165,14 @@ gh run list --workflow poller.yml --repo "$GH_OWNER/$GH_REPO" --limit 3
 
 ```bash
 bootstrap/jira-triggers.sh --dry-run   # rehearse; the PAT prints as a placeholder
-bootstrap/jira-triggers.sh             # create, or update, the five flows
+bootstrap/jira-triggers.sh             # create, or update, the six flows
 ```
 
-It creates the five rules below through Atlassian's
+It creates the six rules below through Atlassian's
 [Automation Rule Management API](https://developer.atlassian.com/cloud/automation/rest/api-group-rule-management/),
 scoped to this project, with the PAT in a secure header that Jira masks in the
-editor and in every read. It checks the PAT can see `poller.yml` before handing
-it to Jira, and updates a flow that already exists by name in place
+editor and in every read. It checks the PAT can see `poller.yml` and `stop.yml`
+before handing it to Jira (so it fails until `stop.yml` is on `main`), and updates a flow that already exists by name in place
 (`PUT /rule/{uuid}`), which keeps its id and audit log. An update keeps the
 flow's state, so a flow switched off on purpose stays off; a new flow is created
 and enabled. Re-running the script is how a change here reaches Jira.
@@ -193,7 +193,8 @@ single-project rules have no monthly execution limit on any paid Jira tier, and
 do not count against the global/multi-project pool. Scope every rule to this
 project and the volume question never arises.
 
-Each rule's action is the same **Send web request**:
+Every rule's action is the same **Send web request**, except the stop rule's
+(Rule 2c):
 
 | Field | Value |
 | --- | --- |
@@ -288,14 +289,46 @@ wiki markup, where an @mention is `[~accountid:…]`, so the last condition is
 a run, and in review most comments are for other people. Triage applies the same
 test itself, so the condition saves money rather than deciding anything.
 
+### Rule 2c — somebody told the factory to stop
+
+| | |
+| --- | --- |
+| Name | `Factory: stop` |
+| Trigger | **Work item commented** |
+| Condition | **JQL condition** → `status in ("Designing", "Building")` |
+| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
+| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
+| Action | Send web request to `…/actions/workflows/stop.yml/dispatches`, custom data `{"ref":"main","inputs":{"key":"{{issue.key}}"}}` |
+
+*Designing* and *Building* are locked to the factory while a turn runs
+([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)): nobody
+else can move or reassign the card. A comment such as "@Enki stop" is how a
+person gets it back. The status list mirrors `LOCKED_STATUSES`
+(`factory/src/lock.ts`), and `poller.test.ts` pins the script's copy of it.
+
+The flow can't tell a stop from any other mention, so it fires on every mention
+of the factory on a locked card. `factory stop` reads the comment again and does
+nothing unless "stop" is the first word after the mention. It goes straight to
+`stop.yml` rather than to the poller because a stop can't wait for the turn to
+end, and `stop.yml` is not in the card's concurrency group.
+
 ### Rule 3 — the backstop
 
 | | |
 | --- | --- |
 | Name | `Factory: sweep` |
 | Trigger | **Scheduled**, every 30 minutes (the script writes cron `0 0/30 * * * ?`) |
-| JQL | `project = <KEY> AND status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>"` |
+| JQL | `project = <KEY> AND ((status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>") OR status in ("Designing", "Building"))` |
 | Action | Send web request |
+
+The second half of the JQL is for cards left locked. A run that dies without
+reporting leaves its card in *Designing* or *Building*, which only the factory
+can move it out of. Every poller pass looks for locked cards with no run working
+on them and lets them go (`factory release-orphans`). Without this half, on a
+quiet board, no pass would ever run to find them. A card that is locked because
+a turn is running also starts a run every half hour. That run finds the turn
+and does nothing, which is one billed minute per half hour while the factory
+is busy.
 
 A push trigger's failure mode is a dropped event, and a dropped event under the
 old design was a late card whereas here it is a card that waits forever. This is
