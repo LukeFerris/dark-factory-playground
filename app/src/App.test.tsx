@@ -14,7 +14,12 @@ describe('App', () => {
 
   it('shows the deal pipeline instead of the greeting', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Deal Pipeline' })).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 1, name: 'Deal CRM' })
+    expect(heading).toHaveTextContent(/^Deal CRM$/)
+    const icon = heading.querySelector('svg')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(heading.firstChild).toBe(icon)
+    expect(screen.queryByText(/Deal Pipeline/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Hello, world/)).not.toBeInTheDocument()
     expect(screen.getByText('4 active deals · £210m in pipeline')).toBeInTheDocument()
   })
