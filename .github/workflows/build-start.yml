@@ -28,6 +28,8 @@ name: factory build start
 # which has the same two-job shape for the same reason. There is no
 # auto-continue.
 
+run-name: ${{ inputs.key }} build turn 1
+
 on:
   workflow_dispatch:
     inputs:
@@ -40,7 +42,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: factory-build-${{ inputs.key }}
+  group: factory-card-${{ inputs.key }}
   cancel-in-progress: false
 
 jobs:
@@ -389,7 +391,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Report
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           JIRA_BASE: ${{ vars.JIRA_BASE }}

@@ -57,7 +57,25 @@ function intent(meta: Meta): string {
     : 'Picking up the latest review comments and doing another pass on the branch.'
 }
 
-export function startComment(meta: Meta, run: string | null): adf.AdfDoc {
+/**
+ * The lock, said where the person who just tried to drag the card will look.
+ *
+ * Jira refuses the drop without saying why (ADR 0007), so this is the
+ * explanation, and the way out. Without the factory's account id — a dry run —
+ * the stop instruction is written out rather than mentioned.
+ */
+function lockParagraph(factoryAccountId: string | undefined): adf.AdfNode {
+  const who = factoryAccountId === undefined ? adf.text('@the factory') : adf.mention(factoryAccountId)
+  return adf.paragraph(
+    adf.text('Until then the card is locked: only the factory can move or reassign it. To stop the turn, '),
+    adf.text('comment '),
+    who,
+    adf.text(' stop'),
+    adf.text(' and the card comes back to you where it was.'),
+  )
+}
+
+export function startComment(meta: Meta, run: string | null, factoryAccountId?: string): adf.AdfDoc {
   const blocks: adf.AdfNode[] = [
     adf.heading(`${meta.stage} turn ${meta.turn} started`),
     adf.paragraph(adf.text(intent(meta))),
@@ -65,6 +83,7 @@ export function startComment(meta: Meta, run: string | null): adf.AdfDoc {
       adf.text('Nothing is expected of you while this runs. The factory comments again when '),
       adf.text('the turn finishes, and moves the card itself.'),
     ),
+    lockParagraph(factoryAccountId),
   ]
 
   // Turn 1 of a design has no pull request yet — the branch does not exist
@@ -101,12 +120,11 @@ export interface AnnounceOptions {
  */
 export async function announce(options: AnnounceOptions = {}): Promise<void> {
   const meta = readMeta()
-  const comment = startComment(meta, runUrl())
   const links = turnLinks(meta)
 
   if (options.dryRun === true) {
     console.log(`announce --dry-run: would comment on ${meta.key}:`)
-    console.log(JSON.stringify(comment, null, 2))
+    console.log(JSON.stringify(startComment(meta, runUrl()), null, 2))
     console.log(`announce --dry-run: would take ${meta.key} and link ${links.length} thing(s).`)
     return
   }
@@ -114,7 +132,8 @@ export async function announce(options: AnnounceOptions = {}): Promise<void> {
   const cfg = jira.configFromEnv()
 
   try {
-    await jira.addComment(cfg, meta.key, comment)
+    const me = await jira.myAccountId(cfg)
+    await jira.addComment(cfg, meta.key, startComment(meta, runUrl(), me))
     console.log(`announce: told ${meta.key} that ${meta.stage} turn ${meta.turn} has started.`)
   } catch (error) {
     // Warn, never throw. The turn is already running; failing it here would

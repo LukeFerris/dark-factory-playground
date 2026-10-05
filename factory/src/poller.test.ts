@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './env.ts'
+import { LOCKED_STATUSES } from './lock.ts'
 import { QUESTION_STATUSES, REVIEW_STATUSES } from './triage.ts'
 
 /**
@@ -135,5 +136,20 @@ describe('the comment rules in bootstrap/jira-triggers.sh', () => {
 
   it('names exactly the review statuses', () => {
     expect(list('REVIEW_STATUSES')).toEqual([...REVIEW_STATUSES])
+  })
+
+  // The stop flow and the sweep both read this one. A status locked in Jira but
+  // missing here is a card nobody can stop and nothing ever lets go of.
+  it('names exactly the locked statuses', () => {
+    expect(list('LOCKED_STATUSES')).toEqual([...LOCKED_STATUSES])
+  })
+})
+
+describe('the lock in bootstrap/jira.sh', () => {
+  const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira.sh'), 'utf8')
+  const line = script.split('\n').find((candidate) => candidate.startsWith('LOCKED_STATUSES=('))
+
+  it('locks exactly the statuses lock.ts treats as held', () => {
+    expect([...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])).toEqual([...LOCKED_STATUSES])
   })
 })

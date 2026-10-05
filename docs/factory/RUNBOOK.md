@@ -252,6 +252,71 @@ That branch of `act()` is the only one that leaves the card claimed with nothing
 running, and it is deliberate: the alternative is moving the card back, which
 races the next poll. Re-dispatching by hand is the recovery.
 
+You can't drag the card back out yourself: *Designing* and *Building* are
+locked to the factory (see the next section). If you leave it alone, the
+poller's orphan check lets it go after ten minutes with no run. The card goes
+back where it came from and is assigned to whoever sent it in.
+
+---
+
+## A card is locked and will not move
+
+On a card in *Designing* or *Building*, only the factory can change the status
+or the assignee. Jira refuses everyone else, admins included, and a drag on the
+board just snaps back. That is deliberate: it is how a running turn keeps its
+card ([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)).
+Comments and fields still work.
+
+**To stop the turn and get the card back,** comment on the card, mention the
+factory, and make "stop" the first word: `@Enki stop`. Pick the factory from
+the mention list; a name typed as plain text is not a mention. Within about a
+minute:
+
+- the run is cancelled;
+- the card goes back to the status it came from and is assigned to you;
+- a *Stopped, as asked* comment links the cancelled run.
+
+Anything the turn already pushed stays on the branch. If nothing happens:
+
+```bash
+gh run list --workflow stop.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
+```
+
+| What you see | Means |
+| --- | --- |
+| No run | The *Factory: stop* flow didn't fire. Check its audit log in Jira, and that the comment really mentions the factory |
+| A run whose log says `stop: DF-1 -> not-a-stop` | The newest comment to the factory doesn't start with "stop", or the factory has commented since |
+| `-> already-handled` | That comment was acted on already |
+| `-> not-locked` | The card had already left *Designing* / *Building* |
+
+**If no run is working on it** (it died, was cancelled in the Actions tab, or
+timed out), you don't need to do anything. Every poller pass runs
+`factory release-orphans`, which lets go of a locked card that has had no
+unfinished run for ten minutes. The *Factory: sweep* flow starts a pass every
+half hour while any card is locked. To do it now:
+
+```bash
+gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
+```
+
+The check finds runs by name (`DF-1 build turn`), so a run started before
+`run-name` was added to the workflows is invisible to it. During that one
+rollout window, it could let go of a card whose turn is still running.
+
+**If the factory's own code is what's broken**, there are two ways out. Run
+the same check locally, as the factory. It needs the bot's Jira credentials
+(only the factory can move a locked card) and `gh` signed in to the repository:
+
+```bash
+export JIRA_BASE=… JIRA_USER="$JIRA_BOT_EMAIL" JIRA_TOKEN=<the bot's API token>
+export JIRA_PROJECT_KEY=DF GH_OWNER=… GH_REPO=…
+npm run --silent factory -- release-orphans --dry-run   # then without --dry-run
+```
+
+Or, as a Jira admin, remove the two `jira.permission.*` properties from the
+status in the Factory workflow's editor. That unlocks every card in that
+status. Re-run `bootstrap/jira.sh` to put them back.
+
 ---
 
 ## A turn was rejected by validation
@@ -346,13 +411,15 @@ is the whole reason the fan-out exists.
 
 ## A build turn will not start from a comment
 
-`build-turn.yml` has two entrances and they fail differently. A comment on the
-**pull request** goes through the four guards below. A comment on the **card**
-goes through triage instead, which dispatches the workflow with a key and no
-guards at all — if that is the path you expected, read *A comment on a card did
-nothing* further down instead of this section.
+A build turn has two entrances, and they fail differently. A comment on the
+**pull request** goes through the four guards in `build-comment.yml`, which
+then dispatches `build-turn.yml` with the card's key. A comment on the **card**
+goes through triage instead, which dispatches the same workflow with no guards.
+If that is the path you expected, read *A comment on a card did nothing*
+further down instead.
 
-The pull-request path requires all four of:
+The pull-request path requires all four of these (`gh run list --workflow
+build-comment.yml` shows a skipped run when one fails):
 
 1. the comment is on a pull request
 2. the PR carries **`factory:active`**
@@ -849,4 +916,8 @@ gh workflow disable poller.yml --repo "$GH_OWNER/$GH_REPO"
 ```
 
 Nothing new starts. In-flight runs continue; `gh run cancel <id>` each one. To
-stop a single card, remove `factory:active` from its PR.
+stop a single card, comment `@Enki stop` on it (see *A card is locked and will
+not move*), and remove `factory:active` from its PR so a PR comment can't start
+another turn. Cards whose runs you cancel by hand are let go by the next poller
+pass. With the poller disabled, run `factory release-orphans` locally, as in
+that section.

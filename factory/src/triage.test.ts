@@ -625,6 +625,7 @@ describe('what the classifier is told', () => {
       created: '2026-09-23T10:00:00.000+0000',
       body: 'the second one',
       mentions: [],
+      bodyWithoutMentions: 'the second one',
     },
   }
 

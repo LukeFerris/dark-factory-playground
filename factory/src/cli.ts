@@ -7,6 +7,7 @@ import { announce } from './announce.ts'
 import { gather } from './gather.ts'
 import { prepareBranch } from './branch.ts'
 import { triagePass } from './triage.ts'
+import { releaseOrphans, stop, takeCard } from './lock.ts'
 import { currentBranch } from './git.ts'
 import { findPrForCard } from './github.ts'
 import {
@@ -81,6 +82,39 @@ program
       const done = o.action === 'none' ? 'noted' : o.acted ? 'dispatched' : 'FAILED'
       console.log(`triage: ${o.key} (${o.status}) -> ${o.action} [${done}] — ${o.reason}`)
     }
+  })
+
+program
+  .command('stop')
+  .description('Act on "@Enki stop": cancel the card\'s run and put the card back.')
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .option('--dry-run', 'Check and print, but cancel nothing and move nothing', false)
+  .action(async (key: string, opts: { dryRun: boolean }) => {
+    const outcome = await stop({ cfg: jira.configFromEnv(), key, dryRun: opts.dryRun })
+    console.log(`stop: ${key} -> ${outcome}`)
+  })
+
+program
+  .command('release-orphans')
+  .description('Let go of every locked card that no run is working on.')
+  .option('--dry-run', 'Print what would be let go, and change nothing', false)
+  .action(async (opts: { dryRun: boolean }) => {
+    const released = await releaseOrphans({
+      cfg: jira.configFromEnv(),
+      projectKey: required('JIRA_PROJECT_KEY'),
+      dryRun: opts.dryRun,
+    })
+    console.log(released.length === 0 ? 'release-orphans: none' : `release-orphans: let go of ${released.join(', ')}`)
+  })
+
+program
+  .command('jira-take')
+  .description('Move a card into a locked status, unless it is in one, and assign it to the factory.')
+  .argument('<key>', 'Issue key, e.g. DF-1')
+  .argument('<status>', 'The locked status, e.g. Building')
+  .action(async (key: string, status: string) => {
+    await takeCard(jira.configFromEnv(), key, status)
+    console.log(`${key} taken`)
   })
 
 program
