@@ -12,7 +12,7 @@ const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'i
 
 describe('index.html', () => {
   it('titles the tab with the app name', () => {
-    expect(html).toContain('<title>Deal CRM</title>')
+    expect(html).toContain('<title>Deal CRM!</title>')
     expect(html).not.toContain('Deal Pipeline')
   })
 })

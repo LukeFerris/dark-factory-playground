@@ -2,8 +2,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { uatStep } from './uat'
 
 /**
- * The walkthrough for DF-14: the app is called "Deal CRM", with a briefcase
- * icon beside the name in the header.
+ * The walkthrough for DF-14: the app is called "Deal CRM!", with a briefcase
+ * icon beside the name in the header. The reviewer asked for the "!" after
+ * the first build, so it is in the heading and the tab title alike.
  *
  * Step numbers are the flattened `acceptance_criteria` steps a build turn
  * writes into `result.json`. A turn that changes those steps renumbers here in
@@ -59,16 +60,16 @@ async function iconBesideName(page: Page) {
   expect(words.y).toBeLessThan(glyph.y + glyph.height)
 }
 
-test('the app is called Deal CRM, with a briefcase beside the name', async ({ page }) => {
+test('the app is called Deal CRM!, with a briefcase beside the name', async ({ page }) => {
   await page.goto('/')
 
-  // The header shows the name "Deal CRM" with a briefcase icon beside it.
+  // The header shows the name "Deal CRM!" with a briefcase icon beside it.
   await uatStep(page, 1, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM')
+    await expect(heading(page)).toHaveText('Deal CRM!')
   })
 
   await uatStep(page, 2, async () => {
-    await expect(heading(page)).toHaveAccessibleName('Deal CRM')
+    await expect(heading(page)).toHaveAccessibleName('Deal CRM!')
     await iconBesideName(page)
   })
 
@@ -85,9 +86,9 @@ test('the app is called Deal CRM, with a briefcase beside the name', async ({ pa
     await expect(summary).toHaveText('4 active deals · £210m in pipeline')
   })
 
-  // The browser tab is titled "Deal CRM".
+  // The browser tab is titled "Deal CRM!".
   await uatStep(page, 6, async () => {
-    await expect(page).toHaveTitle('Deal CRM')
+    await expect(page).toHaveTitle('Deal CRM!')
   })
 
   // The old name "Deal Pipeline" appears nowhere on the page.
@@ -102,7 +103,7 @@ test('the app is called Deal CRM, with a briefcase beside the name', async ({ pa
   })
 
   await uatStep(page, 10, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM')
+    await expect(heading(page)).toHaveText('Deal CRM!')
     await iconBesideName(page)
   })
 })

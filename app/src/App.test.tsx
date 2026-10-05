@@ -14,8 +14,8 @@ describe('App', () => {
 
   it('shows the deal pipeline instead of the greeting', () => {
     render(<App />)
-    const heading = screen.getByRole('heading', { level: 1, name: 'Deal CRM' })
-    expect(heading).toHaveTextContent(/^Deal CRM$/)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Deal CRM!' })
+    expect(heading).toHaveTextContent(/^Deal CRM!$/)
     const icon = heading.querySelector('svg')
     expect(icon).toHaveAttribute('aria-hidden', 'true')
     expect(heading.firstChild).toBe(icon)

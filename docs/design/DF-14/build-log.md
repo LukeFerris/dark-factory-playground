@@ -37,3 +37,33 @@ No new dependencies.
 **Outstanding**
 
 Nothing. Ready for review.
+
+## Turn 2
+
+The reviewer asked for the name to be "Deal CRM!", with the exclamation mark.
+The previous attempt at this turn asked which reading was meant, and the reply
+confirmed the "!" should be included. The reply didn't say whether the tab
+title should follow, so it does, as the question said it would by default.
+
+**Changed**
+
+- `app/src/App.tsx`: heading text is "Deal CRM!".
+- `app/index.html`: `<title>` is "Deal CRM!".
+- `app/src/App.test.tsx`, `app/src/index.html.test.ts`: expect "Deal CRM!".
+- `app/e2e/pipeline.spec.ts`: steps 1, 2, 6 and 10 expect "Deal CRM!". The
+  header comment notes why. Numbering is unchanged (1–10, no 5 or 7).
+
+No new dependencies.
+
+**Ran**
+
+- Both unit tests failed first against the old name.
+- `npm run lint`: clean.
+- `npm run typecheck`: clean.
+- `npm test`: 9 files, 73 tests passed.
+- `npm run e2e`: 1 passed.
+- `npm run build`: built.
+
+**Outstanding**
+
+Nothing. Ready for review.
