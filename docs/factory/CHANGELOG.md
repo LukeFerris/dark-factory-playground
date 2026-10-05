@@ -9,6 +9,61 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-05
 
+### Every commit goes through the golden path's gates, the factory's included
+
+The repository now uses the pre-commit pipeline from the
+[CVC golden path](https://github.com/cvc-partners/cvc-golden-path) in
+`.husky/pre-commit`. It runs, in order:
+
+1. a check that the pinned tools are installed;
+2. `git diff --check`;
+3. gitleaks;
+4. osv-scanner;
+5. eslint and prettier on what is staged;
+6. at least 75% statements, functions and lines, and 60% branches, for each
+   staged source file;
+7. the `/check-patterns` audit, for commits an agent makes.
+
+The lint rules carry the golden path's complexity limits, in `eslint.gates.js`.
+They apply to tests as well.
+
+The factory and the app did not meet the limits, and were refactored until they
+did, without changing what they do. Twelve files over 300 lines were split.
+Among them, `cli.ts` became one file per group of commands, and `jira.ts`,
+`report.ts` and `triage.ts` lost their HTTP, ADF, comment and classifier
+halves. Each untested file got tests. The factory went from 370 tests to 608.
+osv-scanner found a vitest advisory and a minimatch that eslint-plugin-sonarjs
+pins, so vitest is now 4.1 and minimatch is overridden for sonarjs alone.
+
+The factory's own commits are publish's turn commit and merge-finish's
+resolved merge. They go through the same gates on the runner:
+
+- **The tools go on before the merge.** Each turn workflow installs the pinned
+  tools before it brings the branch up to main. That covers merge-finish's
+  commit as well as publish's. The installer also adds git-ai's capture hook,
+  which attributes the agent's lines.
+- **The installer comes from main.** Each workflow runs main's copy of
+  `scripts/install-harness-tools.sh`, not the branch's. A card branch cut
+  before this change has none, but it takes main's hooks in the merge.
+- **The agent goes on first.** The pinned Claude Code is installed before the
+  harness tools, because the installer adds an unpinned one to any runner that
+  has none.
+- **The merge installs its dependencies before committing.** On the
+  conflicted path, `merge-main` now runs `npm ci` before merge-finish commits,
+  because the gates lint and test the merged tree.
+- **A clean merge is not gated.** It is committed by `git merge`, which runs no
+  pre-commit hook.
+
+A refusal is reported like any other failure. Publish replaces `result.json`
+with a failed result that names the gate. Report runs regardless and reads that
+file, so it no longer moves the card on as if the turn had shipped with
+nothing pushed. merge-finish treats a refusal as an unresolved merge: it aborts
+the merge and asks on the card.
+
+The pattern audit does not run on the runner, because publish is not an agent.
+The build manual asks the agent to make the same audit of its own work. CI
+runs `npm run format:check` for any commit that skipped the hooks.
+
 ### A build turn from review now pushes to its branch
 
 build-turn.yml checks the PR branch out itself and never calls
@@ -18,7 +73,7 @@ was first seen on DF-14, the first build turn sent back from review: the agent
 ran and the report reached the card, but the build log commit was never
 pushed. `gather` now records the checked-out branch. `publish` also falls
 back to the checked-out branch, because in a build turn gather runs the card
-branch's code from *before* main is merged in, so a card already in flight
+branch's code from _before_ main is merged in, so a card already in flight
 still has the old gather.
 
 ### Cards lock while the factory works them, and "@Enki stop" stops a turn
@@ -26,14 +81,14 @@ still has the old gather.
 While a turn has a card, only the factory can move it or reassign it. Jira
 enforces this itself: the Factory workflow carries
 `jira.permission.transition.user` and `jira.permission.assign.user`, set to the
-factory's account id, on *Designing* and *Building*. Every run that works a
+factory's account id, on _Designing_ and _Building_. Every run that works a
 card shares one concurrency group, `factory-card-<KEY>`. A PR comment now goes
 through a new `build-comment.yml`, which dispatches `build-turn.yml` with the
-key, so that turn moves its card to *Building* like every other turn.
+key, so that turn moves its card to _Building_ like every other turn.
 
 There are two new ways out of a locked status:
 
-- **Stop.** "@Enki stop" on the card triggers a new *Factory: stop* flow, which
+- **Stop.** "@Enki stop" on the card triggers a new _Factory: stop_ flow, which
   dispatches `stop.yml`. That cancels the run and returns the card, assigned
   to whoever said stop.
 - **Orphans.** Every poller pass runs `factory release-orphans`. It lets go of
@@ -42,7 +97,7 @@ There are two new ways out of a locked status:
 
 Why: [ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md).
 
-Seen live: with the properties set through the API and DF-13 in *Building*,
+Seen live: with the properties set through the API and DF-13 in _Building_,
 Luke's token (a project admin) was refused both a transition and an
 assignment, and the factory's token could still do both. The properties went
 live before this change merged, so until it does, a crashed run's card can be
@@ -62,7 +117,7 @@ About the API:
   already locked to the factory.
 - **`jira.permission.<action>.user` takes an account id and binds admins
   too.**
-- **A cancelled run skips its `!cancelled()` steps.** Every *Report* step now
+- **A cancelled run skips its `!cancelled()` steps.** Every _Report_ step now
   uses that guard, so a cancelled turn never reports. `factory stop` moves the
   card itself once the run has finished cancelling.
 
@@ -70,11 +125,11 @@ About the API:
 
 ### The factory takes only cards assigned to it
 
-A card in a *Ready for …* column is now the factory's only if it is also
+A card in a _Ready for …_ column is now the factory's only if it is also
 assigned to the factory's Jira account, so people can keep their own cards on
-the board. Triage reads any comment in the two *Blocked on …* statuses, and in
-*Design review* and *In review* only a comment that @mentions the factory; a
-reviewed card can also be sent back by dragging it to a *Ready* column and
+the board. Triage reads any comment in the two _Blocked on …_ statuses, and in
+_Design review_ and _In review_ only a comment that @mentions the factory; a
+reviewed card can also be sent back by dragging it to a _Ready_ column and
 assigning it. At the end of a
 turn the card goes to whoever dragged it in (from the changelog), or to whoever
 answered the question, and the report comment opens with an @mention of them.
@@ -82,12 +137,12 @@ Why: [ADR 0006](../adr/0006-the-factory-takes-only-cards-assigned-to-it.md).
 
 `bootstrap/jira-triggers.sh` now writes five flows and updates existing ones in
 place instead of skipping them. Re-run on this project: the three existing
-flows were updated with their ids and states kept, and *Factory: card assigned*
-and *Factory: mentioned* were created. Seen live on a throwaway card (DF-13, left unassigned in Backlog
+flows were updated with their ids and states kept, and _Factory: card assigned_
+and _Factory: mentioned_ were created. Seen live on a throwaway card (DF-13, left unassigned in Backlog
 because Luke's account cannot delete cards): assigning it to the factory in
-*Backlog* started no run, and a comment on it in *Blocked on architect* started
-the poller three seconds later, where triage answered `none`. In *Design
-review*, a plain comment started no run and one that @mentioned the factory
+_Backlog_ started no run, and a comment on it in _Blocked on architect_ started
+the poller three seconds later, where triage answered `none`. In _Design
+review_, a plain comment started no run and one that @mentioned the factory
 started the poller within seconds, where triage answered `none`. The new
 hand-back and mention have not yet run on a real turn.
 
@@ -115,7 +170,7 @@ More about the API:
 Atlassian's Automation Rule Management API
 (`api.atlassian.com/automation/public/jira/{cloudId}/rest/v1`). They were
 created on this project with it. The web request was proven end to end with a
-temporary flow of the same shape on the *Done* transition, so that no real card
+temporary flow of the same shape on the _Done_ transition, so that no real card
 was dispatched: a throwaway card (DF-12) moved, and a `poller.yml` run triggered
 by the PAT's owner started five seconds later and made one pass in 23 seconds.
 The three real flows have not yet been seen to fire, and the comment flow's
@@ -147,7 +202,7 @@ The API is barely documented. What it actually takes, found by getting it wrong:
 
 The comment flow's two conditions are written as a JQL condition
 (`status in (…)`) and a smart-value comparison (`{{initiator.accountId}}` is not
-the bot's account id) rather than the UI's *Issue fields* and *User* conditions,
+the bot's account id) rather than the UI's _Issue fields_ and _User_ conditions,
 because those are the forms the API takes as plain values. The test is the same.
 `TRIAGE_STATUSES` now has a third copy, in the script, and `poller.test.ts` pins
 that one as well.
@@ -205,7 +260,7 @@ and strand anything it failed to deliver.
 **The cron is commented out, not deleted**, and `poller.test.ts` now asserts
 that no `schedule:` is active. The push trigger depends on a credential held
 outside this repository, so the fallback wants to be one uncommented line away —
-but an enabled cron *alongside* a working push trigger is a runner on a timer
+but an enabled cron _alongside_ a working push trigger is a runner on a timer
 nobody asked for, which is the expensive mistake in the other direction.
 
 #### The token, and why `Actions: write` is enough
@@ -223,7 +278,7 @@ cannot push code, read secrets, modify a workflow file or merge anything.
 The reason that is sufficient is that the PAT does not give the run its power —
 it only starts the run, and the poller then mints its own App token. A dispatch
 executes the workflow file as it exists on the ref, so changing what a run
-*does* needs `Contents: write` to push a new one. Which is also why this uses
+_does_ needs `Contents: write` to push a new one. Which is also why this uses
 `workflows/{id}/dispatches` and not `repository_dispatch`: the latter needs
 `Contents: write`, and that is push access.
 
@@ -242,7 +297,7 @@ audit log, where nobody is looking.
 
 Three mitigations, none of them complete: a calendar reminder for the expiry; a
 third Automation rule on a 30-minute schedule with a JQL that matches only the
-two *Ready for …* columns, so a quiet board is noticed within half an hour and a
+two _Ready for …_ columns, so a quiet board is noticed within half an hour and a
 board with nothing waiting still files no GitHub run at all; and the commented
 `schedule:`.
 
@@ -256,7 +311,7 @@ than built.
 
 ### The avatar goes on when the card is taken, not when the runner starts
 
-A card dragged into *Ready for design* was moved to *Designing* within seconds
+A card dragged into _Ready for design_ was moved to _Designing_ within seconds
 and then sat there unassigned for some time, which on a board reads as a card
 nobody has picked up. Measured across the last three cards, from Jira's own
 history: 18s, 19s, 20s, 28s and 44s.
@@ -274,7 +329,7 @@ subcommand in the poller's shell and a direct `claimCard` call in `triage.act`.
 
 After the move in both, never before. The move is the step that can
 legitimately fail — a status the workflow will not allow — and a card left in
-*Ready for …* wearing the bot's avatar would be a claim on a card the factory
+_Ready for …_ wearing the bot's avatar would be a claim on a card the factory
 does not have. It also stays out of the way of the real gate: the status, and
 only the status, is what stops the next pass picking the same card up, so a
 failed assignment is warned about and stepped over.
@@ -287,13 +342,13 @@ card before.
 ### Nothing moves a card back to the Backlog
 
 Worth writing down because it was looked for and is not there. A card dragged
-into *Ready for design* appeared to drop back into the Backlog before surfacing
-in *Designing*. No card in this project has ever transitioned into *Backlog* —
+into _Ready for design_ appeared to drop back into the Backlog before surfacing
+in _Designing_. No card in this project has ever transitioned into _Backlog_ —
 checked against the full changelog of every card — and the search index the
 board reads agreed with the database 670ms after a transition, so there is no
 stale read to blame either.
 
-What is real is how briefly the card is in *Ready for design*: 11 seconds on
+What is real is how briefly the card is in _Ready for design_: 11 seconds on
 DF-10, 34 on DF-9. A board view that refreshes on its own schedule will miss a
 column that exists for that long. The fix above removes the other half of what
 made this look like a card bouncing around on its own — there is now an avatar
@@ -329,7 +384,7 @@ see a trigger.
 ### The walkthrough is named, not embedded — and a refused comment no longer strands the card
 
 DF-9 was the first card to finish a build turn with a video, and it stopped
-dead in *Building*. The turn had done everything: PR 34 open, preview up, all
+dead in _Building_. The turn had done everything: PR 34 open, preview up, all
 36 screenshots and `uat-slides.mp4` attached. Then:
 
 ```
@@ -353,12 +408,12 @@ player was only ever the enrichment.
 
 **The bigger fault was that this cost the hand-off.** `report` posts the
 comment, then syncs links, releases the card and transitions it. A throw on the
-first line skipped all three, so the card sat in *Building*, still assigned to
+first line skipped all three, so the card sat in _Building_, still assigned to
 the factory, in a column the poller does not watch. Nobody was waiting on it;
 it simply went quiet — which is the one outcome the pipeline is built to avoid,
-and `attachEvidence` already says so in its own docstring: *losing the evidence
+and `attachEvidence` already says so in its own docstring: _losing the evidence
 costs them a few minutes in the preview, losing the comment costs them the
-hand-off*. The media node had quietly smuggled the evidence back into the
+hand-off_. The media node had quietly smuggled the evidence back into the
 comment, where a failure is fatal.
 
 A refused comment is now caught. A plain-text fallback goes up in its place —
@@ -368,7 +423,7 @@ hand-back and transition happen either way. The run still exits non-zero, so it
 is visibly a fault rather than a silent downgrade.
 
 DF-9 itself was finished by hand: the comment its own turn generated was posted
-with the fix applied, and the card moved to *In review*. Evidence was not
+with the fix applied, and the card moved to _In review_. Evidence was not
 re-attached, as it was already on the card.
 
 ### Two specs can no longer overwrite each other's walkthrough
@@ -377,7 +432,7 @@ Found while checking the factory was ready for its first card under the new
 evidence chain, not by anything going wrong.
 
 Everything under `app/e2e/` runs into one directory, and each `uatStep(page, n,
-…)` names its screenshot from its own number. A build turn that *adds*
+…)` names its screenshot from its own number. A build turn that _adds_
 `app/e2e/<newthing>.spec.ts` numbering from 1, alongside the seed spec that
 already numbers 1–4, would have the two overwrite each other — and the card
 would carry a numbered walkthrough whose pictures belong to a different flow.
@@ -409,7 +464,7 @@ pointer at the real spec.
 The second half of the `sanagnoscvc/ai-sdlc` port. That repository's
 `HANDOFF-TEMPLATE.md` and `STAGE-UPDATE-TEMPLATE.md` are comment templates an
 agent fills in; here the agent writes `result.json` and `report` builds the
-comment, so what ported is the *shape* — as three additions rather than a
+comment, so what ported is the _shape_ — as three additions rather than a
 template to copy.
 
 **"Not in this change" (`out_of_scope`).** The counterpart to the acceptance
@@ -421,7 +476,7 @@ in scope, and establishing that cost a round trip.
 **"Answers to your questions" (`answers`).** A card where somebody answers a
 question and the next comment never mentions it reads as though nobody listened,
 and the only way to tell whether a reply landed was to read the diff. Answers
-are *derived* — quoted from the reply — and the manuals say so twice, because
+are _derived_ — quoted from the reply — and the manuals say so twice, because
 the failure mode is an agent inventing an answer to look responsive. It sits
 above the work rather than below it: the person who replied is scanning for
 their own words, not reading top to bottom.
@@ -430,8 +485,8 @@ their own words, not reading top to bottom.
 stage, not written by the agent — it is the same sentence every time, and the
 one place a reviewer must not have to interpret is the instruction for handing
 the card on. It does not read like the template it came from, because this board
-has no *Ready for deploy* column: a build is accepted by merging the pull
-request, and *Done* is set by the factory once the change answers in production.
+has no _Ready for deploy_ column: a build is accepted by merging the pull
+request, and _Done_ is set by the factory once the change answers in production.
 Telling a reviewer to drag the card would be telling them to do something the
 board will refuse. Both manuals now say the sign-off is not the agent's to
 write, or a second competing instruction lands underneath it.
@@ -446,7 +501,7 @@ past the first screen checks nothing at all.
 checks passed. `report` runs under `if: always()`, including after a rejected
 turn, so the pipeline cannot stand behind that claim at the point it is made —
 it would be an unverifiable boast from the party with the incentive to make it.
-The one version of it the pipeline *can* back, "the walkthrough below was
+The one version of it the pipeline _can_ back, "the walkthrough below was
 recorded against this preview", already went in above.
 
 ### A build turn now proves its card in a browser, and shows its working
@@ -466,7 +521,7 @@ goes on the card beside the words.
 Three things were not obvious:
 
 **The evidence has to be taken in the `preview` job, not the `turn` job.** The
-agent's `PREVIEW_URL` comes from `gather` and is the *previous* turn's preview —
+agent's `PREVIEW_URL` comes from `gather` and is the _previous_ turn's preview —
 empty on turn 1. A capture run in the agent's job would photograph the wrong
 app, convincingly.
 
@@ -498,7 +553,7 @@ the agent's to relax when a step will not go green.
 
 ### The poller covered about a fifth of the day, and the knob to fix it did nothing
 
-A card filed into *Ready for design* sat there untouched. The workflow was
+A card filed into _Ready for design_ sat there untouched. The workflow was
 enabled, every run had succeeded, and the cron was `*/5 * * * *` — so nothing
 looked wrong anywhere you would normally look.
 
@@ -521,7 +576,7 @@ silently. The variable had been raised two days earlier to close these very
 gaps and had never had any effect — it read 21000 and ran 3000.
 
 The clamp itself is correct, and its comment always said why: the App token is
-minted once per run and lasts an hour. Which means the window can *never* be the
+minted once per run and lasts an hour. Which means the window can _never_ be the
 answer. Roughly 50 minutes of attention in every 2.5–6 hours: about 20% of the
 day, with the rest unattended.
 
@@ -642,8 +697,8 @@ branches that do not build.
   attributed to the agent, and the turn is rejected for editing `factory/` it
   never touched. `recordMerge` owns that rule now, in one place.
 - The scope check for the resolving agent is just `git diff --name-only ⊆ the
-  conflicted paths`. It works because of how git stages a conflicted merge:
-  everything that merged cleanly is already *in* the index, so it does not show
+conflicted paths`. It works because of how git stages a conflicted merge:
+  everything that merged cleanly is already _in_ the index, so it does not show
   up, and unmerged entries always do. Anything else listed is a file the agent
   edited on its own initiative.
 - A conflict in `.agent/`, `.github/` or `factory/` is refused outright rather
@@ -695,7 +750,7 @@ fails, and only the guard.
 
 Asked for a progress notification on the card, because a claimed card looked
 identical to an ignored one. It did, and worse than expected: a Jira status
-change is *silent*. It notifies no watcher and it does not appear in the comment
+change is _silent_. It notifies no watcher and it does not appear in the comment
 stream, which is the only part of a card most people read. So between the
 poller's claim and `report` at the end of the turn — the entire duration of the
 work — the card said nothing at all.
@@ -727,7 +782,7 @@ comments on the card. Nothing stores a counter anywhere, which is precisely
 what stops a card disagreeing with itself about how many turns it has had — and
 which makes any second factory comment per turn a silent corruption of it.
 Design turns would have counted 1, 3, 5; and every turn past the first tells the
-agent *"You asked questions on an earlier turn and they have been answered"*,
+agent _"You asked questions on an earlier turn and they have been answered"_,
 which on a turn that asked nothing is an instruction to go and find replies that
 do not exist.
 
@@ -743,7 +798,7 @@ and a new `gather.test.ts` pins the count itself against a msw-stubbed Jira.
 
 Build-turn numbering is unaffected — it counts `<!-- factory-turn` markers in
 GitHub PR comments, not Jira ones. Triage is unaffected and slightly protected:
-it only acts when the newest comment is *not* the factory's, and a start comment
+it only acts when the newest comment is _not_ the factory's, and a start comment
 makes the newest comment the factory's.
 
 ### SECURITY.md said credentialed steps run after the agent
@@ -759,7 +814,7 @@ Having just added a comment per turn, the obvious next move was to add more of
 them — the preview URL each build turn, "still working" for a long one. That is
 the wrong shape twice over. A URL that changes every turn posted as a comment
 accumulates one copy per turn, and the reader has to work out which one still
-resolves; and the card's *status* was never the problem, so the board view stays
+resolves; and the card's _status_ was never the problem, so the board view stays
 exactly as uninformative as it was.
 
 Jira has a channel for each, and neither is a comment:
@@ -807,8 +862,8 @@ reads like a redundant header somebody would helpfully delete.
 
 Asked what happens when a card is dragged to **Done**, went to read the code,
 and the answer was: nothing. Not "nothing much" — the poller looks at two
-columns and neither is Done, triage's docstring says outright that *"a card in
-Backlog or Done is not the factory's problem"*, and `grep -rni production`
+columns and neither is Done, triage's docstring says outright that _"a card in
+Backlog or Done is not the factory's problem"_, and `grep -rni production`
 over the whole repository returned no matches at all.
 
 Which exposed the bigger hole behind it. On merge, `ci.yml` ran the tests and
@@ -827,15 +882,15 @@ New `production.yml`, on `pull_request: closed`:
    it to **Done**
 
 Step 3 only runs if step 2 succeeded, which is ADR 0003's rule moved one
-column right: the card did not say *In review* before there was something to
-review, and it does not say *Done* before the thing is live.
+column right: the card did not say _In review_ before there was something to
+review, and it does not say _Done_ before the thing is live.
 
 Production is the same Container App as a preview in every respect that could
 make it a different artefact — same registry, environment, managed identity
 and Dockerfile. Two differences on purpose: `min-replicas: 1`, so it never
 sleeps and needs no launcher, and an image tagged `main-<sha>` rather than
 `pr-<n>`. The tag is not cosmetic: `az containerapp update --image` only makes
-a new revision when the *reference* changes, so a fixed tag like `latest`
+a new revision when the _reference_ changes, so a fixed tag like `latest`
 would push new bytes and leave the old revision serving.
 
 Things worth knowing:
@@ -864,7 +919,7 @@ Things worth knowing:
 
 And **Done became a status nobody can fake**: a Jira transition condition
 restricts it to the bot account. A condition rather than a permission because
-it *hides* the transition — so it vanishes from the board, and
+it _hides_ the transition — so it vanishes from the board, and
 `factory jira-transition` (which resolves by destination first) reports
 `has no transition to "Done"` rather than a bare 403. Conditions bind project
 admins too, so there is deliberately no manual override; ADR 0004 argues why,
@@ -872,14 +927,14 @@ and what to do if that turns out to be wrong.
 
 That condition is the one part of this that `bootstrap/` cannot do. The bot is
 deliberately not a project administrator — asking Jira for `/project/DF/role`
-as the bot returns *"You cannot edit the configuration of this project"* —
+as the bot returns _"You cannot edit the configuration of this project"_ —
 which is the same separation that stops it deleting its own cards, and it
 cuts both ways: the account the condition protects cannot install the
-condition. It is four clicks in a browser, written up as *Locking Done to the
-factory* in `SETUP.md`. It also needs a **company-managed** project; team-
+condition. It is four clicks in a browser, written up as _Locking Done to the
+factory_ in `SETUP.md`. It also needs a **company-managed** project; team-
 managed ones have no transition conditions at all. `bootstrap/jira.sh` already
-creates the right kind, and helpfully gives every status a single *global*
-transition in, so there is exactly one transition into *Done* to guard.
+creates the right kind, and helpfully gives every status a single _global_
+transition in, so there is exactly one transition into _Done_ to guard.
 
 Still unproven: no build PR has ever been closed in this repository, so
 `build-teardown.yml` has never run either. The first card merged after this
@@ -909,9 +964,9 @@ read.
 
 `build-start.yml` and `build-turn.yml` each gained a `preview` job:
 
-| Job | Holds | Does |
-| --- | --- | --- |
-| `turn` | `contents: read` | Agent, validate, publish, upload `.agent/` |
+| Job       | Holds                                                     | Does                                                          |
+| --------- | --------------------------------------------------------- | ------------------------------------------------------------- |
+| `turn`    | `contents: read`                                          | Agent, validate, publish, upload `.agent/`                    |
 | `preview` | `packages`/`deployments`/`id-token`/`pull-requests` write | Restore the artifact, deploy, wait for a 200, **then** report |
 
 The thing that makes this cheap is that **a job carries its own
@@ -929,7 +984,7 @@ turn 1 now posts the kickoff comment itself.
 Four things worth knowing:
 
 - **`if: always()` on the preview job was a bug I wrote and caught.** A job
-  whose `if:` rejects it is *skipped*, and `always()` treats skipped as reason
+  whose `if:` rejects it is _skipped_, and `always()` treats skipped as reason
   to run. build-turn's four comment guards live on the `turn` job, so a
   comment from the bot would skip the agent and then cheerfully report on a
   turn that never happened. It is
@@ -960,7 +1015,7 @@ something to look at" you have to wait until there is.
 The first real preview came up and took 30-40 seconds to answer, which is long
 enough that the reasonable conclusion is "this is broken". Measured properly it
 is worse than it looks, and the shape of the problem matters: Container Apps
-does not *refuse* a request to an app scaled to zero, it holds it. DNS 16ms,
+does not _refuse_ a request to an app scaled to zero, it holds it. DNS 16ms,
 connect 44ms, TLS 81ms — then 22.4 seconds of silence, then a 200. Warm, the
 same request answers in 97ms.
 
@@ -982,7 +1037,7 @@ covering what the one before it cannot:
   the app being warmed had usually gone cold again by the time it mattered. As
   of az 2.84.0 no `containerapp` command exposes the property at all; it is
   reachable only through `az resource update --set
-  properties.template.scale.cooldownPeriod=…`, which takes effect in place and
+properties.template.scale.cooldownPeriod=…`, which takes effect in place and
   creates no new revision. At Azure's published uksouth rate an idle 0.25 vCPU
   / 0.5 GiB replica is $0.0108/hour, so an hour of warmth per build turn costs
   about a penny — and it still reaches zero on its own, so an open PR nobody
@@ -1019,7 +1074,7 @@ failed silently, which is why a pipeline that had "worked" had never once
 delivered a preview link.
 
 - **`kickoff` read meta.json, which cannot exist where it runs.** `factory
-  gather` writes that file during a build turn in build-start.yml; kickoff
+gather` writes that file during a build turn in build-start.yml; kickoff
   runs in build-setup.yml — a different workflow, a different runner, a fresh
   checkout, and `.agent/` is gitignored. Not a flake: the kickoff comment has
   never been posted, on any card. It now takes the card key and the preview
@@ -1137,11 +1192,11 @@ a first attempt from a clean `synchronize`.
 ### A comment is an instruction, and only a model can read which one
 
 **Previously, same day:** the entry below closed the design question loop with
-`factory jira-answered "Blocked on architect"` — *the newest comment on this
-card is not ours, therefore send it back to Designing*. That works, but only
-because *Blocked on architect* means one thing. It does not generalise: the
-factory also leaves cards in *Design review*, *In review* and *Blocked on
-engineer*, and a comment on any of those might be a new requirement, a bug
+`factory jira-answered "Blocked on architect"` — _the newest comment on this
+card is not ours, therefore send it back to Designing_. That works, but only
+because _Blocked on architect_ means one thing. It does not generalise: the
+factory also leaves cards in _Design review_, _In review_ and _Blocked on
+engineer_, and a comment on any of those might be a new requirement, a bug
 report, a question, an approval, or "thanks".
 
 **Done:** `jira-answered` is removed. `factory triage` replaces it, and reads
@@ -1155,9 +1210,9 @@ waiting on a person.
   therefore now holds `ANTHROPIC_API_KEY`; `SECURITY.md` argues why that is not
   the thing rule 1 exists to prevent.
 - **Routing does not have to match the column.** A requirement change on a card
-  in *In review* is design work; a fault reported on a card in *Design review*
+  in _In review_ is design work; a fault reported on a card in _Design review_
   is build work. Both cross over.
-- **The two *Ready for …* columns are deliberately not triaged.** A human
+- **The two _Ready for …_ columns are deliberately not triaged.** A human
   moving a card is already an unambiguous instruction and needs no classifier —
   and reading them here as well would hand one card to two runners on the same
   pass.
@@ -1187,11 +1242,11 @@ successful injection buys is the wrong one of three words.
 
 ### The "human answers" arrow was a picture, not a feature
 
-**Plan said:** a design turn that asks a question parks the card in *Blocked on
-architect*; when a person answers, the card comes back to *Designing* and the
+**Plan said:** a design turn that asks a question parks the card in _Blocked on
+architect_; when a person answers, the card comes back to _Designing_ and the
 design continues. `STATE-MACHINE.md` drew that arrow.
 
-**Actual:** nothing implemented it. `poller.yml` queried the two *Ready for …*
+**Actual:** nothing implemented it. `poller.yml` queried the two _Ready for …_
 statuses and nothing else, so a blocked card stayed blocked until someone
 dragged it back by hand. Two smaller things pointed the same way: the design
 document template had an **Open questions** heading, which invites the agent to
@@ -1200,7 +1255,7 @@ while the undecided part sits in a file on a branch, and the next reader is the
 build agent, for whom it is far too late.
 
 **The thing actually in the way was identity.** "A human has answered" is, in
-the simplest form that works, *the newest comment on the card is not ours*.
+the simplest form that works, _the newest comment on the card is not ours_.
 `bootstrap/github.sh` set `JIRA_BOT_EMAIL="$JIRA_USER"`, so the factory
 commented as the human it works for, and that test could never be true. Jira
 comments also only carried `displayName`, which is not identity — two accounts
@@ -1215,7 +1270,7 @@ can share one.
   factory ran as before: a plain licensed user cannot delete an issue or
   administer the project.
 - `JiraComment` carries `authorId`. `isAnswered()` compares it against
-  `myAccountId()`; `report()` comments *before* it transitions, so a blocked
+  `myAccountId()`; `report()` comments _before_ it transitions, so a blocked
   card always carries the agent's question as its last word and anything newer
   is the reply.
 - `factory jira-answered "<status>"` prints the keys whose questions have been
@@ -1224,7 +1279,7 @@ can share one.
   card whose question is still unanswered is deliberately not dispatched: it is
   not waiting on the factory, and sending it back would put the agent in front
   of its own question with nothing new to read.
-- `gather` marks the factory's own comments as *yours, on an earlier turn*, and
+- `gather` marks the factory's own comments as _yours, on an earlier turn_, and
   tells a design turn which round it is — counted from those comments, so
   nothing stores a counter.
 - **No more Open questions heading.** `docs/design/README.md` says where
@@ -1232,8 +1287,8 @@ can share one.
   document at all. Pinned by tests, because it is prose doing load-bearing work.
 
 The loop now closes without anyone moving a card: ask on the card, stop, come
-back when someone replies, repeat until a turn has nothing to ask. *Design
-review* still means what it meant — a human moves the card on from there.
+back when someone replies, repeat until a turn has nothing to ask. _Design
+review_ still means what it meant — a human moves the card on from there.
 
 ## 2026-09-22
 
@@ -1246,7 +1301,7 @@ review* still means what it meant — a human moves the card on from there.
 **Actual:** that file was never there. `prepare-branch` cuts a build branch from
 `origin/main`; `main` contained exactly one thing under `docs/design/` — the
 README. Nothing in `poller.yml`, `build-start.yml` or `build-turn.yml` merged a
-design PR, and no step did it by hand. Moving DF-1 to *Ready for build* would
+design PR, and no step did it by hand. Moving DF-1 to _Ready for build_ would
 have started a $10 agent, told it to read the approved design, and handed it an
 empty path.
 
@@ -1266,7 +1321,7 @@ continued by every build turn, carrying a single pull request for the card's
 whole life. The design document is in the build agent's tree because the stage
 before it put it there. Nothing merges to `main` mid-card, nothing bypasses
 anything, and the gate stays where it already was — a human moving the card to
-*Ready for build*.
+_Ready for build_.
 
 The stage still decides what a turn may write, so a build turn sharing a branch
 with the design still cannot edit it: `docs/design/*/design.md` is outside the
@@ -1277,10 +1332,10 @@ a shared branch that diff contains the previous stage's work, so every build
 turn would have been rejected for a design document it never touched.
 `prepare-branch` now records the commit the turn starts from as `base_sha`, and
 `validate` measures from there. That is the more correct rule anyway — a turn
-should be scoped by what *it* changed — and it fixes a latent version of the same
+should be scoped by what _it_ changed — and it fixes a latent version of the same
 bug, where build turn 2 was re-validating turn 1's files.
 
-Also moved: `publish` applied `factory:active` only when it *created* the PR. On
+Also moved: `publish` applied `factory:active` only when it _created_ the PR. On
 a shared branch the design turn creates it, so the label — which is what
 `build-setup.yml` and `build-turn.yml` both trigger on — would never have been
 applied and the preview would never have come up. Labels are now applied every
@@ -1321,7 +1376,7 @@ run the turn against exactly the stale rules this exists to prevent.
 
 `validate` is unaffected either way: `changedFiles` diffs `origin/main...HEAD`,
 three dots, so it has always compared against the merge base and never counted
-main's own commits as the agent's work. After the merge the merge base *is*
+main's own commits as the agent's work. After the merge the merge base _is_
 main's tip, and the diff is the branch's output alone.
 
 **Not unit-tested.** `git()` resolves its cwd from `REPO_ROOT`, so exercising
@@ -1360,7 +1415,7 @@ and nothing would notice when it stopped doing so.
 miss. `docs/design/README.md` now requires an "Acceptance criteria" heading
 between "Risks and alternatives" and "Test strategy", one subsection per
 criterion with its steps numbered beneath. The card comment is what a reviewer
-reads; the design document is what the *build agent* reads, and shipping the
+reads; the design document is what the _build agent_ reads, and shipping the
 criteria only to Jira left the stage that has to satisfy them working from
 prose. The new heading also states what it is not: the test strategy is what
 stops a criterion regressing, the criterion is what a person checks by hand
@@ -1380,7 +1435,7 @@ confident outcomes and steps for two of them.
 `--pr-url`, and neither workflow has ever passed one — `publish` prints the URL
 and sets no step output, so the flag was unreachable from the only place that
 calls it. Two cards went through before anyone noticed, because a comment that
-links *something* looks like a comment that links everything.
+links _something_ looks like a comment that links everything.
 
 **Done:** `report` no longer waits to be told. `meta.json` holds the PR number
 from the moment `publish` creates or finds it — and from turn one on a build —
@@ -1487,13 +1542,13 @@ are `location` missing from `GET /board/{id}` and `isBoardCrossProject: true`
 in the config model.
 
 **The template made a second board.** `kanban-classic` creates `DF board`
-automatically, with none of the factory's statuses mapped. That one *is*
+automatically, with none of the factory's statuses mapped. That one _is_
 attached to the project, so it is what the sidebar opens — meaning the board
 you land on is the wrong one, and the right one is unreachable from the
 project. Seven factory statuses sat in its Unmapped pile.
 
 **The columns were never set.** Correct as documented, but the reason given was
-wrong. The *documented* Agile API cannot map statuses to columns —
+wrong. The _documented_ Agile API cannot map statuses to columns —
 `/board/{id}/configuration` is read-only. The board settings UI drives
 `PUT /rest/greenhopper/1.0/rapidviewconfig/columns`, which works fine, and
 `PUT /rest/greenhopper/1.0/rapidviewconfig/boardLocation` attaches an existing
@@ -1589,11 +1644,11 @@ returns 403 and the factory has no containment at all.
 
 Not defects, but each looked like one for a while.
 
-*Jira ships a global status called "Building".* `jira.sh` creates nine of its
+_Jira ships a global status called "Building"._ `jira.sh` creates nine of its
 ten statuses and reuses that one. The skip is the idempotency check working, not
 a missing status.
 
-*The `kanban-classic` template creates `Backlog` and `Done` itself.* So the run
+_The `kanban-classic` template creates `Backlog` and `Done` itself._ So the run
 that appears to create seven statuses has in fact produced all ten: seven new,
 one pre-existing global, two from the template. Check
 `/rest/api/3/project/DF/statuses` rather than counting the log lines.
@@ -1640,14 +1695,14 @@ exist, and `"${arr[@]}"` on an empty array is an unbound-variable error under
 
 **Actual:** two separate gaps, one of them silently wrong in the documentation.
 
-*It was raised once.* `build-start.yml` dispatched `build-setup.yml` at the end
+_It was raised once._ `build-start.yml` dispatched `build-setup.yml` at the end
 of turn 1, and nothing dispatched it again. `build-turn.yml` did not. So the
 preview showed turn 1's build for the life of the PR, while every diagram and
 document in the repository described it as tracking the branch. A preview that
 is confidently stale is worse than no preview: a reviewer clicks it, sees the
 old build, and reports a bug that does not exist.
 
-*Nothing served it.* The GHCR path builds a real image and records a real
+_Nothing served it._ The GHCR path builds a real image and records a real
 Deployment, but the "preview URL" was a link to a container registry page.
 
 **Done, for the trigger:** `build-setup.yml` now runs on the pull request's own
@@ -1820,7 +1875,7 @@ reported "shellcheck clean across all 5 scripts" and "actionlint clean across al
 produced them cannot have run.
 
 **Done:** both installed (shellcheck 0.11.0, actionlint 1.7.12) and run for
-real. Both claims turned out to be *true* — all 5 scripts and all 7 workflows
+real. Both claims turned out to be _true_ — all 5 scripts and all 7 workflows
 are genuinely clean, including the Jira fixes above. The finding is about the
 verification, not the code: a green claim from a tool that is not installed is
 indistinguishable from a green claim from a tool that is, unless someone checks.
@@ -1842,7 +1897,7 @@ planned. Auto-continue remains off.
 **Plan said:** nothing specific; `bootstrap/jira.sh` was written against the
 workflow-search endpoint that was current when the plan was drafted.
 
-**Actual:** `GET /rest/api/3/workflow/search` (singular *workflow*) is gone —
+**Actual:** `GET /rest/api/3/workflow/search` (singular _workflow_) is gone —
 Atlassian removed it on 1 June 2026, three months before this build, per
 changelog CHANGE-2569. The replacement is `GET /rest/api/3/workflows/search`
 (plural), which also changed response shape: a workflow's name is a plain

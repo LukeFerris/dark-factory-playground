@@ -10,21 +10,22 @@ issued once or UI that has no API. They are marked **Checkpoint A** to
 
 ## Before you start
 
-| You need | Why |
-| --- | --- |
-| Node 22 (`.nvmrc` pins it) | The workspaces and CI both build on 22 |
-| `gh`, `git`, `jq`, `curl` | The bootstrap scripts shell out to all four |
-| `claude` | `npm i -g @anthropic-ai/claude-code` |
-| Docker (optional) | Only to build preview images locally |
-| A GitHub account you control | The App is installed on your own repository |
+| You need                                  | Why                                                                                                                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node 22 (`.nvmrc` pins it)                | The workspaces and CI both build on 22                                                                                                                                                      |
+| `gh`, `git`, `jq`, `curl`                 | The bootstrap scripts shell out to all four                                                                                                                                                 |
+| `claude`                                  | `npm i -g @anthropic-ai/claude-code`                                                                                                                                                        |
+| Docker (optional)                         | Only to build preview images locally                                                                                                                                                        |
+| A GitHub account you control              | The App is installed on your own repository                                                                                                                                                 |
 | That repository public, **or** GitHub Pro | Rulesets are the containment, and they need one or the other. On a free plan a private repository returns `403 Upgrade to GitHub Pro or make this repository public` for every ruleset call |
-| A Jira Cloud site (Free is enough) | `https://<you>.atlassian.net` |
-| An Anthropic API key | The agent's only credential |
+| A Jira Cloud site (Free is enough)        | `https://<you>.atlassian.net`                                                                                                                                                               |
+| An Anthropic API key                      | The agent's only credential                                                                                                                                                                 |
 
 ```bash
 git clone <this repo> && cd dark-factory-playground
 cp .env.example .env
 npm ci
+bash scripts/install-harness-tools.sh   # the pinned tools every commit needs
 bootstrap/preflight.sh
 ```
 
@@ -35,7 +36,7 @@ everything else. Two failures worth calling out now:
   active. If you are signed in as more than one, `gh auth switch -u $GH_OWNER`.
 - **`gh workflow scope`** — pushing `.github/workflows/**` needs the `workflow`
   scope. Switch to the right account first, then `gh auth refresh -h
-  github.com -s workflow` — `refresh` has no account flag and always acts on
+github.com -s workflow` — `refresh` has no account flag and always acts on
   whichever account is active.
 
 ---
@@ -49,21 +50,22 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 1. **Settings → Developer settings → GitHub Apps → New GitHub App.**
 2. Name it `<your-handle>-factory`. Homepage URL can be the repository.
 3. **Uncheck Webhook → Active.** Nothing listens for GitHub events; the App
-   exists to be authenticated *as*, not to be called.
+   exists to be authenticated _as_, not to be called.
 4. Repository permissions — grant exactly these, and nothing else:
 
-   | Permission | Access | Used for |
-   | --- | --- | --- |
-   | Contents | Read and write | Pushing `card/*` branches |
-   | Pull requests | Read and write | Opening and updating the draft PR |
-   | Issues | Read and write | Reading and posting PR comments, labels |
-   | Actions | Read and write | The poller dispatching the stage workflows |
-   | Deployments | Read and write | Recording the preview Deployment |
-   | Packages | Read and write | Pushing and deleting the `pr-<n>` image |
-   | Metadata | Read-only | Mandatory |
+   | Permission    | Access         | Used for                                   |
+   | ------------- | -------------- | ------------------------------------------ |
+   | Contents      | Read and write | Pushing `card/*` branches                  |
+   | Pull requests | Read and write | Opening and updating the draft PR          |
+   | Issues        | Read and write | Reading and posting PR comments, labels    |
+   | Actions       | Read and write | The poller dispatching the stage workflows |
+   | Deployments   | Read and write | Recording the preview Deployment           |
+   | Packages      | Read and write | Pushing and deleting the `pr-<n>` image    |
+   | Metadata      | Read-only      | Mandatory                                  |
 
    Grant nothing else. In particular **do not** grant Administration, Members,
    or anything organisation-level.
+
 5. **Where can this App be installed?** Only on this account.
 6. Create it. On the App's page:
    - note the **App ID** → `FACTORY_APP_ID`
@@ -102,7 +104,7 @@ stores them in GitHub.
 
 5. Make a second Atlassian account and invite it to the site as a **licensed
    user**, not an admin: **Settings → User management → Invite users**, product
-   access *Jira*, role *Member*. A `+suffix` on your own address works if your
+   access _Jira_, role _Member_. A `+suffix` on your own address works if your
    mail provider supports it (`you+factory@example.com`).
 6. Give it an obviously non-human display name — it is what appears above every
    card comment for the rest of the project's life.
@@ -114,15 +116,15 @@ default permission scheme — browse, comment, transition, edit, create, assign
 and link — and nothing more. The factory takes only cards assigned to it, holds
 the card while a turn runs, hands it back at the end, and
 puts the pull request and preview on as remote links, both of which that scheme
-already allows; neither can fail a turn if it does not. *Delete Issues* and
-*Administer Projects* belong to a project role
+already allows; neither can fail a turn if it does not. _Delete Issues_ and
+_Administer Projects_ belong to a project role
 it is not in, so the factory cannot remove a card or reconfigure the project
 even if a turn goes badly wrong. Do not "fix" that by adding it to the
 Administrators role.
 
 > **Why it cannot be your account.** The factory reacts to comments on cards —
 > that is how a blocked card comes back, and how a change of mind on a card in
-> review starts a turn. The test it uses is whether the newest comment is *not*
+> review starts a turn. The test it uses is whether the newest comment is _not_
 > the factory's, which is only a meaningful question if the factory is a
 > distinct author. Run the factory as yourself and every card reads as
 > permanently answered by itself, with no error to explain it.
@@ -174,7 +176,7 @@ protection` ruleset, which requires a pull request and a green `ci` with no
 bypass actors — including you. On an empty repository that can never be
 satisfied: `ci` cannot run until the workflows are on the default branch, and
 they cannot get there without this push. Run it the other way round and GitHub
-rejects the push with *Required status check "ci" is expected*. If you have
+rejects the push with _Required status check "ci" is expected_. If you have
 already created the ruleset, set its enforcement to `disabled`, push, and set it
 back to `active`:
 
@@ -198,7 +200,7 @@ the default branch. Every other check should pass on the first run.
 
 One thing it cannot check: secrets are write-only, so a ✓ beside
 `FACTORY_APP_KEY` means a secret of that name exists, not that it holds a key.
-The first poller run is what proves it — a failure at *Mint App token* is in
+The first poller run is what proves it — a failure at _Mint App token_ is in
 `RUNBOOK.md`.
 
 ---
@@ -211,15 +213,15 @@ if Atlassian changes it the script warns and carries on rather than failing.
 
 Ten columns, one status each, in the order a card travels:
 
-| # | Column | # | Column |
-| --- | --- | --- | --- |
-| 1 | Backlog | 6 | Ready for build |
-| 2 | Ready for design | 7 | Building |
-| 3 | Designing | 8 | Blocked on engineer |
-| 4 | Blocked on architect | 9 | In review |
-| 5 | Design review | 10 | Done |
+| #   | Column               | #   | Column              |
+| --- | -------------------- | --- | ------------------- |
+| 1   | Backlog              | 6   | Ready for build     |
+| 2   | Ready for design     | 7   | Building            |
+| 3   | Designing            | 8   | Blocked on engineer |
+| 4   | Blocked on architect | 9   | In review           |
+| 5   | Design review        | 10  | Done                |
 
-Each *Blocked on …* sits just before the review status it shares a parent with:
+Each _Blocked on …_ sits just before the review status it shares a parent with:
 both are exits from the same running state, and the blocked one goes backwards.
 
 `smoke.sh` checks all ten are mapped. A status left unmapped still works — the
@@ -227,12 +229,12 @@ factory transitions by name, never by column — but its cards vanish from the
 board, which is the worst way to find out.
 
 **Column 1 is the backlog, not a board column.** With the Kanban backlog
-enabled, *Backlog* cards appear in the **Backlog** tab rather than on the board.
+enabled, _Backlog_ cards appear in the **Backlog** tab rather than on the board.
 That suits a status the factory never touches.
 
 If the script warned instead, do it by hand at **Board → ⋯ → Configure board →
 Columns**. Collapsing the ten into fewer columns is fine — group each stage with
-its twin (*Ready for design* with *Ready for build*, and so on) so both laps
+its twin (_Ready for design_ with _Ready for build_, and so on) so both laps
 look the same — but keep **Done** rightmost, because Jira's completion rule
 follows the last column.
 
@@ -248,16 +250,16 @@ curl -u "$JIRA_USER:$JIRA_TOKEN" -X DELETE "$JIRA_BASE/rest/agile/1.0/board/<id>
 ```
 
 Check the name before you delete — `smoke.sh` names the stray board, and the
-factory's is always *Dark Factory*.
+factory's is always _Dark Factory_.
 
-### Locking *Done* to the factory
+### Locking _Done_ to the factory
 
-**Manual, and browser-only.** The bot deliberately has no *Administer Projects*
+**Manual, and browser-only.** The bot deliberately has no _Administer Projects_
 permission, so it cannot configure the workflow it runs inside — asking Jira
-for `/project/DF/role` as the bot returns *"You cannot edit the configuration
-of this project."*
+for `/project/DF/role` as the bot returns _"You cannot edit the configuration
+of this project."_
 
-*Done* means "merged, and production is serving it", which only the thing that
+_Done_ means "merged, and production is serving it", which only the thing that
 deployed it can know. `production.yml` is the sole writer; this stops anyone
 else claiming it by dragging a card.
 
@@ -279,11 +281,11 @@ factory set up by the script is already on the right side of that line.
    it, copy it and point `Factory scheme` at the copy first, or the condition
    lands there too.
 3. Select the transition named **Done**. There is exactly one: `bootstrap/jira.sh`
-   gives each status a single *global* transition into it, from anywhere. That
+   gives each status a single _global_ transition into it, from anywhere. That
    is convenient here — one condition closes every route in.
 4. **Conditions → Add → User Is In Group → `factory-bot`**, and publish.
 
-Then verify. As the bot, *Done* must still be reachable:
+Then verify. As the bot, _Done_ must still be reachable:
 
 ```bash
 curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
@@ -299,8 +301,8 @@ Two things to know before you do it:
   admin is not an exemption. You will not be able to close a card by hand
   either, which is the point and also the cost: a card whose deploy succeeded
   but whose `ship` step failed needs the workflow re-run, not a drag.
-- **If you want an escape hatch**, add a second transition into *Done* — call
-  it *Force done* — with a **User Is In Project Role → Administrators**
+- **If you want an escape hatch**, add a second transition into _Done_ — call
+  it _Force done_ — with a **User Is In Project Role → Administrators**
   condition instead. `factory jira-transition` resolves transitions by
   destination status, so it will happily use whichever one it is offered, and
   the bot being in neither role would break shipping. Keep the bot's group
@@ -317,8 +319,8 @@ gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
 bootstrap/trace.sh
 ```
 
-That files a real card ("greet the user by name"), moves it to *Ready for
-design*, and starts a single poll immediately. One pass is the default, so the
+That files a real card ("greet the user by name"), moves it to _Ready for
+design_, and starts a single poll immediately. One pass is the default, so the
 run ends rather than idling for the rest of a window. Within a few minutes you
 should have a
 `card/DF-1-…` branch and a pull request with a design document on it. That
@@ -332,7 +334,7 @@ next to the last few Actions runs, refreshing every five seconds, and marks the
 cards that are waiting on **you**. It is read-only and runs from anywhere, so
 leave it in a second terminal. `--once` prints a single snapshot.
 
-Watch for the card reaching *Designing* **before** the design run appears. That
+Watch for the card reaching _Designing_ **before** the design run appears. That
 is not a race — the poller claims a card and then dispatches, so a failed
 dispatch leaves it visibly stuck rather than handing it to two agents.
 
@@ -342,7 +344,7 @@ Jira triggers it is the only way work gets picked up: `poller.yml` ships with it
 
 **Set the triggers up next — [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).** Five
 Automation rules on the project call the workflow's dispatch endpoint when a card
-assigned to the factory reaches a *Ready* column, when a ready card is assigned
+assigned to the factory reaches a _Ready_ column, when a ready card is assigned
 to it, when somebody answers a question, when somebody @mentions it on a card in
 review, and every half hour as a backstop, which is what
 makes the factory autonomous. It takes one fine-grained PAT, made by hand, and
@@ -363,12 +365,12 @@ down to the interval. That is free on a public repository and around $345 a mont
 on a private one, so it is the setting for a playground or for a self-hosted
 runner, not for a repository you are paying GitHub for.
 
-The card may stop at *Blocked on architect* first, with the agent's questions in
+The card may stop at _Blocked on architect_ first, with the agent's questions in
 one comment. Answer them by replying on the card — a single comment, in your own
 words. Nothing else is needed: the poller notices that the newest comment is not
-the factory's, reads it, brings the card back to *Designing*, and the next turn
+the factory's, reads it, brings the card back to _Designing_, and the next turn
 folds your answers into the same design document. That repeats until a turn has
-nothing left to ask, which is when the card reaches *Design review*.
+nothing left to ask, which is when the card reaches _Design review_.
 
 Review the design. The card comment is written to be read on its own: a summary,
 the context, the acceptance criteria, and under "Proving it" the exact browser
@@ -384,7 +386,7 @@ turn is allowed to correct them and will.
 After a build turn the same section is a claim about working software rather
 than a contract, and the preview link sits right above it.
 
-Move the card to *Ready for build*. Wait for the poller. Then grant turns by
+Move the card to _Ready for build_. Wait for the poller. Then grant turns by
 commenting on the PR until you are happy, and merge.
 
 You can also just say what you want on the card, from any status the factory

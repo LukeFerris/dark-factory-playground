@@ -3,6 +3,7 @@ import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
+import { gates } from '../eslint.gates.js'
 
 export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'coverage'] },
@@ -36,4 +37,5 @@ export default tseslint.config(
     files: ['e2e/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
+  { files: ['src/**/*.{ts,tsx}', 'e2e/**/*.ts'], ...gates },
 )

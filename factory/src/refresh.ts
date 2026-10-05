@@ -252,7 +252,7 @@ export interface RefreshOutcome {
  * what makes "parallel" true rather than decorative.
  */
 export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> {
-  const { key, because, cfg } = options
+  const { key, because } = options
   const pr = findPrForCard(key)
   if (pr === null) throw new Error(`${key} has no open pull request to refresh.`)
 
@@ -265,17 +265,38 @@ export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> 
 
   if (state.state === 'refused') {
     await say(options, refusedComment(because, state, pr.number, runUrl()), 'Blocked on engineer')
-    return { state: 'refused', detail: `${key} conflicts in ${state.denied.join(', ')}; a human has it.` }
+    return {
+      state: 'refused',
+      detail: `${key} conflicts in ${state.denied.join(', ')}; a human has it.`,
+    }
   }
 
   if (state.state === 'conflicted') {
     abortMerge()
     const reason = `Merging main into this branch conflicts in ${state.conflicts.join(', ')}.`
     await handToBuild(options, pr.number, reason)
-    return { state: 'handed-to-build', detail: `${key} conflicts in ${state.conflicts.join(', ')}.` }
+    return {
+      state: 'handed-to-build',
+      detail: `${key} conflicts in ${state.conflicts.join(', ')}.`,
+    }
   }
 
   // Merged cleanly. Whether that means anything is the next question.
+  return pushIfGreen(options, pr.number, branch, state)
+}
+
+/**
+ * The tail of a clean merge: run the checks on the merged tree, and push it and
+ * tell the card only if they pass. A red result goes back to Building, with
+ * the branch put back exactly as it was.
+ */
+async function pushIfGreen(
+  options: RefreshOptions,
+  pr: number,
+  branch: string,
+  state: MergeState,
+): Promise<RefreshOutcome> {
+  const { key, because, cfg } = options
   const checks = (options.checks ?? npmChecks)()
   if (!checks.ok) {
     // Back to exactly where the branch was. `--hard` is safe here and only
@@ -285,7 +306,7 @@ export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> 
     const reason =
       `Main merges into it cleanly, but \`${checks.failed}\` then fails on the result — so the ` +
       `two changes are individually fine and jointly not.`
-    await handToBuild(options, pr.number, reason)
+    await handToBuild(options, pr, reason)
     return { state: 'handed-to-build', detail: `${key} merged clean but ${checks.failed} failed.` }
   }
 
@@ -295,7 +316,7 @@ export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> 
   }
 
   git(['push', 'origin', `HEAD:refs/heads/${branch}`])
-  await comment(cfg, key, refreshedComment(because, state, pr.number, runUrl()))
+  await comment(cfg, key, refreshedComment(because, state, pr, runUrl()))
   return { state: 'refreshed', detail: `${key} took ${state.behind} commit(s) from main.` }
 }
 

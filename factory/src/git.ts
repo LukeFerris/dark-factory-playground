@@ -23,6 +23,27 @@ export function gitSucceeds(args: string[]): boolean {
   return result.status === 0
 }
 
+/**
+ * Runs `git commit` with these arguments, and returns null if it landed or
+ * what the pre-commit gates said if they refused it.
+ *
+ * Both of the factory's commits go through the gates, and a refusal is not a
+ * crash: it is the reason a turn did not ship, and it belongs on the card.
+ * Git sends a hook's output to stderr. Only the end of it is kept, because the
+ * gate that refused prints last, and without the colour codes a card cannot
+ * show.
+ */
+export function tryCommit(args: string[]): string | null {
+  const result = spawnSync('git', ['commit', ...args], { cwd: REPO_ROOT, encoding: 'utf8' })
+  if (result.status === 0) return null
+  const said = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .trim()
+    .split('\n')
+  return said.slice(-30).join('\n')
+}
+
 export function currentBranch(): string {
   return git(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
 }

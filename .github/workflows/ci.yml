@@ -30,6 +30,10 @@ jobs:
 
       - run: npm run lint
 
+      # lint-staged formats what a commit stages, but only for a commit that
+      # ran the hooks. This catches one that did not.
+      - run: npm run format:check
+
       - run: npm run typecheck
 
       - run: npm test

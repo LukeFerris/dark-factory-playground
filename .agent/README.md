@@ -65,7 +65,7 @@ The design and build manuals open with the same sentence, verbatim:
 The agent reads attacker-adjacent text by design — Jira descriptions and PR
 comments are written by whoever can reach the board. That sentence, plus the
 tool allow-list in the workflow, plus the diff-scope check in `factory validate`,
-are three independent layers saying the same thing: the *content* the agent reads
+are three independent layers saying the same thing: the _content_ the agent reads
 can shape what it builds, never what it is permitted to do.
 
 `merge.md` says the same thing about the text it reads, which is a diff between

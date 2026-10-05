@@ -1,12 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { setupServer } from 'msw/node'
+import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import type * as jira from './jira.ts'
 import { REPO_ROOT } from './env.ts'
-import { ghRunner, setRunner, type Runner } from './github.ts'
-import type { MergeState } from './merge.ts'
+import { setRunner, type Runner } from './github.ts'
 import {
   handOverComment,
   refreshTargets,
@@ -14,6 +11,8 @@ import {
   refusedComment,
   type Trigger,
 } from './refresh.ts'
+import { BASE, cfg, server, textOf, useFakes } from './jira.stub.ts'
+import { mergeState } from './merge.stub.ts'
 
 /**
  * The half of the fan-out that does not drive git.
@@ -25,35 +24,9 @@ import {
  * person who gets the comment actually reads.
  */
 
-const BASE = 'https://example.atlassian.net'
-const cfg: jira.JiraConfig = { base: BASE, user: 'bot@example.com', token: 'token' }
-
-const server = setupServer()
-const previousRepo = process.env['GITHUB_REPOSITORY']
-
-beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' })
-  process.env['GITHUB_REPOSITORY'] = 'acme/dark-factory-playground'
-})
-afterEach(() => {
-  server.resetHandlers()
-  setRunner(ghRunner)
-})
-afterAll(() => {
-  server.close()
-  if (previousRepo === undefined) delete process.env['GITHUB_REPOSITORY']
-  else process.env['GITHUB_REPOSITORY'] = previousRepo
-})
+useFakes()
 
 /** Walks an ADF tree collecting every text node, so assertions read plainly. */
-function textOf(node: unknown): string {
-  if (node === null || typeof node !== 'object') return ''
-  const n = node as Record<string, unknown>
-  const own = typeof n['text'] === 'string' ? (n['text'] as string) : ''
-  const kids = Array.isArray(n['content']) ? (n['content'] as unknown[]) : []
-  return own + kids.map(textOf).join(' ')
-}
-
 /** Answers the one JQL search `refreshTargets` makes with these cards. */
 function board(keys: string[]): void {
   server.use(
@@ -134,20 +107,8 @@ describe('choosing which cards a merge invalidated', () => {
 
 const because: Trigger = { number: 21, title: 'Paint the background blue' }
 
-const state = (over: Partial<MergeState> = {}): MergeState => ({
-  branch: 'card/DF-5-add-a-greeting',
-  state: 'merged',
-  behind: 2,
-  conflicts: [],
-  denied: [],
-  before: 'a'.repeat(40),
-  main: 'b'.repeat(40),
-  incoming: [],
-  ...over,
-})
-
 describe('what the card says when the refresh worked', () => {
-  const body = (): string => textOf(refreshedComment(because, state(), 19, null))
+  const body = (): string => textOf(refreshedComment(because, mergeState(), 19, null))
 
   it('opens with the words the reviewer needs and names the cause', () => {
     expect(body()).toContain('Main has changed.')
@@ -189,7 +150,12 @@ describe('what the card says when it is going back to Building', () => {
 describe('what the card says when no agent may touch the conflict', () => {
   it('names the machinery and asks for a person, with no promise of a retry', () => {
     const text = textOf(
-      refusedComment(because, state({ state: 'refused', denied: ['factory/src/validate.ts'] }), 19, null),
+      refusedComment(
+        because,
+        mergeState({ state: 'refused', denied: ['factory/src/validate.ts'] }),
+        19,
+        null,
+      ),
     )
 
     expect(text).toContain('factory/src/validate.ts')

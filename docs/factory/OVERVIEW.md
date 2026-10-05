@@ -46,21 +46,21 @@ machinery that makes the loop run.
 
 Two stages and an ending, one card:
 
-1. **Design.** The card reaches *Ready for design*. An agent with no shell reads
+1. **Design.** The card reaches _Ready for design_. An agent with no shell reads
    the card and the code, and writes `docs/design/<KEY>/design.md` on a new
    `card/<KEY>` branch, opening a pull request for it. Anything it cannot decide
-   goes on the card as a question and the card stops at *Blocked on architect*;
+   goes on the card as a question and the card stops at _Blocked on architect_;
    once someone answers, the poller starts another design turn on the same
    branch, and that repeats until a turn has nothing left to ask. Only then does
-   the card reach *Design review*.
-2. **Build.** A human approves the design on the card and moves it to *Ready
-   for build*. An agent implements it, one turn at a time, on the same branch
+   the card reach _Design review_.
+2. **Build.** A human approves the design on the card and moves it to _Ready
+   for build_. An agent implements it, one turn at a time, on the same branch
    the design came in on — so the design document is simply already there.
    Each turn after the first is granted by a human comment on the PR.
 3. **Ship.** A human merges — nothing else can. The merge builds that commit,
    deploys it to the always-on production app, waits for it to answer, and only
-   then moves the card to *Done*. That last transition is restricted to the
-   factory's own account in Jira, so *Done* means the software is live rather
+   then moves the card to _Done_. That last transition is restricted to the
+   factory's own account in Jira, so _Done_ means the software is live rather
    than that somebody tidied the board.
 
 Every turn in there brackets itself with a comment on the card: one when it
@@ -69,7 +69,7 @@ nobody and does not show up in the comment stream, so without the first of those
 a card being worked on for ten minutes reads exactly like a card being ignored.
 
 Two things a card carries are not comments. A card is only the factory's when
-it is in a *Ready for …* column **and assigned** to the factory, so the board can
+it is in a _Ready for …_ column **and assigned** to the factory, so the board can
 hold cards it never touches. While a turn runs the factory keeps it, so the
 board view shows an avatar on whatever is being worked on right now, and at the
 end it hands the card back to whoever sent it in, mentioning them in the report
@@ -80,7 +80,7 @@ fresh comment per turn that the reader has to date-sort to use.
 
 ### A card the factory is working is locked
 
-While a turn runs, the card sits in *Designing* or *Building*. Jira lets only
+While a turn runs, the card sits in _Designing_ or _Building_. Jira lets only
 the factory move a card out of those statuses or reassign it. A person
 dragging it elsewhere, an admin included, gets a refusal. That keeps one card
 in one pair of hands: a drag can't start a second turn on a branch the first is
@@ -97,16 +97,16 @@ reasoning.
 Dragging a card is not the only way to start work. Wherever the factory has
 stopped and is waiting on a person, a comment addressed to it is read on the
 next poll by a small model, which answers with one of three words: start a
-design turn, start a build turn, or do nothing. In the two *Blocked on …*
-statuses, where it asked a question, any comment counts. In *Design review* and
-*In review*, where people are mostly talking to each other, only a comment that
+design turn, start a build turn, or do nothing. In the two _Blocked on …_
+statuses, where it asked a question, any comment counts. In _Design review_ and
+_In review_, where people are mostly talking to each other, only a comment that
 @mentions the factory does. It then takes the card back, moves it, says on the
 card why it moved, and dispatches the runner.
 
 Most comments are `none`, and `none` is silent. The point is that a change of
 mind is a sentence on the ticket rather than a status the commenter has to work
 out for themselves. `docs/factory/STATE-MACHINE.md` has the details, including
-why a comment on a card in *In review* can legitimately start a *design* turn.
+why a comment on a card in _In review_ can legitimately start a _design_ turn.
 
 ### Nothing is allowed to go stale
 
@@ -124,7 +124,7 @@ days; by the time they look, the diff, the preview and the green tick are all
 statements about a world that has ended. If the branch takes main cleanly and the
 checks still pass, it is pushed and the card is told — including that the push
 has dismissed any approval that was on it. If not, the card goes back to
-*Building* and the build agent works it through.
+_Building_ and the build agent works it through.
 
 A conflict is not, on its own, a reason to interrupt a person. An agent tries
 first, under a manual of its own (`.agent/merge.md`) and confined to the files
@@ -134,15 +134,15 @@ rather than saying "merge conflict".
 
 ## The pieces
 
-| Where | What it is |
-| --- | --- |
-| `app/` | The example React 19 + TypeScript app the factory writes features into |
-| `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
-| `.agent/` | The agent boundary: the three manuals, and the in/out directories |
-| `.github/workflows/` | Ten workflows: the poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production |
-| `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts |
-| `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
-| `docs/design/<KEY>/` | One directory per card: the design, and the build log |
+| Where                         | What it is                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `app/`                        | The example React 19 + TypeScript app the factory writes features into                                    |
+| `factory/`                    | `@factory/cli` — every step of a turn, as TypeScript subcommands                                          |
+| `.agent/`                     | The agent boundary: the three manuals, and the in/out directories                                         |
+| `.github/workflows/`          | Ten workflows: the poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production |
+| `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts                                        |
+| `bootstrap/`                  | Four scripts that configure GitHub and Jira from nothing                                                  |
+| `docs/design/<KEY>/`          | One directory per card: the design, and the build log                                                     |
 
 ## What makes it safe to leave running
 
@@ -171,13 +171,13 @@ what happens when the card text itself is hostile.
 
 ## Where to go next
 
-| You want to | Read |
-| --- | --- |
-| Set this up from scratch | `SETUP.md` |
-| Make Jira start the factory | `JIRA-TRIGGERS.md` |
-| Know what each Jira status means | `STATE-MACHINE.md` |
-| Fix a stuck card or a failed turn | `RUNBOOK.md` |
-| Understand the containment argument | `SECURITY.md` |
-| Run it on your own infrastructure | `SELF-HOSTING.md` |
-| Know why it is built this way | `../adr/0001-factory-architecture.md` |
-| See what the plan got wrong | `CHANGELOG.md` |
+| You want to                         | Read                                  |
+| ----------------------------------- | ------------------------------------- |
+| Set this up from scratch            | `SETUP.md`                            |
+| Make Jira start the factory         | `JIRA-TRIGGERS.md`                    |
+| Know what each Jira status means    | `STATE-MACHINE.md`                    |
+| Fix a stuck card or a failed turn   | `RUNBOOK.md`                          |
+| Understand the containment argument | `SECURITY.md`                         |
+| Run it on your own infrastructure   | `SELF-HOSTING.md`                     |
+| Know why it is built this way       | `../adr/0001-factory-architecture.md` |
+| See what the plan got wrong         | `CHANGELOG.md`                        |

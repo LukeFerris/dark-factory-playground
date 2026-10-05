@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import { REPO_ROOT } from './env.ts'
-import { git, gitSucceeds, headSha, identifyAsBot } from './git.ts'
+import { git, gitSucceeds, headSha, identifyAsBot, tryCommit } from './git.ts'
 import { AGENT_IN, AGENT_OUT, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import { matchesGlob } from './validate.ts'
 import { ALWAYS_DENIED, QuestionSchema, type Result } from './schema.ts'
@@ -363,7 +363,9 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
   const allowed = new Set(state.conflicts)
   const strayed = dirtyPaths().filter((p) => !allowed.has(p))
   for (const path of strayed) {
-    problems.push(`${path} was changed while resolving the merge, and it was not one of the conflicts.`)
+    problems.push(
+      `${path} was changed while resolving the merge, and it was not one of the conflicts.`,
+    )
   }
 
   for (const path of state.conflicts) {
@@ -393,8 +395,17 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
 
   identifyAsBot()
   // --no-edit takes the merge message git already wrote into MERGE_MSG, so the
-  // commit reads like any other merge rather than like an agent artefact.
-  git(['commit', '--no-edit'])
+  // commit reads like any other merge rather than like an agent artefact. It
+  // goes through the pre-commit gates, and a refusal is one more reason the
+  // merge needs a person: the caller aborts it and asks on the card.
+  const refusal = tryCommit(['--no-edit'])
+  if (refusal !== null) {
+    return {
+      ok: false,
+      sha: null,
+      problems: [`The pre-commit gates refused the merge commit:\n${refusal}`],
+    }
+  }
   return { ok: true, problems: [], sha: headSha() }
 }
 

@@ -10,23 +10,23 @@ does and what it takes to turn the second one on.
 Both backends are raised by the turn that produced the code, in a second job of
 the same workflow run:
 
-| Where | Effect |
-| --- | --- |
-| `build-start.yml`, job `preview` | Raise the preview, post the kickoff comment, then report |
-| `build-turn.yml`, job `preview` | Re-raise it at the new commit, then report |
-| `build-teardown.yml` on `pull_request: closed` | Tear it down |
-| `build-setup.yml` on `workflow_dispatch` | Manual retry, when a `preview` job failed |
+| Where                                          | Effect                                                   |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| `build-start.yml`, job `preview`               | Raise the preview, post the kickoff comment, then report |
+| `build-turn.yml`, job `preview`                | Re-raise it at the new commit, then report               |
+| `build-teardown.yml` on `pull_request: closed` | Tear it down                                             |
+| `build-setup.yml` on `workflow_dispatch`       | Manual retry, when a `preview` job failed                |
 
 The ordering is the point. `report` is the last step of the `preview` job, so
-the card only reaches *In review* — which is an instruction to a human to go
+the card only reaches _In review_ — which is an instruction to a human to go
 and look — once the preview serving that turn's code has answered. The Jira
 comment carries the link for the same reason: by the time it is written, there
 is a link to carry.
 
 Previews used to be raised by the pull request's own `labeled` and
-`synchronize` events, in `build-setup.yml`. That ran *after* the turn had
+`synchronize` events, in `build-setup.yml`. That ran _after_ the turn had
 already finished and already told Jira, so turn 1's comment could never carry a
-preview link and the card reached *In review* while the image was still
+preview link and the card reached _In review_ while the image was still
 building. The invariant that replaces it: **a preview is raised by the turn
 that produced the code, never by a pull request event.**
 
@@ -65,7 +65,7 @@ because it is a workspace of the root `package.json`.
 > **VERIFIED, once.** `infra/azure/` has been applied against a live
 > subscription and re-plans clean, and PR #16 came up at
 > `https://df-preview-pr-16.redbush-3ff4fb61.uksouth.azurecontainerapps.io`
-> serving the build turn's own bundle. Two caveats: that was a *re-run* of the
+> serving the build turn's own bundle. Two caveats: that was a _re-run_ of the
 > job, after fixing the federated credential subject, so a clean first attempt
 > from a `synchronize` has not been seen; and `preview-down` has never run, so
 > teardown — the half that decides whether a merged card stops billing — is
@@ -136,7 +136,7 @@ for the manual `workflow_dispatch` retry. Terraform creates a federated
 credential for each. A token from any other repository, branch or event type
 matches neither and is refused.
 
-All variables, no secrets in the *repository*: OIDC means there is nothing
+All variables, no secrets in the _repository_: OIDC means there is nothing
 long-lived to store there. The local state does hold one — the launcher storage
 account's key, which can write one public HTML file and nothing else. See
 "State" in `infra/azure/README.md`.
@@ -148,16 +148,16 @@ environment from colliding on `pr-1`.
 
 A preview runs `--min-replicas 0`, so one nobody is looking at costs nothing.
 The bill for that is the first request after idle, and it is bigger than it
-sounds: Container Apps does not refuse a request to a sleeping app, it *holds*
+sounds: Container Apps does not refuse a request to a sleeping app, it _holds_
 it while a replica starts. Measured on a real cold start — TLS complete in
 81ms, then 22.4 seconds of silence, then a 200. A blank tab for half a minute
 reads as a broken deployment.
 
-| | What it covers |
-| --- | --- |
+|                                                            | What it covers                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `preview-up` waits for the app to answer before it returns | The common case. The cold start is spent in CI, so the app is already hot when the kickoff comment lands. It is also the first check that the URL being published serves anything at all — a container that never answers now fails the job instead of being posted as a working link |
-| `AZURE_PREVIEW_COOLDOWN_SECONDS`, default 3600 | Staying hot through a review. Azure's default is 300s, shorter than the gap between the notification and the click. An idle replica is $0.0108/hour at Azure's published uksouth rate, so an hour of warmth per build turn is about a penny, and it still reaches zero afterwards |
-| `AZURE_PREVIEW_LAUNCHER` | Everything left over — the person who comes back tomorrow. An always-on page on Azure Storage that renders instantly, says what is happening, and forwards when the app answers |
+| `AZURE_PREVIEW_COOLDOWN_SECONDS`, default 3600             | Staying hot through a review. Azure's default is 300s, shorter than the gap between the notification and the click. An idle replica is $0.0108/hour at Azure's published uksouth rate, so an hour of warmth per build turn is about a penny, and it still reaches zero afterwards     |
+| `AZURE_PREVIEW_LAUNCHER`                                   | Everything left over — the person who comes back tomorrow. An always-on page on Azure Storage that renders instantly, says what is happening, and forwards when the app answers                                                                                                       |
 
 The launcher wraps **only the links a human clicks**: the kickoff comment, the
 Jira report comment, and the PR's "View deployment" button. `PREVIEW_URL` and
@@ -188,15 +188,15 @@ seconds assumes it is broken.
 One more Container App, in the same environment, on the same registry: merging
 a card's pull request builds the merge commit and deploys it to
 `<prefix>-production`. `.github/workflows/production.yml` does it, and only once
-the site answers does it move the card to *Done*. See
+the site answers does it move the card to _Done_. See
 [ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md).
 
 Two differences from a preview, and no others:
 
-| | Preview | Production |
-| --- | --- | --- |
+|                | Preview                        | Production          |
+| -------------- | ------------------------------ | ------------------- |
 | `min-replicas` | 0 — sleeps, costs nothing idle | **1** — always warm |
-| Image tag | `pr-<n>` | **`main-<sha>`** |
+| Image tag      | `pr-<n>`                       | **`main-<sha>`**    |
 
 `min-replicas: 1` is the first thing in this factory that bills while nobody is
 looking — one replica, at the Container Apps default allocation, 24 hours a
@@ -207,7 +207,7 @@ lets a new revision come up beside the old one during a deploy; at rest one
 replica runs.
 
 Tagging by commit is not cosmetic. `az containerapp update --image` creates a
-new revision only when the image *reference* changes, so pushing fresh bytes to
+new revision only when the image _reference_ changes, so pushing fresh bytes to
 a fixed `latest` tag would leave the old revision serving — a deploy that looks
 successful forever. It also makes rollback "deploy the previous tag", though
 there is no command for that yet.
@@ -288,15 +288,15 @@ between jobs, so both become real savings. See the CHANGELOG entry on pinning.
 
 ## Cost
 
-| | Rough shape |
-| --- | --- |
-| Anthropic API | The dominant cost. Capped per step by `--max-budget-usd` |
-| GitHub Actions | Free on public repositories; the poller is one short run per board event |
-| GHCR storage | One image per open PR, deleted on close (`ghcr` backend) |
-| Azure Container Apps — previews | Scale to zero; an idle preview bills nothing (`azure` backend) |
-| Azure Container Apps — production | **One replica, always on.** The only thing here that bills while idle |
-| Azure Container Registry | Basic tier, one tag per open PR deleted on close, plus one per merge kept |
-| Jira Cloud Free | Free to 10 users |
+|                                   | Rough shape                                                               |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| Anthropic API                     | The dominant cost. Capped per step by `--max-budget-usd`                  |
+| GitHub Actions                    | Free on public repositories; the poller is one short run per board event  |
+| GHCR storage                      | One image per open PR, deleted on close (`ghcr` backend)                  |
+| Azure Container Apps — previews   | Scale to zero; an idle preview bills nothing (`azure` backend)            |
+| Azure Container Apps — production | **One replica, always on.** The only thing here that bills while idle     |
+| Azure Container Registry          | Basic tier, one tag per open PR deleted on close, plus one per merge kept |
+| Jira Cloud Free                   | Free to 10 users                                                          |
 
 The poller is the only thing that runs unattended, and it does nothing but one
 JQL query per status unless a card is waiting.

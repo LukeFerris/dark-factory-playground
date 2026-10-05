@@ -10,6 +10,7 @@ factory to build features into, and the machinery that runs the loop.
 ```bash
 cp .env.example .env
 npm ci
+bash scripts/install-harness-tools.sh
 bootstrap/preflight.sh
 ```
 
@@ -17,16 +18,16 @@ Then follow **[docs/factory/SETUP.md](docs/factory/SETUP.md)**.
 
 ## Layout
 
-| | |
-| --- | --- |
-| `app/` | The example React 19 + TypeScript + Vite app |
-| `factory/` | `@factory/cli` — every step of a turn, as subcommands |
-| `.agent/` | The agent boundary: the three manuals, and the result contract |
-| `.github/workflows/` | The poller, design, build start/setup/turn/teardown, refresh, and production |
-| `bootstrap/` | Scripts that configure GitHub and Jira from nothing |
-| `infra/azure/` | Terraform for the optional Azure preview and production estate |
-| `docs/` | How it works, how to run it, and why it is built this way |
-| `PLAN.md` | The build plan this repository was built from. Historical — where it and the code disagree, the code is right and [the changelog](docs/factory/CHANGELOG.md) says why |
+|                      |                                                                                                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/`               | The example React 19 + TypeScript + Vite app                                                                                                                          |
+| `factory/`           | `@factory/cli` — every step of a turn, as subcommands                                                                                                                 |
+| `.agent/`            | The agent boundary: the three manuals, and the result contract                                                                                                        |
+| `.github/workflows/` | The poller, design, build start/setup/turn/teardown, refresh, and production                                                                                          |
+| `bootstrap/`         | Scripts that configure GitHub and Jira from nothing                                                                                                                   |
+| `infra/azure/`       | Terraform for the optional Azure preview and production estate                                                                                                        |
+| `docs/`              | How it works, how to run it, and why it is built this way                                                                                                             |
+| `PLAN.md`            | The build plan this repository was built from. Historical — where it and the code disagree, the code is right and [the changelog](docs/factory/CHANGELOG.md) says why |
 
 ## Checks
 
@@ -36,6 +37,16 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+Every commit also goes through the
+[CVC golden path](https://github.com/cvc-partners/cvc-golden-path)'s pre-commit
+gates, in `.husky/pre-commit`: pinned tooling, file hygiene, gitleaks,
+osv-scanner, lint and format on what is staged, at least 75% coverage of each
+staged source file, and an audit of an agent's diff by `/check-patterns`. The
+lint rules include the golden path's complexity limits, in `eslint.gates.js`.
+`scripts/install-harness-tools.sh` installs the pinned tools, and the commit
+refuses to run without them. The factory's own commits go through the same
+gates on the runner.
 
 ## Documentation
 

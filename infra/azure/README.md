@@ -12,17 +12,17 @@ infra/azure/apply.sh --apply
 
 ## What it makes
 
-| Resource | Why |
-| --- | --- |
-| Resource group `rg-factory-preview` | One group, so `az group delete` is a complete uninstall |
-| Container registry, Basic | Holds one image tag per open PR. `admin_enabled = false` — there is no registry password |
-| Log Analytics workspace | Container Apps can run without one, but then a preview that fails to start says nothing about why |
-| Container Apps environment | One environment; every preview app runs in it |
-| User-assigned identity + `AcrPull` | What each preview pulls its image with |
-| Entra app registration + service principal | What GitHub Actions signs in as |
-| Two federated credentials | The OIDC trust. No client secret exists |
-| `Contributor` on the group, `Managed Identity Operator` on the identity | The only two roles CI holds |
-| Storage account + static website | The launcher: the always-on loading page preview links are wrapped in |
+| Resource                                                                | Why                                                                                               |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Resource group `rg-factory-preview`                                     | One group, so `az group delete` is a complete uninstall                                           |
+| Container registry, Basic                                               | Holds one image tag per open PR. `admin_enabled = false` — there is no registry password          |
+| Log Analytics workspace                                                 | Container Apps can run without one, but then a preview that fails to start says nothing about why |
+| Container Apps environment                                              | One environment; every preview app runs in it                                                     |
+| User-assigned identity + `AcrPull`                                      | What each preview pulls its image with                                                            |
+| Entra app registration + service principal                              | What GitHub Actions signs in as                                                                   |
+| Two federated credentials                                               | The OIDC trust. No client secret exists                                                           |
+| `Contributor` on the group, `Managed Identity Operator` on the identity | The only two roles CI holds                                                                       |
+| Storage account + static website                                        | The launcher: the always-on loading page preview links are wrapped in                             |
 
 **Not** the preview apps themselves. Those are created per pull request by
 `factory preview-up` and destroyed by `factory preview-down`, because their
@@ -54,10 +54,10 @@ would rather grant the broader role.
 Entra matches the token's subject exactly, so both shapes Actions can present
 need a credential:
 
-| Subject | Presented by |
-| --- | --- |
+| Subject                                   | Presented by                                                                                                                                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `repo:<owner>/<repo>:ref:refs/heads/main` | Every preview that is raised: the `preview` job of `build-start.yml` (`workflow_dispatch`) and of `build-turn.yml` (`workflow_dispatch` or `issue_comment`), plus `build-setup.yml`'s manual retry. The normal path |
-| `repo:<owner>/<repo>:pull_request` | `build-teardown.yml` on `closed` |
+| `repo:<owner>/<repo>:pull_request`        | `build-teardown.yml` on `closed`                                                                                                                                                                                    |
 
 A token from any other repository, branch or event type matches neither and is
 refused. Note that the `pull_request` subject does **not** name a branch — that
@@ -73,7 +73,7 @@ work — but if you are reading this from an older deployment, that is why.
 
 ## The launcher
 
-A preview scales to zero, and Container Apps does not *refuse* a request to a
+A preview scales to zero, and Container Apps does not _refuse_ a request to a
 sleeping app — it holds it open while a replica starts. Measured on a real cold
 start: TLS done in 81ms, then 22.4 seconds of silence, then a 200. To whoever
 clicked the link that is a blank tab for half a minute, which reads as a broken

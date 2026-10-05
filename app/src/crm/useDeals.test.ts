@@ -8,11 +8,11 @@ function stored(): Deal[] {
   return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Deal[]
 }
 
-describe('useDeals', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
+beforeEach(() => {
+  localStorage.clear()
+})
 
+describe('useDeals loading', () => {
   it('seeds the sample deals when storage is empty', () => {
     const { result } = renderHook(() => useDeals())
     expect(result.current.deals).toEqual(SEED_DEALS)
@@ -36,11 +36,18 @@ describe('useDeals', () => {
     const { result } = renderHook(() => useDeals())
     expect(result.current.deals).toEqual(SEED_DEALS)
   })
+})
 
+describe('useDeals adding and moving', () => {
   it('adds a deal in Sourcing with a trimmed company and a fresh id', () => {
     const { result } = renderHook(() => useDeals())
     act(() => {
-      result.current.addDeal({ company: '  Acme Logistics  ', sector: 'Industrials', size: 45, owner: 'Sam Patel' })
+      result.current.addDeal({
+        company: '  Acme Logistics  ',
+        sector: 'Industrials',
+        size: 45,
+        owner: 'Sam Patel',
+      })
     })
     const added = result.current.deals.at(-1)
     expect(added).toMatchObject({
@@ -75,11 +82,18 @@ describe('useDeals', () => {
     })
     expect(stored().find((deal) => deal.id === 'seed-2')?.stage).toBe('Closed')
   })
+})
 
+describe('useDeals updating', () => {
   it('updates only the target deal, keeping its id and stage', () => {
     const { result } = renderHook(() => useDeals())
     act(() => {
-      result.current.updateDeal('seed-2', { company: '  Harbour Care ', sector: 'Health', size: 30, owner: 'Ann Wu' })
+      result.current.updateDeal('seed-2', {
+        company: '  Harbour Care ',
+        sector: 'Health',
+        size: 30,
+        owner: 'Ann Wu',
+      })
     })
     expect(result.current.deals.find((deal) => deal.id === 'seed-2')).toEqual({
       id: 'seed-2',
@@ -98,7 +112,12 @@ describe('useDeals', () => {
   it('removes the size when updated without one', () => {
     const { result } = renderHook(() => useDeals())
     act(() => {
-      result.current.updateDeal('seed-4', { company: 'Kestrel Energy Services', sector: 'Energy', size: undefined, owner: 'Elena Rossi' })
+      result.current.updateDeal('seed-4', {
+        company: 'Kestrel Energy Services',
+        sector: 'Energy',
+        size: undefined,
+        owner: 'Elena Rossi',
+      })
     })
     expect(result.current.deals.find((deal) => deal.id === 'seed-4')?.size).toBeUndefined()
     expect(stored().find((deal) => deal.id === 'seed-4')).not.toHaveProperty('size')

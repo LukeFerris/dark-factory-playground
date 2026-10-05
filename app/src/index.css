@@ -15,7 +15,14 @@
   --accent: #1e3a5f;
   --error: #b42318;
   --radius: 8px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
   line-height: 1.4;
 }
 

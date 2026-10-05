@@ -58,7 +58,10 @@ export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
 export function contractProblems(result: Result): string[] {
   const problems: string[] = []
 
-  if ((result.status === 'blocked' || result.status === 'question') && result.questions.length === 0) {
+  if (
+    (result.status === 'blocked' || result.status === 'question') &&
+    result.questions.length === 0
+  ) {
     problems.push(`status is "${result.status}" but no questions were given.`)
   }
   if (result.status === 'failed' && result.reason.trim() === '') {
@@ -95,6 +98,76 @@ export interface ValidateOutcome {
 }
 
 /**
+ * Reads the agent's result file, turning each way it can be wrong — missing,
+ * not JSON, not the contract — into a problem a human can read.
+ */
+function readResultFile(): { result: Result | null; problems: string[] } {
+  if (!existsSync(RESULT_PATH)) {
+    return { result: null, problems: ['The agent did not write .agent/out/result.json.'] }
+  }
+  try {
+    const parsed = ResultSchema.safeParse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
+    if (parsed.success) return { result: parsed.data, problems: [] }
+    return {
+      result: null,
+      problems: [
+        `result.json does not match the contract: ${parsed.error.issues
+          .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+          .join('; ')}`,
+      ],
+    }
+  } catch (error) {
+    return {
+      result: null,
+      problems: [`result.json is not valid JSON: ${(error as Error).message}`],
+    }
+  }
+}
+
+/** One line per path the turn was not allowed to touch. */
+function scopeProblems(stage: Stage, violations: ScopeViolation[]): string[] {
+  return violations.map((v) =>
+    v.reason === 'denied'
+      ? `${v.path} is never writable by an agent.`
+      : `${v.path} is outside the paths a ${stage} turn may write.`,
+  )
+}
+
+/**
+ * The `failed` result that stands in for a turn that did not ship: one
+ * validation rejected, or one whose commit the pre-commit gates refused.
+ */
+export function failedResult(summary: string, result: Result | null, problems: string[]): Result {
+  const empty: Omit<Result, 'status' | 'summary' | 'reason'> = {
+    context: '',
+    acceptance_criteria: [],
+    out_of_scope: [],
+    answers: [],
+    artifacts: [],
+    questions: [],
+    assumptions: [],
+  }
+  const from = result ?? empty
+  return {
+    status: 'failed',
+    summary,
+    context: from.context,
+    // Carried through rather than dropped: if the agent wrote usable criteria
+    // and then strayed outside its paths, they are still the clearest
+    // statement of what it was trying to do.
+    acceptance_criteria: from.acceptance_criteria,
+    out_of_scope: from.out_of_scope,
+    // Kept for the same reason: somebody answered a question on the card, and a
+    // turn being rejected is no reason for their reply to go unacknowledged.
+    answers: from.answers,
+    artifacts: from.artifacts,
+    questions: from.questions,
+    assumptions: from.assumptions,
+    reason: problems.join('\n'),
+  }
+}
+
+/**
  * Validates the turn: the result file parses against the contract, and the diff
  * stays inside the stage's allowed paths.
  *
@@ -104,60 +177,18 @@ export interface ValidateOutcome {
  * leave the card silently stuck.
  */
 export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
-  const problems: string[] = []
-  let result: Result | null = null
-
-  if (!existsSync(RESULT_PATH)) {
-    problems.push('The agent did not write .agent/out/result.json.')
-  } else {
-    try {
-      const parsed = ResultSchema.safeParse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
-      if (parsed.success) {
-        result = parsed.data
-      } else {
-        problems.push(
-          `result.json does not match the contract: ${parsed.error.issues
-            .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-            .join('; ')}`,
-        )
-      }
-    } catch (error) {
-      problems.push(`result.json is not valid JSON: ${(error as Error).message}`)
-    }
-  }
+  const { result, problems } = readResultFile()
 
   if (result !== null) problems.push(...contractProblems(result))
 
   const violations = checkScope(stage, changedFiles(base))
-  for (const v of violations) {
-    problems.push(
-      v.reason === 'denied'
-        ? `${v.path} is never writable by an agent.`
-        : `${v.path} is outside the paths a ${stage} turn may write.`,
-    )
-  }
+  problems.push(...scopeProblems(stage, violations))
 
   if (problems.length === 0 && result !== null) {
     return { ok: true, result, violations, problems }
   }
 
-  const synthetic: Result = {
-    status: 'failed',
-    summary: `The ${stage} turn was rejected by validation.`,
-    context: result?.context ?? '',
-    // Carried through rather than dropped: if the agent wrote usable criteria
-    // and then strayed outside its paths, they are still the clearest
-    // statement of what it was trying to do.
-    acceptance_criteria: result?.acceptance_criteria ?? [],
-    out_of_scope: result?.out_of_scope ?? [],
-    // Kept for the same reason: somebody answered a question on the card, and a
-    // turn being rejected is no reason for their reply to go unacknowledged.
-    answers: result?.answers ?? [],
-    artifacts: result?.artifacts ?? [],
-    questions: result?.questions ?? [],
-    assumptions: result?.assumptions ?? [],
-    reason: problems.join('\n'),
-  }
+  const synthetic = failedResult(`The ${stage} turn was rejected by validation.`, result, problems)
   writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(synthetic, null, 2)}\n`)
   return { ok: false, result: synthetic, violations, problems }
 }

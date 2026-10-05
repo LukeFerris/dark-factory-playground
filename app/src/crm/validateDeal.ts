@@ -33,6 +33,11 @@ export function validateDeal(fields: DealFields): { deal: NewDeal } | { errors: 
   if (errors.company || size === null) return { errors }
 
   return {
-    deal: { company: fields.company.trim(), sector: fields.sector.trim(), size, owner: fields.owner.trim() },
+    deal: {
+      company: fields.company.trim(),
+      sector: fields.sector.trim(),
+      size,
+      owner: fields.owner.trim(),
+    },
   }
 }

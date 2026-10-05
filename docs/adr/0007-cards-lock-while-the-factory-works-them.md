@@ -6,7 +6,7 @@ Date: 2026-10-05
 
 Accepted. Builds on [0006](0006-the-factory-takes-only-cards-assigned-to-it.md),
 which made a card the factory's by assignment; this makes it the factory's
-*alone* for as long as a turn runs.
+_alone_ for as long as a turn runs.
 
 ## Context
 
@@ -19,21 +19,21 @@ runs working the same card, or a person moving a card while a run had it.
   dispatch, so even one workflow could run twice for one card. A refresh leg
   shared build-start's group and no other.
 - **The board raced the runs.** Say the factory is fixing a merge conflict and
-  someone drags the card to *Ready for build*. That starts a second turn on the
+  someone drags the card to _Ready for build_. That starts a second turn on the
   same branch, and the first turn's report then moves the card back from under
-  it. A drag to *Done* or *Backlog* is overwritten the same way, without
+  it. A drag to _Done_ or _Backlog_ is overwritten the same way, without
   anyone being told.
-- **A turn from a PR comment never touched the card.** It stayed in *In
-  review* while a build ran against it, so nothing on the board showed it was
+- **A turn from a PR comment never touched the card.** It stayed in _In
+  review_ while a build ran against it, so nothing on the board showed it was
   in use.
 - **There was no way to stop a turn from Jira.** You had to find the run in
-  the Actions tab and cancel it, and the card then sat in *Designing* or
-  *Building* until someone moved it by hand.
+  the Actions tab and cancel it, and the card then sat in _Designing_ or
+  _Building_ until someone moved it by hand.
 
 ## Decision
 
 **Jira holds the lock.** The Factory workflow sets two status properties on
-*Designing* and *Building*:
+_Designing_ and _Building_:
 
 - `jira.permission.transition.user`
 - `jira.permission.assign.user`
@@ -50,14 +50,14 @@ stay open, because they are how people talk to a turn.
 already moves the card there first except the PR-comment path. That path now
 goes through a new workflow, `build-comment.yml`, which reads the key from the
 PR title and dispatches build-turn.yml with it. build-turn's first act is
-`factory jira-take`, which moves the card to *Building*.
+`factory jira-take`, which moves the card to _Building_.
 
 **One concurrency group per card.** design.yml, build-start.yml, build-turn.yml
 and the refresh leg for the card all share `factory-card-<KEY>`, so only one of
 them works a card at a time. A second one waits its turn.
 
 **"@Enki stop" stops it.** A comment on a locked card that mentions the factory
-and starts with "stop" triggers the *Factory: stop* Automation flow, which
+and starts with "stop" triggers the _Factory: stop_ Automation flow, which
 dispatches `stop.yml` with the key. `factory stop` then:
 
 1. checks everything again from Jira;
@@ -81,7 +81,7 @@ board.
 ## Consequences
 
 - A person cannot move a card the factory is working, and Jira does not say
-  why. The *turn started* comment does: it says the card is locked and how to
+  why. The _turn started_ comment does: it says the card is locked and how to
   stop the turn.
 - Admins are locked out too. That is the point, and it is also the risk: a
   card is stuck if the factory's code cannot let it go. The ways out are the
@@ -92,7 +92,7 @@ board.
   check, and could have its card let go under it. This applies once, at
   rollout.
 - The refresh leg that merges main cleanly takes a minute and runs with the
-  card in *In review*, unlocked. That is accepted: its push is not a force
+  card in _In review_, unlocked. That is accepted: its push is not a force
   push, so a racing turn makes it fail loudly rather than overwrite anything.
 - A mention other than stop, during a locked turn, is still not read until a
   later poll finds the card back in review. The stop flow starts on it and

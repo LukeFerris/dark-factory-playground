@@ -32,13 +32,13 @@ jq . design-DF-1-*/result.json
 
 The CLI's exit codes are a contract:
 
-| Code | Means | Look at |
-| --- | --- | --- |
-| 0 | Fine | — |
-| 1 | Unexpected error | The step log |
-| 2 | Jira rejected the credentials | `JIRA_BOT_EMAIL` variable, `JIRA_BOT_TOKEN` secret |
-| 3 | No transition to that status | Jira status names vs `STATUS_TRANSITIONS` |
-| 4 | Validation rejected the turn | `result.json`'s `reason` |
+| Code | Means                         | Look at                                            |
+| ---- | ----------------------------- | -------------------------------------------------- |
+| 0    | Fine                          | —                                                  |
+| 1    | Unexpected error              | The step log                                       |
+| 2    | Jira rejected the credentials | `JIRA_BOT_EMAIL` variable, `JIRA_BOT_TOKEN` secret |
+| 3    | No transition to that status  | Jira status names vs `STATUS_TRANSITIONS`          |
+| 4    | Validation rejected the turn  | `result.json`'s `reason`                           |
 
 ### Replaying a turn on your own machine
 
@@ -113,18 +113,18 @@ npm i --prefix /tmp/clitest "@anthropic-ai/claude-code@<version>"
 `is_error: false` and the model you asked for in `modelUsage` means the pair is
 good. `modelUsage` is also how you audit what a real turn used after the fact —
 it is in every `transcript.json` artifact, and it is the only honest answer to
-"which model built this", since the flag is what was *requested*.
+"which model built this", since the flag is what was _requested_.
 
 ---
 
 ## Nothing happens at all
 
-**The card is not assigned to the factory.** A card in a *Ready for …* column is
+**The card is not assigned to the factory.** A card in a _Ready for …_ column is
 only taken if it is also assigned to the factory's Jira account; the column
 alone is how people park their own work on the same board. Assign it, and the
-*Factory: card assigned* flow starts the poller within seconds. A card in
-*Design review* or *In review* comes back either by a comment that @mentions the
-factory, or by dragging it to a *Ready for …* column and assigning it. See *Which cards are the factory's* in
+_Factory: card assigned_ flow starts the poller within seconds. A card in
+_Design review_ or _In review_ comes back either by a comment that @mentions the
+factory, or by dragging it to a _Ready for …_ column and assigning it. See _Which cards are the factory's_ in
 [JIRA-TRIGGERS.md](JIRA-TRIGGERS.md).
 
 **The trigger did not arrive.** Jira starts the poller now — the `schedule:` in
@@ -143,7 +143,7 @@ from Jira:
 gh workflow run poller.yml --repo "$GH_OWNER/$GH_REPO"
 ```
 
-**The workflow is disabled.** GitHub silently disables *scheduled* workflows
+**The workflow is disabled.** GitHub silently disables _scheduled_ workflows
 after 60 days of repository inactivity. That no longer applies once the cron is
 off, but a workflow disabled before the change stays disabled, and
 `workflow_dispatch` will not run on it either.
@@ -170,14 +170,14 @@ conclusion is not `success` is the other.
 is clamped to 3000s in `poller.yml`, because the App token is minted once per
 run and lasts an hour. Setting it higher does nothing but log a warning; it was
 set to 21000 for two days under the old design and had no effect at all, which
-is exactly how an 80%-unattended gap went unnoticed. Raising it to 3000 *is* the
+is exactly how an 80%-unattended gap went unnoticed. Raising it to 3000 _is_ the
 supported way back to continuous polling, and needs the `schedule:` block
 uncommented to be any use.
 
 **The workflows are not registered.** They only exist once they are on the
 default branch. `smoke.sh` checks this.
 
-**The card is not in a *Ready for …* status.** Those are the only two entry
+**The card is not in a _Ready for …_ status.** Those are the only two entry
 points. Check the card, not the pipeline.
 
 **The App cannot dispatch.** The poller dispatches with the App token precisely
@@ -216,26 +216,26 @@ belong to `FACTORY_APP_ID`, or the App is not installed on this repository.
 
 ## A card is claimed but nothing is running
 
-The poller moves a card to *Designing* / *Building* **before** dispatching, so
+The poller moves a card to _Designing_ / _Building_ **before** dispatching, so
 that a failed dispatch leaves the card visibly claimed rather than handing it to
 two agents on the next poll. Both entrances do this — the status sweep and
 comment triage — so a card can arrive here from either.
 
-**Read the card before the logs.** A dispatched turn comments *design turn N
-started* within a few seconds of the run beginning. A card in *Designing* with
+**Read the card before the logs.** A dispatched turn comments _design turn N
+started_ within a few seconds of the run beginning. A card in _Designing_ with
 no such comment was claimed and never dispatched, which is this section. A card
 that has one, and nothing since, has a run that started and is either still
 going or died — that is [Reading a failure](#reading-a-failure), and the comment
 links the run. The comment is best-effort, so its absence is evidence rather
 than proof; the Actions tab settles it.
 
-If a card sits in *Designing* with no run:
+If a card sits in _Designing_ with no run:
 
 ```bash
 gh workflow run design.yml -f key=DF-1 --repo "$GH_OWNER/$GH_REPO"
 ```
 
-A card claimed into *Building* by triage needs the same dispatch against
+A card claimed into _Building_ by triage needs the same dispatch against
 `build-turn.yml`, which takes the key rather than the PR:
 
 ```bash
@@ -252,7 +252,7 @@ That branch of `act()` is the only one that leaves the card claimed with nothing
 running, and it is deliberate: the alternative is moving the card back, which
 races the next poll. Re-dispatching by hand is the recovery.
 
-You can't drag the card back out yourself: *Designing* and *Building* are
+You can't drag the card back out yourself: _Designing_ and _Building_ are
 locked to the factory (see the next section). If you leave it alone, the
 poller's orphan check lets it go after ten minutes with no run. The card goes
 back where it came from and is assigned to whoever sent it in.
@@ -261,7 +261,7 @@ back where it came from and is assigned to whoever sent it in.
 
 ## A card is locked and will not move
 
-On a card in *Designing* or *Building*, only the factory can change the status
+On a card in _Designing_ or _Building_, only the factory can change the status
 or the assignee. Jira refuses everyone else, admins included, and a drag on the
 board just snaps back. That is deliberate: it is how a running turn keeps its
 card ([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)).
@@ -274,7 +274,7 @@ minute:
 
 - the run is cancelled;
 - the card goes back to the status it came from and is assigned to you;
-- a *Stopped, as asked* comment links the cancelled run.
+- a _Stopped, as asked_ comment links the cancelled run.
 
 Anything the turn already pushed stays on the branch. If nothing happens:
 
@@ -282,17 +282,17 @@ Anything the turn already pushed stays on the branch. If nothing happens:
 gh run list --workflow stop.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
 ```
 
-| What you see | Means |
-| --- | --- |
-| No run | The *Factory: stop* flow didn't fire. Check its audit log in Jira, and that the comment really mentions the factory |
-| A run whose log says `stop: DF-1 -> not-a-stop` | The newest comment to the factory doesn't start with "stop", or the factory has commented since |
-| `-> already-handled` | That comment was acted on already |
-| `-> not-locked` | The card had already left *Designing* / *Building* |
+| What you see                                    | Means                                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| No run                                          | The _Factory: stop_ flow didn't fire. Check its audit log in Jira, and that the comment really mentions the factory |
+| A run whose log says `stop: DF-1 -> not-a-stop` | The newest comment to the factory doesn't start with "stop", or the factory has commented since                     |
+| `-> already-handled`                            | That comment was acted on already                                                                                   |
+| `-> not-locked`                                 | The card had already left _Designing_ / _Building_                                                                  |
 
 **If no run is working on it** (it died, was cancelled in the Actions tab, or
 timed out), you don't need to do anything. Every poller pass runs
 `factory release-orphans`, which lets go of a locked card that has had no
-unfinished run for ten minutes. The *Factory: sweep* flow starts a pass every
+unfinished run for ten minutes. The _Factory: sweep_ flow starts a pass every
 half hour while any card is locked. To do it now:
 
 ```bash
@@ -338,6 +338,28 @@ and the committed `.agent/result.schema.json` disagree. Never add anything under
 
 ---
 
+## A turn's commit was refused by the gates
+
+The card is in _Blocked on engineer_, or _Blocked on architect_ for a design
+turn. The comment says the pre-commit gates refused the commit, so none of the
+turn was pushed. `reason` has the end of what the hooks printed, and the gate
+that refused is usually on its last line. The Publish step's log has all of it.
+
+- **Lint or coverage.** The agent finished without running the checks the
+  build manual asks for, or ran them and missed a file. Grant another turn. It
+  will be told why the last one failed.
+- **Gate 0, tooling missing.** "Install the harness tools" did not finish.
+  Read that step's log; the installer downloads gitleaks, osv-scanner and
+  git-ai, and a download that failed is the usual cause.
+- **osv-scanner.** A dependency the agent added has a published
+  vulnerability. Find a version without one, or a different package.
+
+A conflicted merge from main goes through the same gates when merge-finish
+commits it. A refusal there looks like any other merge that could not be
+finished; see "A merge from main is stuck on a card" below.
+
+---
+
 ## A card moved itself from "In review" back to "Building"
 
 Working as intended, and the comment on the card says why. Something merged to
@@ -348,24 +370,24 @@ Two things cause it, and the comment distinguishes them:
 
 - **git conflicted.** Named files, two cards editing the same lines.
 - **it merged cleanly and then went red.** `npm run <script> fails on the
-  result` — two cards that are individually correct and jointly not, usually one
+result` — two cards that are individually correct and jointly not, usually one
   renaming what the other calls. Git has no opinion about this, which is why the
   fan-out runs the full check set rather than trusting a clean merge.
 
 Either way nothing was pushed: the branch on the pull request is exactly as the
 reviewer left it. The dispatched build turn merges again, with an agent on the
-conflict, and the card comes back to *In review* by itself. **Do nothing** unless
+conflict, and the card comes back to _In review_ by itself. **Do nothing** unless
 it does not.
 
 If it does not come back, the build turn asked a question and the card is at
-*Blocked on engineer* with a specific conflict on it — answer the comment and
+_Blocked on engineer_ with a specific conflict on it — answer the comment and
 triage starts the next turn. That is the ordinary loop, not an incident.
 
 ---
 
 ## A merge from main is stuck on a card
 
-The card is at *Blocked on engineer* with a question naming the conflicted files.
+The card is at _Blocked on engineer_ with a question naming the conflicted files.
 It means the same thing at every entrance — a build turn's merge step or the
 fan-out's — and it has two shapes.
 
@@ -415,7 +437,7 @@ A build turn has two entrances, and they fail differently. A comment on the
 **pull request** goes through the four guards in `build-comment.yml`, which
 then dispatches `build-turn.yml` with the card's key. A comment on the **card**
 goes through triage instead, which dispatches the same workflow with no guards.
-If that is the path you expected, read *A comment on a card did nothing*
+If that is the path you expected, read _A comment on a card did nothing_
 further down instead.
 
 The pull-request path requires all four of these (`gh run list --workflow
@@ -448,7 +470,7 @@ none:
 
 That means triage sent a card to the build agent before the design was approved
 and `build-start.yml` had opened the branch. Nothing is broken — move the card
-to *Ready for build* by hand and let the normal entrance run. Ask the same
+to _Ready for build_ by hand and let the normal entrance run. Ask the same
 question locally with:
 
 ```bash
@@ -459,9 +481,9 @@ npm run --silent factory -- card-pr DF-1
 
 ## A comment on a card did nothing
 
-Comments on cards in *Blocked on architect* and *Blocked on engineer* are read
+Comments on cards in _Blocked on architect_ and _Blocked on engineer_ are read
 by triage on each poll, which decides whether to start an agent. Comments in
-*Design review* and *In review* are read only if they @mention the factory; a
+_Design review_ and _In review_ are read only if they @mention the factory; a
 name typed as plain text, without picking the person from the list, is not a
 mention, and neither the Jira flow nor triage will see it. Nothing
 happening is the **designed** outcome for most comments, so before treating it
@@ -484,10 +506,10 @@ gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log | grep '^triage:'
 `--dry-run` printing nothing, with a comment plainly on the card, is one of
 five things:
 
-1. **The card is in a status triage does not watch.** *Designing* and *Building*
-   are skipped because a turn is already running on that branch; *Backlog*,
-   *Done* and the two *Ready for …* columns are skipped because they are not
-   the factory's to act on. Comment on a card in *Backlog* and nothing will
+1. **The card is in a status triage does not watch.** _Designing_ and _Building_
+   are skipped because a turn is already running on that branch; _Backlog_,
+   _Done_ and the two _Ready for …_ columns are skipped because they are not
+   the factory's to act on. Comment on a card in _Backlog_ and nothing will
    ever read it.
 2. **The comment is not the newest one.** Triage looks only at the last comment
    on the card, and if the factory commented after you did, the card reads as
@@ -504,32 +526,32 @@ five things:
    To force a re-read, comment again — do not delete the property, since the
    next comment supersedes it anyway.
 4. **The comment was posted by the factory's account.** Triage's first filter is
-   *the newest comment is not ours*, so a factory that runs as you sees every
+   _the newest comment is not ours_, so a factory that runs as you sees every
    card as permanently answered by itself. Check both ends:
    ```bash
    curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
      "$JIRA_BASE/rest/api/3/myself" | jq -r '.accountId, .displayName'
    ```
-   If that `accountId` is the author of your comment, see *Jira returns 401 or
-   403* below and Checkpoint B.
+   If that `accountId` is the author of your comment, see _Jira returns 401 or
+   403_ below and Checkpoint B.
 5. **It is a worklog, a description edit or a status note**, none of which is a
    comment. Only comments count.
 
 If none of those apply, the model decided `none` — which it is told to do
 whenever it is unsure, because a missed comment costs one drag of the card and a
 wrongly-started turn spends an agent run. The card is never stuck: moving it to
-*Ready for design* or *Ready for build* by hand starts a fresh turn, and the
+_Ready for design_ or _Ready for build_ by hand starts a fresh turn, and the
 agent reads the whole comment thread regardless of how it was woken.
 
 ### Triage itself is failing
 
 Three warnings can appear in the poller's log, and they mean different things:
 
-| Log line | State it leaves | What to do |
-| --- | --- | --- |
-| `::warning::could not triage DF-1: …` | Nothing happened; no mark written | Nothing — the next pass reconsiders the same comment. Persisting means the model call is failing; check `ANTHROPIC_API_KEY` |
-| `::warning::could not move DF-1 to Designing: …` | Nothing happened; no mark written | Usually a renamed Jira status. `bootstrap/smoke.sh` asserts all ten |
-| `::error::DF-1 was moved to Building but build-turn.yml could not be dispatched` | Card claimed, nothing running | Dispatch by hand — see *A card is claimed but nothing is running* |
+| Log line                                                                         | State it leaves                   | What to do                                                                                                                  |
+| -------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `::warning::could not triage DF-1: …`                                            | Nothing happened; no mark written | Nothing — the next pass reconsiders the same comment. Persisting means the model call is failing; check `ANTHROPIC_API_KEY` |
+| `::warning::could not move DF-1 to Designing: …`                                 | Nothing happened; no mark written | Usually a renamed Jira status. `bootstrap/smoke.sh` asserts all ten                                                         |
+| `::error::DF-1 was moved to Building but build-turn.yml could not be dispatched` | Card claimed, nothing running     | Dispatch by hand — see _A card is claimed but nothing is running_                                                           |
 
 A fourth, `::warning::moved DF-1 but could not say why`, is cosmetic: the turn
 still starts, the card just does not carry the factory's explanation.
@@ -572,9 +594,9 @@ npm run --silent factory -- jira-transition DF-1 "In review"
 If that fails too, the status name in Jira no longer matches
 `STATUS_TRANSITIONS`. `smoke.sh` lists all ten.
 
-*Done* is the exception and does not belong here: it is restricted to the bot
+_Done_ is the exception and does not belong here: it is restricted to the bot
 by a workflow condition, and nothing but `production.yml` should be setting it.
-See *The PR is merged but the card is still in review*.
+See _The PR is merged but the card is still in review_.
 
 ---
 
@@ -583,7 +605,7 @@ See *The PR is merged but the card is still in review*.
 A turn takes the card while it runs and hands it back in `report`. A run that
 died between the two — a cancelled workflow, a runner that vanished, an agent
 step that crashed the job — leaves the bot holding it. The card's status says
-the same thing: it will still be in *Designing* or *Building*.
+the same thing: it will still be in _Designing_ or _Building_.
 
 Nothing is stuck. Take the card back, or leave it. The next turn the poller or
 triage starts records afresh who the card goes back to — whoever dragged it in,
@@ -601,8 +623,8 @@ A 404 there means the card was unassigned when the turn started, which is the
 normal case and not an error.
 
 If the assignment itself is failing — `::warning::could not assign DF-1 to the
-factory` on every turn — the bot is missing *Assign Issues* or is not an
-*Assignable User* in the project's permission scheme. Check both:
+factory` on every turn — the bot is missing _Assign Issues_ or is not an
+_Assignable User_ in the project's permission scheme. Check both:
 
 ```bash
 curl -s -u "$JIRA_USER:$JIRA_TOKEN" \
@@ -622,7 +644,7 @@ Jira GET /rest/api/3/issue/DF-1 failed: 404 {"errorMessages":["Issue does not ex
 ```
 
 — on a turn that `gather` and `announce` had already handled correctly, for a
-different card. Read the *Gather the card* step: if it says
+different card. Read the _Gather the card_ step: if it says
 `gather: DF-7 stage=build turn=1` and a later step names another key, the
 turn's identity was rewritten between the two.
 
@@ -634,7 +656,7 @@ test suite; a build agent writing the file directly would do the same thing.
 
 Nothing is corrupted outside the run. The branch was never pushed, so the turn's
 work is only in the uploaded transcript. Fix the cause, then re-dispatch the
-turn — the card is still in *Designing* or *Building* and still assigned to the
+turn — the card is still in _Designing_ or _Building_ and still assigned to the
 bot, which is the state described above.
 
 ---
@@ -662,7 +684,7 @@ gh variable set JIRA_BOT_EMAIL --repo "$GH_OWNER/$GH_REPO" --body "$JIRA_BOT_EMA
 **Never set `JIRA_BOT_EMAIL` to your own address to get past this.** It
 authenticates fine and the factory then comments as you, at which point the
 poller can no longer tell your answers from the design agent's own questions and
-every card in *Blocked on architect* stays there silently. See
+every card in _Blocked on architect_ stays there silently. See
 `docs/factory/SETUP.md`, Checkpoint B.
 
 ---
@@ -749,7 +771,7 @@ kickoff comment — otherwise you get a second one.
 be reachable: `report` is the last step of the `preview` job, after the deploy
 has answered. If you see it, the `preview` job's `Report` step ran while
 `DEPLOYABLE` was false — which means validation rejected the turn, and the card
-should be in *Blocked on engineer*, not *In review*. Read the Jira comment.
+should be in _Blocked on engineer_, not _In review_. Read the Jira comment.
 
 **The preview is stale rather than missing.** Every build turn redeploys before
 reporting, so a preview stuck on turn 1's code means the later turns' `preview`
@@ -784,16 +806,16 @@ infra/azure/apply.sh            # any diff here is drift; empty is a clean bill
 A variable someone set by hand shows up as a diff, because Terraform owns all
 twelve of them.
 
-| Symptom | Usually |
-| --- | --- |
-| `AADSTS700213` / no matching federated identity | The federated credential's subject does not match. Both are needed: `repo:<owner>/<repo>:pull_request` for the PR events and `repo:<owner>/<repo>:ref:refs/heads/main` for the dispatch retry |
-| `Missing required environment variable AZURE_…` | A repository variable is unset; the message names which. `apply.sh` sets all of them — a missing one means the apply did not finish, or somebody deleted it |
-| `az acr build` denied | `Contributor` on the resource group covers ACR Tasks by inheritance. If it is denied, the role assignment is missing rather than too narrow |
-| `--user-assigned` denied on create | The CI principal lacks `Managed Identity Operator` **on the identity**. `Contributor` on the group is not enough to attach one |
-| Create succeeds, app never starts, `ImagePullFailure` | The identity named by `AZURE_PREVIEW_IDENTITY` has no `AcrPull` on the registry. If that variable is unset the code falls back to `--registry-identity system`, which only grants it when the deploying principal can make role assignments — see SELF-HOSTING |
-| `no ingress FQDN` | The app exists but ingress is internal or absent. Delete it and let the next push recreate it |
-| `… did not answer within 180s` | The image built and deployed but the container is not serving. This is the warm-up step refusing to publish a link to a dead preview, so read the console logs below — the build was not the problem |
-| The URL resolves but the first request hangs ~20 seconds | Cold start. `--min-replicas 0` is deliberate; the launcher is what makes it legible. See below |
+| Symptom                                                  | Usually                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AADSTS700213` / no matching federated identity          | The federated credential's subject does not match. Both are needed: `repo:<owner>/<repo>:pull_request` for the PR events and `repo:<owner>/<repo>:ref:refs/heads/main` for the dispatch retry                                                                  |
+| `Missing required environment variable AZURE_…`          | A repository variable is unset; the message names which. `apply.sh` sets all of them — a missing one means the apply did not finish, or somebody deleted it                                                                                                    |
+| `az acr build` denied                                    | `Contributor` on the resource group covers ACR Tasks by inheritance. If it is denied, the role assignment is missing rather than too narrow                                                                                                                    |
+| `--user-assigned` denied on create                       | The CI principal lacks `Managed Identity Operator` **on the identity**. `Contributor` on the group is not enough to attach one                                                                                                                                 |
+| Create succeeds, app never starts, `ImagePullFailure`    | The identity named by `AZURE_PREVIEW_IDENTITY` has no `AcrPull` on the registry. If that variable is unset the code falls back to `--registry-identity system`, which only grants it when the deploying principal can make role assignments — see SELF-HOSTING |
+| `no ingress FQDN`                                        | The app exists but ingress is internal or absent. Delete it and let the next push recreate it                                                                                                                                                                  |
+| `… did not answer within 180s`                           | The image built and deployed but the container is not serving. This is the warm-up step refusing to publish a link to a dead preview, so read the console logs below — the build was not the problem                                                           |
+| The URL resolves but the first request hangs ~20 seconds | Cold start. `--min-replicas 0` is deliberate; the launcher is what makes it legible. See below                                                                                                                                                                 |
 
 ```bash
 az containerapp show -n df-preview-pr-<n> -g "$AZURE_RESOURCE_GROUP" \
@@ -807,12 +829,12 @@ as the app answers. Its URL is `AZURE_PREVIEW_LAUNCHER`, and the raw preview
 URL it was asked to open is in its own address bar under `?u=`, so anything it
 cannot fix can be diagnosed by opening that directly.
 
-| Symptom | Usually |
-| --- | --- |
-| "That link was not opened" | The `?u=` target is not an `https://…azurecontainerapps.io` URL. The page refuses anything else rather than being an open redirect |
+| Symptom                                  | Usually                                                                                                                                                         |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "That link was not opened"               | The `?u=` target is not an `https://…azurecontainerapps.io` URL. The page refuses anything else rather than being an open redirect                              |
 | It spins past "taking longer than usual" | The preview is not coming up. Open the `?u=` URL directly and check the app's logs; if the PR is closed, its preview was torn down and there is nothing to wake |
-| The page itself 404s | The blob was never uploaded. `infra/azure/apply.sh` re-uploads it; it is one `azurerm_storage_blob` |
-| An edit to the page has not appeared | It is served `no-cache`, so this is Terraform not having applied rather than a stale browser |
+| The page itself 404s                     | The blob was never uploaded. `infra/azure/apply.sh` re-uploads it; it is one `azurerm_storage_blob`                                                             |
+| An edit to the page has not appeared     | It is served `no-cache`, so this is Terraform not having applied rather than a stale browser                                                                    |
 
 **Previews that outlived their PRs** are a running cost, not just clutter.
 `build-teardown.yml` deletes the app and the image tag, and logs rather than
@@ -838,22 +860,22 @@ az resource list -g "$AZURE_RESOURCE_GROUP" \
 ## The PR is merged but the card is still in review
 
 `production.yml` is what closes a card, and it does two things in order: deploy
-production, then move the card to *Done*. Which one failed decides what to do,
+production, then move the card to _Done_. Which one failed decides what to do,
 and the run log says plainly.
 
 ```bash
 gh run list --workflow production.yml --repo "$GH_OWNER/$GH_REPO" --limit 5
 ```
 
-| What the run shows | Meaning |
-| --- | --- |
-| No run at all | The gate did not match. It needs `merged == true`, a `card/` head branch, and `FACTORY_PREVIEW_BACKEND == azure`. Closing a PR without merging is a no-op by design, and on the `ghcr` backend shipping is skipped entirely |
-| Failed in **Deploy production** | Nothing shipped and the card is correctly still in review. Same failures as a preview — see the `azure` table above, substituting `df-production` for the app name |
-| `production-up printed no URL; refusing to close the card` | The deploy step did not end with a URL on stdout. The card is deliberately left alone rather than closed on a guess |
-| Failed in **Move the card to Done** | **Production is live and the card is wrong.** The Jira call failed after the site came up |
+| What the run shows                                         | Meaning                                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No run at all                                              | The gate did not match. It needs `merged == true`, a `card/` head branch, and `FACTORY_PREVIEW_BACKEND == azure`. Closing a PR without merging is a no-op by design, and on the `ghcr` backend shipping is skipped entirely |
+| Failed in **Deploy production**                            | Nothing shipped and the card is correctly still in review. Same failures as a preview — see the `azure` table above, substituting `df-production` for the app name                                                          |
+| `production-up printed no URL; refusing to close the card` | The deploy step did not end with a URL on stdout. The card is deliberately left alone rather than closed on a guess                                                                                                         |
+| Failed in **Move the card to Done**                        | **Production is live and the card is wrong.** The Jira call failed after the site came up                                                                                                                                   |
 
 That last row is the one that needs a decision, because the transition into
-*Done* is restricted to the bot by a Jira workflow condition — and conditions
+_Done_ is restricted to the bot by a Jira workflow condition — and conditions
 bind administrators too, so you cannot finish the move by dragging the card.
 The intended fix is to re-run the failed job:
 
@@ -872,10 +894,10 @@ curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
   "$JIRA_BASE/rest/api/3/issue/$KEY/transitions" | jq -r '.transitions[].to.name'
 ```
 
-If *Done* is missing from that list, fix the group membership — see the
-*Locking Done to the factory* section of `SETUP.md` — and re-run. A card left
+If _Done_ is missing from that list, fix the group membership — see the
+_Locking Done to the factory_ section of `SETUP.md` — and re-run. A card left
 in review with production already serving is untidy, not dangerous; resist the
-temptation to add a second transition into *Done* to get out of it, because
+temptation to add a second transition into _Done_ to get out of it, because
 that is the escape hatch [ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md)
 deliberately did not build.
 
@@ -916,8 +938,8 @@ gh workflow disable poller.yml --repo "$GH_OWNER/$GH_REPO"
 ```
 
 Nothing new starts. In-flight runs continue; `gh run cancel <id>` each one. To
-stop a single card, comment `@Enki stop` on it (see *A card is locked and will
-not move*), and remove `factory:active` from its PR so a PR comment can't start
+stop a single card, comment `@Enki stop` on it (see _A card is locked and will
+not move_), and remove `factory:active` from its PR so a PR comment can't start
 another turn. Cards whose runs you cancel by hand are let go by the next poller
 pass. With the poller disabled, run `factory release-orphans` locally, as in
 that section.

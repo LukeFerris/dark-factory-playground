@@ -123,8 +123,8 @@ branch, the card says the design is ready, and the first person to find it is
 the build agent — for whom it is far too late.
 
 Unresolved decisions go on the Jira card instead, in `questions[]`, which puts
-them all in one comment addressed to a human. The card moves to *Blocked on
-architect* and stops. When someone answers, the poller starts a fresh design
+them all in one comment addressed to a human. The card moves to _Blocked on
+architect_ and stops. When someone answers, the poller starts a fresh design
 turn, the agent reads the replies alongside its own earlier questions, and the
 design is finished properly. That repeats until a turn comes back with nothing
 to ask.

@@ -10,9 +10,9 @@ claim-before-dispatch ordering is unchanged.
 
 ## Context
 
-A card used to become the factory's by being in a column. Any card in *Ready
-for design* or *Ready for build* was taken, and any comment on a card in *Design
-review*, *In review* or either *Blocked on …* status was read by triage and
+A card used to become the factory's by being in a column. Any card in _Ready
+for design_ or _Ready for build_ was taken, and any comment on a card in _Design
+review_, _In review_ or either _Blocked on …_ status was read by triage and
 could start a turn.
 
 That makes the board the factory's alone. A team that wants to keep its own
@@ -29,22 +29,22 @@ work heard about it only if they were watching the card.
 ## Decision
 
 **A card is sent in by column and assignment together.** The poller takes a
-card in a *Ready for …* column only when it is assigned to the factory's Jira
+card in a _Ready for …_ column only when it is assigned to the factory's Jira
 account (`assignee = currentUser()`; the poller runs as that account). Two
 Automation flows cover the two orders, one on the transition and one on the
 assignment, and the sweep's JQL carries the same condition.
 
 **A comment takes a card back only when it is addressed to the factory.** In the
-two *Blocked on …* statuses the factory has asked something, so any comment from
-a person is read, whoever the card is assigned to. In *Design review* and *In
-review* most comments are between people, so only one that @mentions the
+two _Blocked on …_ statuses the factory has asked something, so any comment from
+a person is read, whoever the card is assigned to. In _Design review_ and _In
+review_ most comments are between people, so only one that @mentions the
 factory is read — the newest since the factory last spoke, so that a
 colleague's reply underneath does not hide it. Either way, if the comment asks
-for work, the factory takes the card back. Dragging a reviewed card to a *Ready
-for …* column and assigning it to the factory works too.
+for work, the factory takes the card back. Dragging a reviewed card to a _Ready
+for …_ column and assigning it to the factory works too.
 
 **The card goes back to a person, by name.** At the start of a turn the factory
-records who the card goes back to: whoever dragged it into the *Ready for …*
+records who the card goes back to: whoever dragged it into the _Ready for …_
 column, from the card's history, falling back to whoever assigned it to the
 factory; or, for a turn started by a comment, whoever wrote it. At the end it assigns
 the card to them and opens the report comment with an @mention, because a
@@ -55,9 +55,9 @@ assignment.
 
 - People can share the board with the factory, and a card the factory is not
   assigned never costs a run.
-- Starting work is two gestures instead of one. A card dragged into a *Ready*
-  column without the assignment waits, silently; the runbook's *Nothing happens
-  at all* names that first.
+- Starting work is two gestures instead of one. A card dragged into a _Ready_
+  column without the assignment waits, silently; the runbook's _Nothing happens
+  at all_ names that first.
 - A comment in a review status starts a turn only if it @mentions the factory.
   A name typed as plain text is not a mention. Comments on the pull request in
   GitHub still start build turns (`build-turn.yml`'s `issue_comment` trigger),

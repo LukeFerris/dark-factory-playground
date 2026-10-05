@@ -55,3 +55,55 @@ describe('prBody', () => {
     expect(body.indexOf('### Not in this change')).toBeLessThan(body.indexOf('### Assumptions'))
   })
 })
+
+describe('prBody, section by section', () => {
+  it('puts the preview above the steps, so the reviewer has somewhere to follow them', () => {
+    const body = prBody(
+      'DF-9',
+      'Add a close date',
+      result({
+        context: '  See the design doc.  ',
+        acceptance_criteria: [{ criterion: 'A deal has a close date.', steps: ['Open', 'Look'] }],
+      }),
+      'https://pr-9.preview.example',
+    )
+    expect(body).toContain('### Context\n\nSee the design doc.\n')
+    expect(body).toContain('**Preview:** https://pr-9.preview.example')
+    expect(body.indexOf('**Preview:**')).toBeLessThan(body.indexOf('### Proving it'))
+    expect(body).toContain('**A deal has a close date.**\n\n1. Open\n2. Look\n')
+  })
+
+  it('leaves out an empty preview URL and an empty context', () => {
+    const body = prBody('DF-9', 'Add a close date', result(), '')
+    expect(body).not.toContain('**Preview:**')
+    expect(body).not.toContain('### Context')
+  })
+
+  it('lists open questions with whatever context and options they came with', () => {
+    const body = prBody(
+      'DF-9',
+      'Add a close date',
+      result({
+        questions: [
+          { question: 'Which format?', context: 'Two markets.', options: ['ISO', 'Local'] },
+          { question: 'Required?', context: '', options: [] },
+        ],
+      }),
+      null,
+    )
+    expect(body).toContain(
+      '### Open questions\n\n- **Which format?**\n  - Context: Two markets.\n  - Options: ISO / Local\n- **Required?**\n\n',
+    )
+  })
+
+  it('lists the files as code, and always ends with the note about the block', () => {
+    const body = prBody(
+      'DF-9',
+      'Add a close date',
+      result({ artifacts: ['app/src/Deal.tsx'] }),
+      null,
+    )
+    expect(body).toContain('### Files\n\n- `app/src/Deal.tsx`\n')
+    expect(body.endsWith('leave it alone._\n')).toBe(true)
+  })
+})

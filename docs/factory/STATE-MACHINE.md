@@ -4,10 +4,10 @@ Ten Jira statuses. Seven are moved by the factory, three by a human. Which is
 which is the whole design: **the factory never moves a card into a state that
 means "approved".**
 
-*Done* is the one status that looks like an exception and is not. The factory
+_Done_ is the one status that looks like an exception and is not. The factory
 moves it, but only as a report of something a human already approved: the card
-reaches *Done* because the pull request was merged and production came up
-serving it. The approval happened at the merge button. And because *Done* is
+reaches _Done_ because the pull request was merged and production came up
+serving it. The approval happened at the merge button. And because _Done_ is
 now a statement of fact rather than an opinion, nobody else is allowed to make
 it — a Jira condition restricts that transition to the bot, so the status
 cannot be set by anyone who has not actually shipped.
@@ -69,25 +69,25 @@ cannot be set by anyone who has not actually shipped.
 ```
 
 The two triage arrows also cross over, which the diagram would become unreadable
-saying: a comment on a card in *In review* can start a **design** turn, and a
-comment on a card in *Design review* can start a **build** one. See below.
+saying: a comment on a card in _In review_ can start a **design** turn, and a
+comment on a card in _Design review_ can start a **build** one. See below.
 
 ## The statuses
 
-| Status | Category | Means | Moved in by |
-| --- | --- | --- | --- |
-| **Backlog** | To do | Written down, not ready to work | Human |
-| **Ready for design** | To do | The next poll will pick this up | Human |
-| **Designing** | In progress | A design turn is running | Poller (from *Ready for design*, or from any waiting status on a comment) |
-| **Design review** | In progress | A design is waiting for a human to read it | Factory |
-| **Blocked on architect** | In progress | The design agent asked a question | Factory |
-| **Ready for build** | To do | Design approved; the next poll will pick it up | Human |
-| **Building** | In progress | A build turn is running, or waiting for the next to be granted | Poller (from *Ready for build*, or from any waiting status on a comment) |
-| **In review** | In progress | The PR is ready for a human | Factory |
-| **Blocked on engineer** | In progress | The build agent asked a question | Factory |
-| **Done** | Done | Merged, and production is serving it | Factory (`production.yml`, after the deployment answers) — **and nobody else** |
+| Status                   | Category    | Means                                                          | Moved in by                                                                    |
+| ------------------------ | ----------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Backlog**              | To do       | Written down, not ready to work                                | Human                                                                          |
+| **Ready for design**     | To do       | The next poll will pick this up                                | Human                                                                          |
+| **Designing**            | In progress | A design turn is running                                       | Poller (from _Ready for design_, or from any waiting status on a comment)      |
+| **Design review**        | In progress | A design is waiting for a human to read it                     | Factory                                                                        |
+| **Blocked on architect** | In progress | The design agent asked a question                              | Factory                                                                        |
+| **Ready for build**      | To do       | Design approved; the next poll will pick it up                 | Human                                                                          |
+| **Building**             | In progress | A build turn is running, or waiting for the next to be granted | Poller (from _Ready for build_, or from any waiting status on a comment)       |
+| **In review**            | In progress | The PR is ready for a human                                    | Factory                                                                        |
+| **Blocked on engineer**  | In progress | The build agent asked a question                               | Factory                                                                        |
+| **Done**                 | Done        | Merged, and production is serving it                           | Factory (`production.yml`, after the deployment answers) — **and nobody else** |
 
-A human putting a card in one of the two *Ready for …* statuses is how work
+A human putting a card in one of the two _Ready for …_ statuses is how work
 starts. After that the card comes back on its own, driven by what people say on
 it rather than by where they drag it.
 
@@ -104,12 +104,12 @@ matters, so everything hangs off the first of them in one workflow:
    it to the single long-lived `df-production` Container App, and blocks until
    the site answers. A container that builds but will not serve fails here.
 3. `factory ship <pr> --url <url>` reads the card key off the pull request,
-   comments the live URL on the card, and moves it to *Done*.
+   comments the live URL on the card, and moves it to _Done_.
 
 Step 3 only runs if step 2 succeeded. That is the same rule the build turn
 follows for previews — the card does not claim something is true before it is —
 applied one column further right. If the deployment fails, the card stays in
-*In review* with a red cross on the merged PR, which is a state somebody can
+_In review_ with a red cross on the merged PR, which is a state somebody can
 see and act on.
 
 Production differs from a preview in exactly two ways, and shares everything
@@ -128,27 +128,27 @@ Closing a pull request **without** merging deploys nothing and moves no card.
 ## Comments are the third entrance
 
 The factory leaves a card in four statuses, but they are two different kinds of
-waiting. In *Blocked on architect* and *Blocked on engineer* it has asked a
+waiting. In _Blocked on architect_ and _Blocked on engineer_ it has asked a
 question, and the person replies by commenting, not by moving the card. In
-*Design review* and *In review* it thinks it is done, and most comments there
+_Design review_ and _In review_ it thinks it is done, and most comments there
 are people talking to each other; a reviewer who wants more from the factory
-@mentions it. (Dragging the card to a *Ready for …* column and assigning it to
+@mentions it. (Dragging the card to a _Ready for …_ column and assigning it to
 the factory also works, the same as starting it the first time.)
 
 So on every pass the poller looks at those four columns and asks, for each card,
 whether anyone has spoken to the factory since it last did: any comment in a
-*Blocked* column, a comment that mentions it in a review one. When someone has, the comment is
+_Blocked_ column, a comment that mentions it in a review one. When someone has, the comment is
 read once by a small model, which answers with one of three words:
 
-| Answer | What happens |
-| --- | --- |
-| `design` | Card moves to *Designing*, the factory says why, `design.yml` runs |
-| `build` | Card moves to *Building*, the factory says why, `build-turn.yml` runs |
-| `none` | Nothing. The comment is recorded as considered and the card stays put |
+| Answer   | What happens                                                          |
+| -------- | --------------------------------------------------------------------- |
+| `design` | Card moves to _Designing_, the factory says why, `design.yml` runs    |
+| `build`  | Card moves to _Building_, the factory says why, `build-turn.yml` runs |
+| `none`   | Nothing. The comment is recorded as considered and the card stays put |
 
 The routing does not have to match the column. A change of requirements on a
-card in *In review* is design work, and a fault in the running application
-reported on a card in *Design review* is build work; both cross over. The catch
+card in _In review_ is design work, and a fault in the running application
+reported on a card in _Design review_ is build work; both cross over. The catch
 is the obvious one: a design turn on a branch that already has code revises a
 document the implementation no longer matches, and reconciling the two becomes
 the build agent's problem on the turn after.
@@ -156,11 +156,11 @@ the build agent's problem on the turn after.
 Three things make this affordable and quiet:
 
 - **The factory has its own Jira account.** "Someone has spoken since we did"
-  means *the newest comment is not ours*, which is only answerable if the
+  means _the newest comment is not ours_, which is only answerable if the
   factory is a distinct author. Every turn ends with `report()` posting a
   comment, so a card the factory has put down carries its own words as its last.
-  Since turns also announce themselves (below), a card the factory has *picked
-  up* does too — which is the safe direction for triage to be wrong in.
+  Since turns also announce themselves (below), a card the factory has _picked
+  up_ does too — which is the safe direction for triage to be wrong in.
 - **A comment is read once.** The id of the last comment triage considered is
   kept on the card as a hidden issue property, `factory-triage`. Without it, a
   comment judged `none` would stay the newest comment forever and be re-read on
@@ -169,18 +169,18 @@ Three things make this affordable and quiet:
   time somebody says "thanks" is worse than one that says nothing. The reasoning
   is in the poller's Actions log, and nowhere else.
 
-Cards in *Designing* and *Building* are deliberately not looked at: an agent is
+Cards in _Designing_ and _Building_ are deliberately not looked at: an agent is
 already running on that branch, and starting a second one is the single mistake
-triage must not be able to make. Nor are the two *Ready for …* columns — those
+triage must not be able to make. Nor are the two _Ready for …_ columns — those
 are dispatched by status on the same pass, and reading them here as well would
 hand one card to two runners.
 
 ### The design question loop, as a special case
 
-*Blocked on architect* is where this started. The design agent parks a question
+_Blocked on architect_ is where this started. The design agent parks a question
 there, someone answers in a comment, triage reads the answer and sends the card
-back to *Designing* — one design turn per answer, repeating until a turn has
-nothing left to ask. Only then does the card reach *Design review*, and a human
+back to _Designing_ — one design turn per answer, repeating until a turn has
+nothing left to ask. Only then does the card reach _Design review_, and a human
 still has to move it on from there.
 
 That loop depends on one rule in the agent's manual: **questions are never
@@ -188,10 +188,10 @@ written into the design document.** They go on the card, all of them in one
 comment, addressed to a reader who is not going to open the branch.
 `docs/design/README.md` has no "Open questions" heading for this reason.
 
-On the next turn `gather` marks the factory's own comments as *yours, on an
-earlier turn* in `task.md`, and tells the agent which round it is — counted from
+On the next turn `gather` marks the factory's own comments as _yours, on an
+earlier turn_ in `task.md`, and tells the agent which round it is — counted from
 those same comments, so nothing has to store a counter. The start comments are
-excluded from both — see *A turn says when it starts, and who has the card*
+excluded from both — see _A turn says when it starts, and who has the card_
 below.
 
 ### What the model is and is not
@@ -215,12 +215,12 @@ A human commenting on the **pull request** still grants a build turn directly,
 without going through Jira or the classifier. That path is older than triage.
 `build-comment.yml` applies the four guards, reads the card's key from the PR
 title, and dispatches `build-turn.yml` with it, the same way triage does. The
-turn's first step moves the card from *In review* to *Building*, so the card is
+turn's first step moves the card from _In review_ to _Building_, so the card is
 locked for that turn like any other (see below).
 
 ## While a turn runs, the card is locked
 
-*Designing* and *Building* mean a turn has the card, and only the factory can
+_Designing_ and _Building_ mean a turn has the card, and only the factory can
 move a card out of either or reassign it
 ([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)). Jira
 enforces this itself, through two properties on those statuses in the Factory
@@ -228,22 +228,22 @@ workflow. A drag by anyone else, an admin included, is refused, and the board
 will not accept the drop. Comments, fields and links stay open.
 
 Every way into a turn moves the card into one of them first: the poller from a
-*Ready* column, triage from a review or *Blocked* column, refresh from *In
-review*, and a PR-comment turn as its first step. Every run that works a card
+_Ready_ column, triage from a review or _Blocked_ column, refresh from _In
+review_, and a PR-comment turn as its first step. Every run that works a card
 shares one concurrency group, `factory-card-<KEY>`, so a second run waits for
 the first to finish.
 
 There are two ways out that aren't the end of a turn:
 
-| | Started by | Card goes to | Assigned to |
-| --- | --- | --- | --- |
-| **Stop** | A comment that mentions the factory and starts with "stop", e.g. "@Enki stop" | The status it was in before the factory took it | Whoever said stop |
+|            | Started by                                                                      | Card goes to                                    | Assigned to        |
+| ---------- | ------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------ |
+| **Stop**   | A comment that mentions the factory and starts with "stop", e.g. "@Enki stop"   | The status it was in before the factory took it | Whoever said stop  |
 | **Orphan** | A poller pass finds the card locked for over ten minutes with no unfinished run | The status it was in before the factory took it | Whoever sent it in |
 
 A stop cancels the card's runs and waits for them to end before it moves the
 card. If the turn reported first, the card has already left the lock, and the
 stop leaves it where the turn put it. Both ways out assign the card first and
-move it second, because a card in a *Ready* column assigned to the factory is
+move it second, because a card in a _Ready_ column assigned to the factory is
 how a turn starts.
 
 ## A turn says when it starts, and who has the card
@@ -255,7 +255,7 @@ from the moment it was claimed until `report` ran — which is the whole duratio
 of the turn, and is indistinguishable from the factory having ignored it.
 
 Every turn now brackets itself. `factory announce` posts a short comment —
-*design turn 2 started*, one sentence on what the turn is about to do, and links
+_design turn 2 started_, one sentence on what the turn is about to do, and links
 to the Actions run and the pull request if there is one. `report` posts the
 other end.
 
@@ -286,14 +286,14 @@ The comment is the loud one: it notifies watchers and lands in an email. Two
 other things about a running turn want saying, and neither wants that treatment.
 
 **The assignee** is what a board shows, and it is also how a card is sent in: a
-card in a *Ready for …* column is only the factory's if it is assigned to the
+card in a _Ready for …_ column is only the factory's if it is assigned to the
 factory, so people can keep their own cards on the same board. While a turn
 runs the factory holds the card, and `report` hands it back, so the avatar
 column answers "is anything happening on this card" from the one view where
 nobody opens a card at all.
 
 The hand-back goes to whoever the turn was for: the person who dragged the card
-into the *Ready for …* column (`sentInBy`, from the card's history — falling
+into the _Ready for …_ column (`sentInBy`, from the card's history — falling
 back to whoever assigned the factory), or the person whose comment triage acted
 on — an answer, or a mention in review. The report comment starts by mentioning them, because whether Jira emails
 an assignment depends on the notification scheme and a mention always notifies.
@@ -302,8 +302,8 @@ an assignment depends on the notification scheme and a mention always notifies.
 starts.** The poller and triage each claim the card immediately after moving
 it, in the same pass. This used to be left to `announce`, which does not run
 until the dispatched workflow has a runner, a checkout and an `npm ci` behind
-it — measured on this project, 18 to 44 seconds of a card sitting in *Designing*
-or *Building* with no avatar, looking exactly like a card nobody had picked up.
+it — measured on this project, 18 to 44 seconds of a card sitting in _Designing_
+or _Building_ with no avatar, looking exactly like a card nobody had picked up.
 When the dispatch failed it looked that way for good. `announce` still calls
 `claimCard`, because a turn started by hand never went past the poller, and
 `claimCard` is idempotent: it returns early when the factory already holds the
@@ -322,7 +322,7 @@ misbehaving:
   dealing with this", and the end of the turn must not quietly undo it.
 
 **The links** — pull request, preview, live — are facts about the card that
-*change*, not events. As comments they accumulate: a four-turn build leaves four
+_change_, not events. As comments they accumulate: a four-turn build leaves four
 "Preview:" lines and the reader has to work out which still resolves. They are
 now also remote links, in the card's **Web links** panel, keyed by a fixed
 `globalId` so that posting the same one again replaces the row instead of adding
@@ -346,22 +346,22 @@ nobody reads.
 destination status **name**. The table lives in `factory/src/schema.ts` as
 `STATUS_TRANSITIONS` and is the single definition:
 
-| Result status | Design turn → | Build turn → |
-| --- | --- | --- |
-| `ready_for_review` | Design review | In review |
-| `blocked` | Blocked on architect | Blocked on engineer |
-| `question` | Blocked on architect | Blocked on engineer |
-| `failed` | Blocked on architect | Blocked on engineer |
-| `continue` | *(no move)* | *(no move)* |
+| Result status      | Design turn →        | Build turn →        |
+| ------------------ | -------------------- | ------------------- |
+| `ready_for_review` | Design review        | In review           |
+| `blocked`          | Blocked on architect | Blocked on engineer |
+| `question`         | Blocked on architect | Blocked on engineer |
+| `failed`           | Blocked on architect | Blocked on engineer |
+| `continue`         | _(no move)_          | _(no move)_         |
 
-`continue` is the interesting one: the card stays in *Building* and the PR gets
+`continue` is the interesting one: the card stays in _Building_ and the PR gets
 a comment. Nothing happens next until a human comments, which grants the next
 turn. That is how a multi-turn build stays under control without anyone having
 to watch it.
 
 A turn that is rejected by `factory validate` reports as `failed` — validation
 overwrites `result.json` with a synthetic failure naming the problem, so the
-card still moves and still gets a comment, rather than sitting in *Building*
+card still moves and still gets a comment, rather than sitting in _Building_
 with nobody told.
 
 ## Why transitions are matched by destination, not by name
@@ -375,15 +375,15 @@ which is why `bootstrap/smoke.sh` asserts all ten names.
 
 The `Factory` workflow that `bootstrap/jira.sh` creates gives every status a
 global transition, so any status is reachable from any other. That is deliberate:
-a failed turn must be able to reach *Blocked on engineer* from wherever the card
+a failed turn must be able to reach _Blocked on engineer_ from wherever the card
 happens to be, and a workflow drawn to match the diagram above would turn that
 into a `JiraTransitionError` after the turn had already done its work. The gate
 on this pipeline is the pull request review, not the Jira workflow.
 
-**With one exception.** The transition into *Done* carries a condition
-restricting it to the factory's bot account, because *Done* means "production
+**With one exception.** The transition into _Done_ carries a condition
+restricting it to the factory's bot account, because _Done_ means "production
 is serving this" and only the thing that deployed it can know that. A condition
-is the right tool rather than a permission: it *hides* the transition, so the
+is the right tool rather than a permission: it _hides_ the transition, so the
 status simply is not offered on the board, and `factory jira-transition` — which
 looks a transition up by destination before using it — reports
 `has no transition to "Done"` rather than a bare 403.
@@ -398,21 +398,21 @@ for adding an admin-only escape hatch if you decide you want one after all.
 
 The factory has two identities, one per system, and neither of them is you.
 
-| | Comment on a card | Move a card | Move a card the factory is working | Move a card to *Done* | Delete a card | Push to `card/*` | Push to `main` | Approve | Merge |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| The Jira bot user | ✅ | ✅ | ✅ | ✅ | ❌ | — | — | — | — |
-| The factory App | — | — | — | — | — | ✅ | ❌ | ❌ | ❌ |
-| You | ✅ | ✅ | ❌ (comment "@Enki stop") | ❌ | ✅ | ❌ | ❌ (needs a PR) | ✅ | ✅ |
+|                   | Comment on a card | Move a card | Move a card the factory is working | Move a card to _Done_ | Delete a card | Push to `card/*` | Push to `main`  | Approve | Merge |
+| ----------------- | ----------------- | ----------- | ---------------------------------- | --------------------- | ------------- | ---------------- | --------------- | ------- | ----- |
+| The Jira bot user | ✅                | ✅          | ✅                                 | ✅                    | ❌            | —                | —               | —       | —     |
+| The factory App   | —                 | —           | —                                  | —                     | —             | ✅               | ❌              | ❌      | ❌    |
+| You               | ✅                | ✅          | ❌ (comment "@Enki stop")          | ❌                    | ✅            | ❌               | ❌ (needs a PR) | ✅      | ✅    |
 
 Neither party can do the whole job alone, which is the point. The bot is the
-only one that can call something *Done*, and it cannot approve or merge the
+only one that can call something _Done_, and it cannot approve or merge the
 thing that gets it there; you are the only one who can approve and merge, and
 you cannot declare the result shipped.
 
 The Jira bot is a plain licensed user, which on the project's default permission
 scheme is exactly what the factory needs — browse, comment, transition, edit,
-create, assign and link — and nothing more: *Delete Issues* and *Administer
-Projects* are granted to a project role the bot is not in. The last two of those
+create, assign and link — and nothing more: _Delete Issues_ and _Administer
+Projects_ are granted to a project role the bot is not in. The last two of those
 are what let a turn hold the card while it runs and keep the card's links
 current; both were checked against the live site rather than assumed. Your own Jira credentials stay on your
 machine for `bootstrap/`, which creates the project and its statuses; they are
