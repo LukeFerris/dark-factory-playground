@@ -2,6 +2,10 @@ node_modules/
 dist/
 coverage/
 
+# The pre-commit pattern audit's stamp: the hash of the diff it passed, which
+# the hook checks and deletes. Never meant to be committed.
+.patterns-checked
+
 # Never commit credentials.
 .env
 .env.local

@@ -338,6 +338,28 @@ and the committed `.agent/result.schema.json` disagree. Never add anything under
 
 ---
 
+## A turn's commit was refused by the gates
+
+The card is in _Blocked on engineer_, or _Blocked on architect_ for a design
+turn. The comment says the pre-commit gates refused the commit, so none of the
+turn was pushed. `reason` has the end of what the hooks printed, and the gate
+that refused is usually on its last line. The Publish step's log has all of it.
+
+- **Lint or coverage.** The agent finished without running the checks the
+  build manual asks for, or ran them and missed a file. Grant another turn. It
+  will be told why the last one failed.
+- **Gate 0, tooling missing.** "Install the harness tools" did not finish.
+  Read that step's log; the installer downloads gitleaks, osv-scanner and
+  git-ai, and a download that failed is the usual cause.
+- **osv-scanner.** A dependency the agent added has a published
+  vulnerability. Find a version without one, or a different package.
+
+A conflicted merge from main goes through the same gates when merge-finish
+commits it. A refusal there looks like any other merge that could not be
+finished; see "A merge from main is stuck on a card" below.
+
+---
+
 ## A card moved itself from "In review" back to "Building"
 
 Working as intended, and the comment on the card says why. Something merged to

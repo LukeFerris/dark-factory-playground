@@ -9,6 +9,61 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-05
 
+### Every commit goes through the golden path's gates, the factory's included
+
+The repository now uses the pre-commit pipeline from the
+[CVC golden path](https://github.com/cvc-partners/cvc-golden-path) in
+`.husky/pre-commit`. It runs, in order:
+
+1. a check that the pinned tools are installed;
+2. `git diff --check`;
+3. gitleaks;
+4. osv-scanner;
+5. eslint and prettier on what is staged;
+6. at least 75% statements, functions and lines, and 60% branches, for each
+   staged source file;
+7. the `/check-patterns` audit, for commits an agent makes.
+
+The lint rules carry the golden path's complexity limits, in `eslint.gates.js`.
+They apply to tests as well.
+
+The factory and the app did not meet the limits, and were refactored until they
+did, without changing what they do. Twelve files over 300 lines were split.
+Among them, `cli.ts` became one file per group of commands, and `jira.ts`,
+`report.ts` and `triage.ts` lost their HTTP, ADF, comment and classifier
+halves. Each untested file got tests. The factory went from 370 tests to 608.
+osv-scanner found a vitest advisory and a minimatch that eslint-plugin-sonarjs
+pins, so vitest is now 4.1 and minimatch is overridden for sonarjs alone.
+
+The factory's own commits are publish's turn commit and merge-finish's
+resolved merge. They go through the same gates on the runner:
+
+- **The tools go on before the merge.** Each turn workflow installs the pinned
+  tools before it brings the branch up to main. That covers merge-finish's
+  commit as well as publish's. The installer also adds git-ai's capture hook,
+  which attributes the agent's lines.
+- **The installer comes from main.** Each workflow runs main's copy of
+  `scripts/install-harness-tools.sh`, not the branch's. A card branch cut
+  before this change has none, but it takes main's hooks in the merge.
+- **The agent goes on first.** The pinned Claude Code is installed before the
+  harness tools, because the installer adds an unpinned one to any runner that
+  has none.
+- **The merge installs its dependencies before committing.** On the
+  conflicted path, `merge-main` now runs `npm ci` before merge-finish commits,
+  because the gates lint and test the merged tree.
+- **A clean merge is not gated.** It is committed by `git merge`, which runs no
+  pre-commit hook.
+
+A refusal is reported like any other failure. Publish replaces `result.json`
+with a failed result that names the gate. Report runs regardless and reads that
+file, so it no longer moves the card on as if the turn had shipped with
+nothing pushed. merge-finish treats a refusal as an unresolved merge: it aborts
+the merge and asks on the card.
+
+The pattern audit does not run on the runner, because publish is not an agent.
+The build manual asks the agent to make the same audit of its own work. CI
+runs `npm run format:check` for any commit that skipped the hooks.
+
 ### A build turn from review now pushes to its branch
 
 build-turn.yml checks the PR branch out itself and never calls

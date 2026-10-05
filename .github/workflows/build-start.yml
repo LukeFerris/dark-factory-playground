@@ -103,21 +103,6 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
 
-      # Turn one usually cuts the branch fresh from main, in which case this is a
-      # no-op. It is not skipped on that assumption: a card can reach build a
-      # second time, and by then the branch is however old the card is.
-      - name: Bring the branch up to main
-        uses: ./.github/actions/merge-main
-        with:
-          key: ${{ inputs.key }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          jira-base: ${{ vars.JIRA_BASE }}
-          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
-          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
-          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}
-          agent-model: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
-          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
-
       # Pinned deliberately, and the version and the model are pinned together.
       #
       # The flag surface is version-coupled — see the CHANGELOG entry for
@@ -130,6 +115,29 @@ jobs:
       # two defaults have to move as a pair.
       - name: Install the agent
         run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}"
+
+      # Before the merge, from main's installer, and after the agent. See
+      # "Install the harness tools" in design.yml for why each.
+      - name: Install the harness tools
+        run: |
+          set -euo pipefail
+          echo "$HOME/.git-ai/bin" >> "$GITHUB_PATH"
+          git show origin/main:scripts/install-harness-tools.sh > "$RUNNER_TEMP/install-harness-tools.sh"
+          PATH="$HOME/.git-ai/bin:$PATH" bash "$RUNNER_TEMP/install-harness-tools.sh"
+
+      # Turn one usually cuts the branch fresh from main, in which case this is a
+      # no-op. It is not skipped on that assumption: a card can reach build a
+      # second time, and by then the branch is however old the card is.
+      - name: Bring the branch up to main
+        uses: ./.github/actions/merge-main
+        with:
+          key: ${{ inputs.key }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          jira-base: ${{ vars.JIRA_BASE }}
+          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
+          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
+          agent-model: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
+          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
 
       # ANTHROPIC_API_KEY is the only credential here. PREVIEW_URL is empty on
       # turn 1 — there is nothing deployed until the preview job runs.
@@ -148,7 +156,7 @@ jobs:
           mkdir -p .agent/out
           claude -p "$(cat .agent/build.md)" \
             --model "${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}" \
-            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
+            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run test:coverage:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
             --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
             --strict-mcp-config \
             --max-budget-usd "${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}" \

@@ -76,6 +76,7 @@ You may run, and only run:
 - `npm run lint`
 - `npm run typecheck`
 - `npm test`
+- `npm run test:coverage` (the tests again, with each file's coverage)
 - `npm run e2e`
 - `npm run build`
 - `npm run preview`
@@ -89,6 +90,32 @@ publishes. Keep new dependencies rare and justify each one.
 Before you finish any turn, run lint, typecheck, test, e2e and build, in that
 order. Report what you ran and what it said. Do not claim a turn is
 `ready_for_review` on code you have not seen pass.
+
+## The commit gates
+
+The pipeline commits your work through the same pre-commit gates a person's
+commit goes through, and a commit they refuse fails the turn. Nothing you write
+reaches the PR unless it passes them, so check for them yourself before you
+finish:
+
+- **Complexity**, which `npm run lint` reports. No file over 300 lines and no
+  function over 60, not counting blank lines and comments. Cyclomatic complexity
+  at most 12, cognitive complexity at most 15, nesting at most 4 deep, at most 4
+  parameters and 25 statements to a function. These apply to test files too.
+  Split a component or a test the way a reader would want it split. Do not just
+  move lines around until the number fits.
+- **Coverage.** Every source file you add or change needs, from its tests, at
+  least 75% of its statements, functions and lines and 60% of its branches.
+  Run `npm run test:coverage` and read your files' rows.
+- **Known vulnerabilities.** A new dependency with a published vulnerability is
+  refused.
+- **Secrets.** Anything that looks like a credential is refused.
+
+The gates also audit an agent's diff for two things, and the pipeline cannot do
+that for you, so do it yourself before you finish. Look for code that duplicates
+something the app already has, where it should use the existing thing. And look
+for fallbacks that paper over a mistake in our own code, where the fix belongs
+at the source. Fix what you find, rather than reporting it.
 
 ## Choosing a status
 

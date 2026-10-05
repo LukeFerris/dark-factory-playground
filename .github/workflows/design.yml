@@ -67,6 +67,40 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
         run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
 
+      # Pinned deliberately, and the version and the model are pinned together.
+      #
+      # The flag surface is version-coupled — see the CHANGELOG entry for
+      # --max-turns — so an unpinned install lets a CLI release change how a turn
+      # behaves with nobody watching. The model is coupled in the other
+      # direction: the API refuses a model the CLI is too old for, with
+      # "Claude Code 2.1.224 does not support this model; version 2.1.280 or
+      # newer is required". So raising FACTORY_AGENT_MODEL without raising
+      # FACTORY_AGENT_VERSION fails every turn at its first API call, and the
+      # two defaults have to move as a pair.
+      - name: Install the agent
+        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}"
+
+      # The golden path's pre-commit gates run on the factory's commits as well
+      # as people's: merge-finish's, when it resolves a conflict, and publish's.
+      # Gate 0 refuses a commit from a runner without the pinned tools, so they
+      # go on before the merge. From main's installer, not the branch's: a card
+      # branch cut before the gates has none, and takes main's hooks in the
+      # merge. Inline, not a local action, for the same reason — build-turn.yml
+      # has a card branch checked out from its first step, and a local action
+      # is read from the checkout. After the agent, because the installer puts
+      # an unpinned Claude Code on any runner that has none.
+      #
+      # The installer also wires git-ai's capture hook into ~/.claude, which
+      # attributes the agent's lines in the commit. git-ai lives in
+      # ~/.git-ai/bin, which the installer's own shell has to see as well as the
+      # later steps.
+      - name: Install the harness tools
+        run: |
+          set -euo pipefail
+          echo "$HOME/.git-ai/bin" >> "$GITHUB_PATH"
+          git show origin/main:scripts/install-harness-tools.sh > "$RUNNER_TEMP/install-harness-tools.sh"
+          PATH="$HOME/.git-ai/bin:$PATH" bash "$RUNNER_TEMP/install-harness-tools.sh"
+
       # A design turn writes only under docs/design/<card>/ and docs/adr/, so a
       # conflict here is close to unimaginable. It gets the same treatment as a
       # build turn anyway, because the reason to merge is not the card's own
@@ -80,22 +114,8 @@ jobs:
           jira-base: ${{ vars.JIRA_BASE }}
           jira-user: ${{ vars.JIRA_BOT_EMAIL }}
           jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
-          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}
           agent-model: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
           budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
-
-      # Pinned deliberately, and the version and the model are pinned together.
-      #
-      # The flag surface is version-coupled — see the CHANGELOG entry for
-      # --max-turns — so an unpinned install lets a CLI release change how a turn
-      # behaves with nobody watching. The model is coupled in the other
-      # direction: the API refuses a model the CLI is too old for, with
-      # "Claude Code 2.1.224 does not support this model; version 2.1.280 or
-      # newer is required". So raising FACTORY_AGENT_MODEL without raising
-      # FACTORY_AGENT_VERSION fails every turn at its first API call, and the
-      # two defaults have to move as a pair.
-      - name: Install the agent
-        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}"
 
       # No GitHub token, no Jira token, no repository variables. The agent reads
       # its manual and .agent/in, and writes .agent/out. Tools are allow-listed;

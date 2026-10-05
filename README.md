@@ -10,6 +10,7 @@ factory to build features into, and the machinery that runs the loop.
 ```bash
 cp .env.example .env
 npm ci
+bash scripts/install-harness-tools.sh
 bootstrap/preflight.sh
 ```
 
@@ -36,6 +37,16 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+Every commit also goes through the
+[CVC golden path](https://github.com/cvc-partners/cvc-golden-path)'s pre-commit
+gates, in `.husky/pre-commit`: pinned tooling, file hygiene, gitleaks,
+osv-scanner, lint and format on what is staged, at least 75% coverage of each
+staged source file, and an audit of an agent's diff by `/check-patterns`. The
+lint rules include the golden path's complexity limits, in `eslint.gates.js`.
+`scripts/install-harness-tools.sh` installs the pinned tools, and the commit
+refuses to run without them. The factory's own commits go through the same
+gates on the runner.
 
 ## Documentation
 

@@ -25,14 +25,21 @@ description: >-
 #                 is the one step in the sequence whose behaviour is influenced
 #                 by the contents of the files it is reading, and those files
 #                 are a diff between two branches.
-#   merge-finish  checks the agent stayed inside the conflict and left no
-#                 markers, then writes the commit. It exits 5 if not, which
-#                 fails the job — and the calling workflow's `report` step, which
-#                 runs anyway, finds a `question` result waiting for it and puts
-#                 the conflict on the card as something to answer.
 #   npm ci        because the merge may have brought a new lockfile across, and
 #                 the node_modules from before it now describes a combination
-#                 that will never exist again.
+#                 that will never exist again. On the conflicted path it comes
+#                 before the commit, whose pre-commit gates lint and test the
+#                 merged tree; after a clean merge, which ran no gates, it comes
+#                 last.
+#   merge-finish  checks the agent stayed inside the conflict and left no
+#                 markers, then writes the commit through the gates. It exits 5
+#                 if any of that fails, which fails the job — and the calling
+#                 workflow's `report` step, which runs anyway, finds a
+#                 `question` result waiting for it and puts the conflict on the
+#                 card as something to answer.
+#
+# The calling workflow installs the agent and the gates' tools before this
+# runs; see "Install the harness tools" in design.yml.
 #
 # There is no `continue-on-error` on the agent step, because composite actions
 # do not support it. `|| echo` does the same job: an agent that crashes or runs
@@ -55,14 +62,10 @@ inputs:
   jira-token:
     description: Jira bot API token
     required: true
-  agent-version:
-    description: Pinned @anthropic-ai/claude-code version
-    required: false
-    default: 2.1.281
   agent-model:
     description: >
-      Pinned model. Moves with agent-version, not independently: the API
-      refuses a model the installed CLI is too old for.
+      Pinned model. Moves with the workflow's FACTORY_AGENT_VERSION, not
+      independently: the API refuses a model the installed CLI is too old for.
     required: false
     default: claude-opus-5-5
   budget-usd:
@@ -91,11 +94,6 @@ runs:
         npm run --silent factory -- merge-begin "$KEY"
         echo "state=$(jq -r .state .agent/in/merge.json)" >> "$GITHUB_OUTPUT"
 
-    - name: Install the agent
-      if: steps.begin.outputs.state == 'conflicted'
-      shell: bash
-      run: npm i -g "@anthropic-ai/claude-code@${{ inputs.agent-version }}"
-
     # Read-only git only. `git show`, `git log` and `git diff` let it see either
     # side of a conflict whole rather than in hunks; nothing here can commit,
     # check out, reset or push, so the worst it can do is edit files that
@@ -117,11 +115,18 @@ runs:
           --output-format json > .agent/out/merge-transcript.json \
           || echo "::warning::the resolving agent exited non-zero; merge-finish will treat that as unresolved"
 
+    # A lockfile the agent left in conflict fails this. That is merge-finish's
+    # to say, on the card, so the failure is only noted here.
+    - name: Install what the merge brought
+      if: steps.begin.outputs.state == 'conflicted'
+      shell: bash
+      run: npm ci || echo "::warning::npm ci failed on the resolved merge; merge-finish will say why"
+
     - name: Commit the merge
       shell: bash
       run: npm run --silent factory -- merge-finish
 
     - name: Reinstall dependencies the merge may have changed
-      if: steps.begin.outputs.state == 'merged' || steps.begin.outputs.state == 'conflicted'
+      if: steps.begin.outputs.state == 'merged'
       shell: bash
       run: npm ci

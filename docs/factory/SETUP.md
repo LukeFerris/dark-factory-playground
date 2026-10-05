@@ -25,6 +25,7 @@ issued once or UI that has no API. They are marked **Checkpoint A** to
 git clone <this repo> && cd dark-factory-playground
 cp .env.example .env
 npm ci
+bash scripts/install-harness-tools.sh   # the pinned tools every commit needs
 bootstrap/preflight.sh
 ```
 
