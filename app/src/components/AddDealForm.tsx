@@ -1,38 +1,27 @@
-import { useRef, useState, type FormEvent } from 'react'
+import type { FormEvent } from 'react'
 import type { NewDeal } from '../crm/types'
-import { validateDeal, type DealErrors } from '../crm/validateDeal'
+import type { DealFields } from '../crm/validateDeal'
+import { DealFormFields } from './DealFormFields'
+import { useDealForm } from './useDealForm'
 
 export interface AddDealFormProps {
   /** Called with a validated deal; the form clears itself afterwards. */
   onAdd: (deal: NewDeal) => void
 }
 
+const EMPTY: DealFields = { company: '', sector: '', size: '', owner: '' }
+
+const fieldId = (field: string) => `deal-${field}`
+
 export function AddDealForm({ onAdd }: AddDealFormProps) {
-  const [company, setCompany] = useState('')
-  const [sector, setSector] = useState('')
-  const [size, setSize] = useState('')
-  const [owner, setOwner] = useState('')
-  const [errors, setErrors] = useState<DealErrors>({})
-  const companyRef = useRef<HTMLInputElement>(null)
-  const sizeRef = useRef<HTMLInputElement>(null)
+  const form = useDealForm(EMPTY)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const result = validateDeal({ company, sector, size, owner })
-    if ('errors' in result) {
-      setErrors(result.errors)
-      if (result.errors.company) companyRef.current?.focus()
-      else sizeRef.current?.focus()
-      return
-    }
-
-    setErrors({})
-    onAdd(result.deal)
-    setCompany('')
-    setSector('')
-    setSize('')
-    setOwner('')
-    companyRef.current?.focus()
+    const deal = form.check()
+    if (deal === null) return
+    onAdd(deal)
+    form.reset()
   }
 
   return (
@@ -46,51 +35,7 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
         New opportunity
       </h2>
       <div className="add-deal__fields">
-        <div className="field">
-          <label htmlFor="deal-company">Company</label>
-          <input
-            id="deal-company"
-            ref={companyRef}
-            value={company}
-            onChange={(event) => setCompany(event.target.value)}
-            aria-invalid={errors.company ? true : undefined}
-            aria-describedby={errors.company ? 'deal-company-error' : undefined}
-          />
-          {errors.company && (
-            <p id="deal-company-error" className="field__error" role="alert">
-              {errors.company}
-            </p>
-          )}
-        </div>
-        <div className="field">
-          <label htmlFor="deal-sector">Sector</label>
-          <input
-            id="deal-sector"
-            value={sector}
-            onChange={(event) => setSector(event.target.value)}
-          />
-        </div>
-        <div className="field field--narrow">
-          <label htmlFor="deal-size">Deal size (£m)</label>
-          <input
-            id="deal-size"
-            ref={sizeRef}
-            inputMode="decimal"
-            value={size}
-            onChange={(event) => setSize(event.target.value)}
-            aria-invalid={errors.size ? true : undefined}
-            aria-describedby={errors.size ? 'deal-size-error' : undefined}
-          />
-          {errors.size && (
-            <p id="deal-size-error" className="field__error" role="alert">
-              {errors.size}
-            </p>
-          )}
-        </div>
-        <div className="field">
-          <label htmlFor="deal-owner">Owner</label>
-          <input id="deal-owner" value={owner} onChange={(event) => setOwner(event.target.value)} />
-        </div>
+        <DealFormFields form={form} id={fieldId} narrowSize />
         <button type="submit" className="button">
           Add deal
         </button>

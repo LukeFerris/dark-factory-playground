@@ -8,11 +8,11 @@ function stored(): Deal[] {
   return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Deal[]
 }
 
-describe('useDeals', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
+beforeEach(() => {
+  localStorage.clear()
+})
 
+describe('useDeals loading', () => {
   it('seeds the sample deals when storage is empty', () => {
     const { result } = renderHook(() => useDeals())
     expect(result.current.deals).toEqual(SEED_DEALS)
@@ -36,7 +36,9 @@ describe('useDeals', () => {
     const { result } = renderHook(() => useDeals())
     expect(result.current.deals).toEqual(SEED_DEALS)
   })
+})
 
+describe('useDeals adding and moving', () => {
   it('adds a deal in Sourcing with a trimmed company and a fresh id', () => {
     const { result } = renderHook(() => useDeals())
     act(() => {
@@ -80,7 +82,9 @@ describe('useDeals', () => {
     })
     expect(stored().find((deal) => deal.id === 'seed-2')?.stage).toBe('Closed')
   })
+})
 
+describe('useDeals updating', () => {
   it('updates only the target deal, keeping its id and stage', () => {
     const { result } = renderHook(() => useDeals())
     act(() => {

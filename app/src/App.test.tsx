@@ -7,11 +7,11 @@ function column(stage: string) {
   return within(screen.getByRole('region', { name: stage }))
 }
 
-describe('App', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
+beforeEach(() => {
+  localStorage.clear()
+})
 
+describe('App', () => {
   it('shows the deal pipeline instead of the greeting', () => {
     render(<App />)
     expect(screen.getByRole('heading', { level: 1, name: 'Deal Pipeline' })).toBeInTheDocument()
@@ -59,7 +59,9 @@ describe('App', () => {
     render(<App />)
     expect(column('Sourcing').getByRole('article', { name: 'Reload Test Ltd' })).toBeInTheDocument()
   })
+})
 
+describe('App editing', () => {
   it('edits a deal in place and announces it', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -107,7 +109,9 @@ describe('App', () => {
     const card = within(column('Closed').getByRole('article', { name: 'Meridian Foods' }))
     expect(card.getByText('Food & Drink')).toBeInTheDocument()
   })
+})
 
+describe('App dragging', () => {
   it('moves a deal dropped on another column, announces it and keeps it after a reload', () => {
     // jsdom has no DataTransfer; the handlers only write to it.
     const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type RefObject } from 'react'
 import { STAGES, formatSize, type Deal, type NewDeal, type Stage } from '../crm/types'
 import { EditDealForm } from './EditDealForm'
 
@@ -12,9 +12,11 @@ function stageSelectId(dealId: string): string {
   return `deal-stage-${dealId}`
 }
 
-export function PipelineBoard({ deals, onMove, onUpdate }: PipelineBoardProps) {
-  // A moved card is re-mounted in its new column, which drops focus. Remember
-  // which card moved and put focus back on its select once it has rendered.
+/**
+ * A moved card is re-mounted in its new column, which drops focus. Remember
+ * which card moved and put focus back on its select once it has rendered.
+ */
+function useRefocusMoved(deals: Deal[], onMove: (id: string, stage: Stage) => void) {
   const movedId = useRef<string | null>(null)
   useEffect(() => {
     if (movedId.current === null) return
@@ -22,14 +24,18 @@ export function PipelineBoard({ deals, onMove, onUpdate }: PipelineBoardProps) {
     movedId.current = null
   }, [deals])
 
-  function handleMove(id: string, stage: Stage) {
+  return function handleMove(id: string, stage: Stage) {
     movedId.current = id
     onMove(id, stage)
   }
+}
 
-  // The card being dragged is a ref because nothing renders from it; only the
-  // highlighted column does. A drop calls onMove directly rather than
-  // handleMove, so a mouse drop leaves focus where it was.
+/**
+ * The card being dragged is a ref because nothing renders from it; only the
+ * highlighted column does. A drop calls onMove directly rather than the
+ * refocusing move, so a mouse drop leaves focus where it was.
+ */
+function useCardDrag(onMove: (id: string, stage: Stage) => void) {
   const dragged = useRef<{ id: string; stage: Stage } | null>(null)
   const [dropTarget, setDropTarget] = useState<Stage | null>(null)
 
@@ -67,41 +73,75 @@ export function PipelineBoard({ deals, onMove, onUpdate }: PipelineBoardProps) {
     onMove(card.id, stage)
   }
 
+  return {
+    dropTarget,
+    handleDragStart,
+    handleDragEnd,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+  }
+}
+
+type CardDrag = ReturnType<typeof useCardDrag>
+
+export function PipelineBoard({ deals, onMove, onUpdate }: PipelineBoardProps) {
+  const handleMove = useRefocusMoved(deals, onMove)
+  const drag = useCardDrag(onMove)
+
   return (
     <div className="board">
-      {STAGES.map((stage) => {
-        const stageDeals = deals.filter((deal) => deal.stage === stage)
-        return (
-          <section
-            key={stage}
-            className={stage === dropTarget ? 'column column--drop-target' : 'column'}
-            aria-label={stage}
-            onDragOver={(event) => handleDragOver(event, stage)}
-            onDragLeave={handleDragLeave}
-            onDrop={(event) => handleDrop(event, stage)}
-          >
-            <h2 className="column__title">
-              {stage}
-              <span className="column__count">{stageDeals.length}</span>
-            </h2>
-            {stageDeals.length === 0 ? (
-              <p className="column__empty">No deals</p>
-            ) : (
-              stageDeals.map((deal) => (
-                <DealCard
-                  key={deal.id}
-                  deal={deal}
-                  onMove={handleMove}
-                  onUpdate={onUpdate}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                />
-              ))
-            )}
-          </section>
-        )
-      })}
+      {STAGES.map((stage) => (
+        <StageColumn
+          key={stage}
+          stage={stage}
+          deals={deals.filter((deal) => deal.stage === stage)}
+          drag={drag}
+          onMove={handleMove}
+          onUpdate={onUpdate}
+        />
+      ))}
     </div>
+  )
+}
+
+interface StageColumnProps {
+  stage: Stage
+  /** Only the deals in this stage. */
+  deals: Deal[]
+  drag: CardDrag
+  onMove: (id: string, stage: Stage) => void
+  onUpdate: (id: string, changes: NewDeal) => void
+}
+
+function StageColumn({ stage, deals, drag, onMove, onUpdate }: StageColumnProps) {
+  return (
+    <section
+      className={stage === drag.dropTarget ? 'column column--drop-target' : 'column'}
+      aria-label={stage}
+      onDragOver={(event) => drag.handleDragOver(event, stage)}
+      onDragLeave={drag.handleDragLeave}
+      onDrop={(event) => drag.handleDrop(event, stage)}
+    >
+      <h2 className="column__title">
+        {stage}
+        <span className="column__count">{deals.length}</span>
+      </h2>
+      {deals.length === 0 ? (
+        <p className="column__empty">No deals</p>
+      ) : (
+        deals.map((deal) => (
+          <DealCard
+            key={deal.id}
+            deal={deal}
+            onMove={onMove}
+            onUpdate={onUpdate}
+            onDragStart={drag.handleDragStart}
+            onDragEnd={drag.handleDragEnd}
+          />
+        ))
+      )}
+    </section>
   )
 }
 
@@ -113,13 +153,13 @@ interface DealCardProps {
   onDragEnd: () => void
 }
 
-function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardProps) {
-  const headingId = `deal-${deal.id}`
-  const selectId = stageSelectId(deal.id)
+/**
+ * Whether the card's edit form is open. Closing the form unmounts the field
+ * that had focus, so hand it back to the Edit button — but only after a close,
+ * not when the card first renders.
+ */
+function useEditing() {
   const [editing, setEditing] = useState(false)
-
-  // Closing the form unmounts the field that had focus, so hand it back to
-  // the Edit button — but only after a close, not when the card first renders.
   const editButton = useRef<HTMLButtonElement>(null)
   const closed = useRef(false)
   useEffect(() => {
@@ -128,10 +168,21 @@ function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardPr
     closed.current = false
   }, [editing])
 
+  function open() {
+    setEditing(true)
+  }
+
   function close() {
     closed.current = true
     setEditing(false)
   }
+
+  return { editing, editButton, open, close }
+}
+
+function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardProps) {
+  const headingId = `deal-${deal.id}`
+  const { editing, editButton, open, close } = useEditing()
 
   function handleSave(changes: NewDeal) {
     onUpdate(deal.id, changes)
@@ -165,35 +216,45 @@ function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardPr
       {editing ? (
         <EditDealForm deal={deal} onSave={handleSave} onCancel={close} />
       ) : (
-        <>
-          {deal.sector && <p className="deal__sector">{deal.sector}</p>}
-          {deal.owner && <p className="deal__owner">{deal.owner}</p>}
-          <label className="deal__stage-label" htmlFor={selectId}>
-            <span aria-hidden="true">Stage</span>
-            <span className="visually-hidden">Stage for {deal.company}</span>
-          </label>
-          <select
-            id={selectId}
-            className="deal__stage"
-            value={deal.stage}
-            onChange={(event) => onMove(deal.id, event.target.value as Stage)}
-          >
-            {STAGES.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            ref={editButton}
-            className="deal__edit"
-            onClick={() => setEditing(true)}
-          >
-            Edit<span className="visually-hidden"> {deal.company}</span>
-          </button>
-        </>
+        <DealDetails deal={deal} onMove={onMove} onEdit={open} editButton={editButton} />
       )}
     </article>
+  )
+}
+
+interface DealDetailsProps {
+  deal: Deal
+  onMove: (id: string, stage: Stage) => void
+  onEdit: () => void
+  editButton: RefObject<HTMLButtonElement | null>
+}
+
+/** The card's body when it is not being edited: details, stage picker and Edit. */
+function DealDetails({ deal, onMove, onEdit, editButton }: DealDetailsProps) {
+  const selectId = stageSelectId(deal.id)
+  return (
+    <>
+      {deal.sector && <p className="deal__sector">{deal.sector}</p>}
+      {deal.owner && <p className="deal__owner">{deal.owner}</p>}
+      <label className="deal__stage-label" htmlFor={selectId}>
+        <span aria-hidden="true">Stage</span>
+        <span className="visually-hidden">Stage for {deal.company}</span>
+      </label>
+      <select
+        id={selectId}
+        className="deal__stage"
+        value={deal.stage}
+        onChange={(event) => onMove(deal.id, event.target.value as Stage)}
+      >
+        {STAGES.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <button type="button" ref={editButton} className="deal__edit" onClick={onEdit}>
+        Edit<span className="visually-hidden"> {deal.company}</span>
+      </button>
+    </>
   )
 }

@@ -62,7 +62,9 @@ describe('EditDealForm', () => {
       owner: 'Jo Lee',
     })
   })
+})
 
+describe('EditDealForm validation', () => {
   it('rejects a blank company and focuses it', async () => {
     const { form, onSave, user } = setup()
     await user.clear(form.getByLabelText('Company'))
@@ -87,7 +89,9 @@ describe('EditDealForm', () => {
     expect(field).toHaveFocus()
     expect(onSave).not.toHaveBeenCalled()
   })
+})
 
+describe('EditDealForm cancelling', () => {
   it('cancels from the Cancel button', async () => {
     const { form, onSave, onCancel, user } = setup()
     await user.type(form.getByLabelText('Company'), 'x')

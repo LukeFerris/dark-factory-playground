@@ -72,11 +72,9 @@ async function below(columnLocator: Locator, last: Locator) {
   return { x: box.width / 2, y: lastBox.y + lastBox.height + 20 - box.y }
 }
 
-test('deal cards are dragged between stage columns', async ({ page }) => {
-  await page.goto('/')
-
-  // While a card is being dragged, the column it would land in is highlighted,
-  // and letting go outside every column leaves the card where it was.
+// While a card is being dragged, the column it would land in is highlighted,
+// and letting go outside every column leaves the card where it was.
+async function highlightsWithoutDropping(page: Page) {
   await uatStep(page, 1, async () => {
     const from = await centre(cardIn(page, 'Sourcing', 'Northwind Analytics'))
     const to = await centre(column(page, 'Screening'))
@@ -111,8 +109,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(count(page, 'Sourcing')).toHaveText('1')
     await outlined(page).toEqual([])
   })
+}
 
-  // Dropping a card on another column moves the deal to that stage.
+// Dropping a card on another column moves the deal to that stage.
+async function dropsOnAnotherColumn(page: Page) {
   await uatStep(page, 7, async () => {
     await cardIn(page, 'Sourcing', 'Northwind Analytics').dragTo(column(page, 'Screening'))
     await expect(cardIn(page, 'Screening', 'Northwind Analytics')).toBeVisible()
@@ -126,8 +126,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
       'Screening',
     )
   })
+}
 
-  // A card can be dropped on an empty column.
+// A card can be dropped on an empty column.
+async function dropsOnAnEmptyColumn(page: Page) {
   await uatStep(page, 9, async () => {
     const sourcing = column(page, 'Sourcing')
     await cardIn(page, 'Due diligence', 'Brightline Packaging').dragTo(sourcing, {
@@ -140,8 +142,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(column(page, 'Sourcing').getByText('No deals')).toHaveCount(0)
     await expect(column(page, 'Due diligence').getByText('No deals')).toBeVisible()
   })
+}
 
-  // Dropping a card on "Closed" or "Passed" updates the summary.
+// Dropping a card on "Closed" or "Passed" updates the summary.
+async function dropsOnTerminalStage(page: Page) {
   await uatStep(page, 11, async () => {
     await expect(summary(page)).toHaveText('4 active deals · £210m in pipeline')
   })
@@ -166,8 +170,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(cardIn(page, 'Passed', 'Harbour Dental Group')).toBeVisible()
     await expect(summary(page)).toHaveText('3 active deals · £185m in pipeline')
   })
+}
 
-  // Dropping a card back on its own column changes nothing.
+// Dropping a card back on its own column changes nothing.
+async function dropsOnOwnColumn(page: Page) {
   await uatStep(page, 15, async () => {
     const committee = column(page, 'Investment committee')
     const kestrel = cardIn(page, 'Investment committee', 'Kestrel Energy Services')
@@ -180,8 +186,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(count(page, 'Investment committee')).toHaveText('1')
     await expect(summary(page)).toHaveText('3 active deals · £185m in pipeline')
   })
+}
 
-  // A card whose edit form is open can't be dragged.
+// A card whose edit form is open can't be dragged.
+async function refusesWhileEditing(page: Page) {
   await uatStep(page, 17, async () => {
     await page.getByRole('button', { name: 'Edit Meridian Foods' }).click()
     await expect(page.getByRole('form', { name: 'Edit Meridian Foods' })).toBeVisible()
@@ -206,8 +214,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
       cardIn(page, 'Closed', 'Meridian Foods').getByRole('form', { name: 'Edit Meridian Foods' }),
     ).toBeVisible()
   })
+}
 
-  // Moves made by dragging survive a reload.
+// Moves made by dragging survive a reload.
+async function survivesReload(page: Page) {
   await uatStep(page, 20, async () => {
     await page.reload()
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Deal Pipeline')
@@ -218,8 +228,10 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(cardIn(page, 'Sourcing', 'Brightline Packaging')).toBeVisible()
     await expect(cardIn(page, 'Passed', 'Harbour Dental Group')).toBeVisible()
   })
+}
 
-  // The "Stage" picker still moves a card.
+// The "Stage" picker still moves a card.
+async function stagePickerStillMoves(page: Page) {
   await uatStep(page, 22, async () => {
     await page
       .getByRole('combobox', { name: 'Stage for Kestrel Energy Services' })
@@ -231,4 +243,18 @@ test('deal cards are dragged between stage columns', async ({ page }) => {
     await expect(cardIn(page, 'Closed', 'Kestrel Energy Services')).toBeVisible()
     await expect(summary(page)).toHaveText('2 active deals · £100m in pipeline')
   })
+}
+
+// One criterion per helper, run in order on one page: each starts from
+// whatever the one before it left.
+test('deal cards are dragged between stage columns', async ({ page }) => {
+  await page.goto('/')
+  await highlightsWithoutDropping(page)
+  await dropsOnAnotherColumn(page)
+  await dropsOnAnEmptyColumn(page)
+  await dropsOnTerminalStage(page)
+  await dropsOnOwnColumn(page)
+  await refusesWhileEditing(page)
+  await survivesReload(page)
+  await stagePickerStillMoves(page)
 })
