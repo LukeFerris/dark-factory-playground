@@ -17,6 +17,8 @@ export interface Deal {
   company: string
   sector: string
   stage: Stage
+  /** Number of employees at the target company. Absent when not known. */
+  employees?: number
   /** Deal size in £m. Absent when not known. */
   size?: number
   owner: string
@@ -32,4 +34,9 @@ export function isActive(deal: Deal): boolean {
 /** Formats a size in £m, e.g. 45 → "£45m", 12.5 → "£12.5m". */
 export function formatSize(size: number): string {
   return `£${Math.round(size * 100) / 100}m`
+}
+
+/** Formats a headcount, e.g. 1 → "1 employee", 1300 → "1,300 employees". */
+export function formatEmployees(count: number): string {
+  return `${count.toLocaleString('en-GB')} ${count === 1 ? 'employee' : 'employees'}`
 }
