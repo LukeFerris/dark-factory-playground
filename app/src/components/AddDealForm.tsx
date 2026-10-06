@@ -10,18 +10,22 @@ export interface AddDealFormProps {
 export function AddDealForm({ onAdd }: AddDealFormProps) {
   const [company, setCompany] = useState('')
   const [sector, setSector] = useState('')
+  const [employees, setEmployees] = useState('')
   const [size, setSize] = useState('')
   const [owner, setOwner] = useState('')
   const [errors, setErrors] = useState<DealErrors>({})
   const companyRef = useRef<HTMLInputElement>(null)
+  const employeesRef = useRef<HTMLInputElement>(null)
   const sizeRef = useRef<HTMLInputElement>(null)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const result = validateDeal({ company, sector, size, owner })
+    const result = validateDeal({ company, sector, employees, size, owner })
     if ('errors' in result) {
       setErrors(result.errors)
+      // Focus the first wrong field in the order they appear on screen.
       if (result.errors.company) companyRef.current?.focus()
+      else if (result.errors.employees) employeesRef.current?.focus()
       else sizeRef.current?.focus()
       return
     }
@@ -30,6 +34,7 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
     onAdd(result.deal)
     setCompany('')
     setSector('')
+    setEmployees('')
     setSize('')
     setOwner('')
     companyRef.current?.focus()
@@ -60,6 +65,23 @@ export function AddDealForm({ onAdd }: AddDealFormProps) {
         <div className="field">
           <label htmlFor="deal-sector">Sector</label>
           <input id="deal-sector" value={sector} onChange={(event) => setSector(event.target.value)} />
+        </div>
+        <div className="field field--narrow">
+          <label htmlFor="deal-employees">Employees</label>
+          <input
+            id="deal-employees"
+            ref={employeesRef}
+            inputMode="numeric"
+            value={employees}
+            onChange={(event) => setEmployees(event.target.value)}
+            aria-invalid={errors.employees ? true : undefined}
+            aria-describedby={errors.employees ? 'deal-employees-error' : undefined}
+          />
+          {errors.employees && (
+            <p id="deal-employees-error" className="field__error" role="alert">
+              {errors.employees}
+            </p>
+          )}
         </div>
         <div className="field field--narrow">
           <label htmlFor="deal-size">Deal size (£m)</label>

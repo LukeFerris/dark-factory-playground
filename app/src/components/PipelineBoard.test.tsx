@@ -7,7 +7,7 @@ import { STAGES, type Deal } from '../crm/types'
 
 const deals: Deal[] = [
   { id: 'a', company: 'Acme Logistics', sector: 'Industrials', stage: 'Sourcing', size: 45, owner: 'Sam Patel' },
-  { id: 'b', company: 'Beta Health', sector: 'Healthcare', stage: 'Sourcing', size: 12.5, owner: 'Jo Lee' },
+  { id: 'b', company: 'Beta Health', sector: 'Healthcare', stage: 'Sourcing', employees: 1300, size: 12.5, owner: 'Jo Lee' },
   { id: 'c', company: 'Gamma Retail', sector: '', stage: 'Closed', owner: '' },
 ]
 
@@ -55,6 +55,22 @@ describe('PipelineBoard', () => {
     const closed = within(screen.getByRole('region', { name: 'Closed' }))
     expect(closed.getByRole('article', { name: 'Gamma Retail' })).toBeInTheDocument()
     expect(closed.queryByText(/£/)).not.toBeInTheDocument()
+  })
+
+  it('shows the number of employees only on a card that has one', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    const beta = within(screen.getByRole('article', { name: 'Beta Health' }))
+    expect(beta.getByText('1,300 employees')).toBeInTheDocument()
+    const acme = within(screen.getByRole('article', { name: 'Acme Logistics' }))
+    expect(acme.queryByText(/employee/)).not.toBeInTheDocument()
+  })
+
+  it('hides the number of employees while that card is being edited', async () => {
+    const user = userEvent.setup()
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Edit Beta Health' }))
+    const beta = within(screen.getByRole('article', { name: 'Beta Health' }))
+    expect(beta.queryByText('1,300 employees')).not.toBeInTheDocument()
   })
 
   it('says an empty stage has no deals', () => {
@@ -108,7 +124,13 @@ describe('PipelineBoard', () => {
     await user.type(form.getByLabelText('Owner'), 'Ann Wu')
     await user.click(form.getByRole('button', { name: 'Save' }))
 
-    expect(onUpdate).toHaveBeenCalledWith('b', { company: 'Beta Health', sector: 'Healthcare', size: 12.5, owner: 'Ann Wu' })
+    expect(onUpdate).toHaveBeenCalledWith('b', {
+      company: 'Beta Health',
+      sector: 'Healthcare',
+      employees: 1300,
+      size: 12.5,
+      owner: 'Ann Wu',
+    })
     expect(screen.queryByRole('form')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit Beta Health' })).toHaveFocus()
   })
