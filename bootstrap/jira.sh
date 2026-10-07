@@ -294,10 +294,17 @@ section "Lock"
 # ADR 0007 and factory/src/lock.ts, whose LOCKED_STATUSES must equal this list;
 # poller.test.ts checks.
 #
+# Done is the factory's alone as well, at all times: it means "merged, and
+# production is serving it", which only the run that deployed it can know.
+# That is a condition on the one global transition into Done, naming the
+# factory's account, so it binds admins too. ADR 0004 argues against an escape
+# hatch.
+#
 # Reconciled rather than set once: a status taken off this list loses its lock,
-# and a property somebody added by hand for another account is put right.
+# and a property or condition somebody changed by hand is put right.
 LOCKED_STATUSES=("Designing" "Building")
 LOCK_KEYS='["jira.permission.transition.user", "jira.permission.assign.user"]'
+DONE_STATUS="Done"
 
 # POST, but a read: the workflows endpoint takes its query as a body. Runs under
 # --dry-run like every other read.
@@ -313,26 +320,32 @@ jira_read_post() {
   printf '%s' "$body"
 }
 
+# A service account is accountType "app", a person's account "atlassian";
+# either can be the factory.
 BOT_ID=""
 if [[ -n "${JIRA_BOT_EMAIL:-}" ]]; then
   BOT_ID="$(jira_get "/rest/api/3/user/search?query=$(jq -rn --arg e "$JIRA_BOT_EMAIL" '$e|@uri')" \
-    | jq -r '[.[]? | select(.accountType == "atlassian")][0].accountId // empty')"
+    | jq -r '[.[]? | select(.accountType == "atlassian" or .accountType == "app")][0].accountId // empty')"
 fi
 
 WORKFLOW="$(jira_read_post '/rest/api/3/workflows?expand=values.transitions' \
   "$(jq -nc --arg n "$WORKFLOW_NAME" '{workflowNames: [$n]}')" | jq -c '.workflows[0] // empty')"
 
 if [[ -z "$BOT_ID" ]]; then
-  warn "JIRA_BOT_EMAIL is not set, or is not a Jira user yet: ${LOCKED_STATUSES[*]} are NOT locked."
+  warn "JIRA_BOT_EMAIL is not set, or is not a Jira user yet: ${LOCKED_STATUSES[*]} and $DONE_STATUS are NOT locked."
   info "Re-run this script once the factory's Jira account exists (docs/factory/SETUP.md)."
 elif [[ -z "$WORKFLOW" ]]; then
   info "\"$WORKFLOW_NAME\" does not exist yet (dry run); it would be locked to $BOT_ID once created"
 else
   locked_json="$(printf '%s\n' "${LOCKED_STATUSES[@]}" | jq -R . | jq -sc .)"
 
+  missing="$(jq -r --argjson have "$existing_statuses" '[.[] as $n | select(($have | map(.name) | index($n)) == null)] | join(", ")' \
+    <<<"$(jq -c --arg d "$DONE_STATUS" '. + [$d]' <<<"$locked_json")")"
+  [[ -z "$missing" ]] || die "Cannot lock $missing: no such status."
+
   # Every status's properties as they should be: the lock keys taken off, then
   # put back on the locked statuses only, for the factory.
-  wanted="$(jq -c --argjson have "$existing_statuses" --argjson locked "$locked_json" \
+  wanted_statuses="$(jq -c --argjson have "$existing_statuses" --argjson locked "$locked_json" \
     --argjson keys "$LOCK_KEYS" --arg bot "$BOT_ID" '
     [ .statuses[] | . as $s
       | ($have[] | select(.id == $s.statusReference) | .name) as $name
@@ -342,29 +355,50 @@ else
                            else ($keys | map({key: ., value: $bot}) | from_entries) end) ) } ]
   ' <<<"$WORKFLOW")"
 
-  current="$(jq -c '[.statuses[] | {statusReference, layout, properties: (.properties // {})}]' <<<"$WORKFLOW")"
+  # Every transition as it should be: the one global transition into Done
+  # restricted to the factory, the rest untouched. "Done" is looked up among
+  # this workflow's own statuses, because a site usually has more than one
+  # status by that name.
+  wanted_transitions="$(jq -c --argjson have "$existing_statuses" --arg bot "$BOT_ID" --arg done_name "$DONE_STATUS" '
+    ([ .statuses[].statusReference as $r | $have[] | select(.id == $r and .name == $done_name) | .id ][0]) as $done_id
+    | [ .transitions[] | if .type == "GLOBAL" and .toStatusReference == $done_id
+          then .conditions = { operation: "ALL", conditionGroups: [],
+                               conditions: [{ ruleKey: "system:restrict-issue-transition",
+                                              parameters: { accountIds: $bot } }] }
+          else . end ]
+  ' <<<"$WORKFLOW")"
 
-  missing="$(jq -r --argjson have "$existing_statuses" '[.[] as $n | select(($have | map(.name) | index($n)) == null)] | join(", ")' \
-    <<<"$locked_json")"
-  [[ -z "$missing" ]] || die "Cannot lock $missing: no such status."
+  # Conditions come back with an id and every parameter, set or not, so both
+  # sides are compared as rule keys and the parameters that carry a value.
+  lock_shape='{
+    statuses: [ .statuses[] | {statusReference, layout, properties: (.properties // {})} ],
+    conditions: [ .transitions[] | {id, groups: (.conditions.conditionGroups // [] | length),
+                  rules: [ .conditions.conditions[]? | {ruleKey,
+                           parameters: (.parameters // {} | with_entries(select(.value != "")))} ]} ]
+  }'
+  current="$(jq -S "$lock_shape" <<<"$WORKFLOW")"
+  wanted="$(jq -S --argjson s "$wanted_statuses" --argjson t "$wanted_transitions" \
+    "{statuses: \$s, transitions: \$t} | $lock_shape" <<<'{}')"
 
-  if [[ "$(jq -S . <<<"$wanted")" == "$(jq -S . <<<"$current")" ]]; then
-    ok "${LOCKED_STATUSES[*]} already locked to the factory ($BOT_ID)"
+  if [[ "$wanted" == "$current" ]]; then
+    ok "${LOCKED_STATUSES[*]} and $DONE_STATUS already locked to the factory ($BOT_ID)"
   else
     # The update replaces the whole workflow, so everything read is sent back
-    # as it was apart from the status properties. `version` is the optimistic
-    # lock: a workflow edited since the read is a 409, not a lost edit. The
-    # top-level statuses carry the same required fields as on create.
-    payload="$(jq -n --argjson wf "$WORKFLOW" --argjson wanted "$wanted" --argjson have "$existing_statuses" '{
+    # as it was apart from the status properties and the Done condition.
+    # `version` is the optimistic lock: a workflow edited since the read is a
+    # 409, not a lost edit. The top-level statuses carry the same required
+    # fields as on create.
+    payload="$(jq -n --argjson wf "$WORKFLOW" --argjson statuses "$wanted_statuses" \
+      --argjson transitions "$wanted_transitions" --argjson have "$existing_statuses" '{
       statuses: [ $wf.statuses[] as $s | $have[] | select(.id == $s.statusReference)
                   | {statusReference: .id, id, name, statusCategory, description: (.description // "")} ],
       workflows: [{
         id: $wf.id, version: $wf.version, name: $wf.name, description: ($wf.description // ""),
-        startPointLayout: $wf.startPointLayout, statuses: $wanted, transitions: $wf.transitions
+        startPointLayout: $wf.startPointLayout, statuses: $statuses, transitions: $transitions
       }]
     }')"
     jira_write POST /rest/api/3/workflows/update "$payload" >/dev/null
-    (( DRY_RUN )) || ok "locked ${LOCKED_STATUSES[*]} to the factory ($BOT_ID)"
+    (( DRY_RUN )) || ok "locked ${LOCKED_STATUSES[*]} and $DONE_STATUS to the factory ($BOT_ID)"
   fi
 fi
 
@@ -619,7 +653,7 @@ BOARD_COLUMNS='[
 ]'
 
 map_board_columns() {
-  local pairs='[]' name id kanplan payload
+  local pairs='[]' name id placeholder payload
 
   while IFS= read -r name; do
     id="$(status_id_by_name "$name")"
@@ -630,22 +664,25 @@ map_board_columns() {
     pairs="$(printf '%s' "$pairs" | jq --arg n "$name" --arg i "$id" '. + [{name: $n, id: $i}]')"
   done < <(printf '%s' "$BOARD_COLUMNS" | jq -r '.[]')
 
-  # With the Kanban backlog on, the first column is the backlog view rather
-  # than a column on the board, and it has to keep that flag or Jira rejects
-  # the layout. Backlog cards then live in the Backlog tab — which suits a
-  # status the factory never touches.
-  kanplan="$(jira_get "/rest/greenhopper/1.0/rapidviewconfig/editmodel?rapidViewId=$BOARD_ID" \
-    | jq -r '.isKanPlanEnabled // false')"
+  # A Kanban board made from the template starts with a placeholder column for
+  # the Kanban backlog: flagged isKanPlanColumn, holding no statuses, and
+  # hidden while the backlog is off. Jira keeps it whatever is sent, so it is
+  # sent back as it was, in front, rather than appearing as an eleventh column
+  # nobody asked for. The board settings report it only as that flag on the
+  # first column; there is no board-level setting to read.
+  placeholder="$(jira_get "/rest/greenhopper/1.0/rapidviewconfig/editmodel?rapidViewId=$BOARD_ID" \
+    | jq -c '[.rapidListConfig.mappedColumns[0]? | select(.isKanPlanColumn == true)
+              | {name, mappedStatuses: [], min: "", max: "", isKanPlanColumn: true}]')"
 
-  payload="$(printf '%s' "$pairs" | jq --argjson b "$BOARD_ID" --argjson kp "$kanplan" '{
+  payload="$(printf '%s' "$pairs" | jq --argjson b "$BOARD_ID" --argjson front "${placeholder:-[]}" '{
     currentStatisticsField: { id: "issueCount_" },
     rapidViewId: $b,
-    mappedColumns: [ to_entries[] | {
-      name: .value.name,
-      mappedStatuses: [{ id: .value.id }],
+    mappedColumns: ($front + [ .[] | {
+      name: .name,
+      mappedStatuses: [{ id: .id }],
       min: "", max: "",
-      isKanPlanColumn: ($kp and .key == 0)
-    }]
+      isKanPlanColumn: false
+    }])
   }')"
 
   if jira_try_write PUT /rest/greenhopper/1.0/rapidviewconfig/columns "$payload"; then

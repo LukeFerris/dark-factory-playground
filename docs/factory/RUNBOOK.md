@@ -862,9 +862,10 @@ gh run rerun <run-id> --failed --repo "$GH_OWNER/$GH_REPO"
 ```
 
 That redeploys the same commit, which is idempotent, and retries the
-transition. If it keeps failing, the usual cause is the condition itself: the
-bot is not in the group the condition names, so Jira stops offering the
-transition and `ship` reports `has no transition to "Done"` rather than a 403.
+transition. If it keeps failing, the usual cause is the condition itself: it
+names an account other than the bot, for example after the bot was replaced.
+Jira then stops offering the transition, and `ship` reports
+`has no transition to "Done"` rather than a 403.
 Check what the bot is actually offered:
 
 ```bash
@@ -872,8 +873,9 @@ curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
   "$JIRA_BASE/rest/api/3/issue/$KEY/transitions" | jq -r '.transitions[].to.name'
 ```
 
-If *Done* is missing from that list, fix the group membership — see the
-*Locking Done to the factory* section of `SETUP.md` — and re-run. A card left
+If *Done* is missing from that list, re-run `bootstrap/jira.sh`, which points
+the condition at `JIRA_BOT_EMAIL`'s account (see *Locking Done to the factory*
+in `SETUP.md`), and then re-run the failed job. A card left
 in review with production already serving is untidy, not dangerous; resist the
 temptation to add a second transition into *Done* to get out of it, because
 that is the escape hatch [ADR 0004](../adr/0004-production-on-merge-and-a-done-nobody-can-fake.md)
