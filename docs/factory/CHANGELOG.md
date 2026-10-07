@@ -7,6 +7,60 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-07
+
+### `bootstrap/jira.sh` locks *Done* to the factory, through the API
+
+Locking *Done* used to be a manual step in a browser, through a `factory-bot`
+group and a *User Is In Group* condition. On this site it had never been done:
+every transition in the live workflow had no conditions, the group did not
+exist, and anyone could drag a card to *Done*.
+
+The workflow API can do it with no group. The *Lock* section now reconciles a
+condition on the one global transition into *Done*, along with the status
+properties on *Designing* and *Building*:
+
+```json
+"conditions": {
+  "operation": "ALL",
+  "conditionGroups": [],
+  "conditions": [{ "ruleKey": "system:restrict-issue-transition",
+                   "parameters": { "accountIds": "<bot>" } }]
+}
+```
+
+It was proven on DF with a test card. The admin was not offered *Done*, and
+posting the transition anyway got a 400. While the bot held the card in
+*Designing*, and again in *Building*, the admin was offered no transition at
+all: a move got a 400 and a reassignment a 403. The bot moved the card through
+each status and on to *Done*. That card, DF-16, is still in *Done*, because the
+admin token has no *Delete work items* permission on DF.
+
+About the API:
+
+- **Rules go directly in `conditions`.** Putting them under a `rules` key gets a
+  400 with only "Invalid request payload". `"conditions": null` on the other
+  transitions is accepted, on create and on update.
+- **A condition reads back with an `id`, and with every parameter it takes,
+  empty or not.** The script compares rule keys and non-empty parameters, so
+  an unchanged lock is not rewritten on every run.
+- **"Done" is looked up among the workflow's own statuses.** A site usually
+  has more than one status with that name.
+
+Two smaller fixes:
+
+- **The Kanban backlog flag was read from a field Jira does not return.**
+  `isKanPlanEnabled` is not in the board settings, so the column mapping always
+  thought the backlog was off. Jira kept its placeholder column in front
+  anyway. The script now reads the placeholder from the first column's
+  `isKanPlanColumn` flag and sends it back as it was. *Checkpoint D* in
+  `SETUP.md` described *Backlog* as living in the backlog tab, which it does
+  not, and now describes the placeholder instead.
+- **A service account can be the factory.** Its `accountType` is `app`, and
+  both `bootstrap/jira.sh` and `bootstrap/jira-triggers.sh` only accepted
+  `atlassian`. Whether a service account can do everything the factory needs is
+  not yet proven; see `.claude/skills/install-enki`.
+
 ## 2026-10-05
 
 ### A build turn from review now pushes to its branch
