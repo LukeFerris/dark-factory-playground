@@ -1,30 +1,41 @@
 ---
 name: install-enki
 description: |
-  **Install Enki on a Jira space**: gets the credentials Enki needs, inspects an
-  existing Jira project (or creates one), agrees with the human how Enki should
-  fit into it, then makes the agreed changes to the board, from a dry run they
-  have approved.
+  **Install Enki on a Jira space**: agrees with the human how Enki should fit
+  into the space, then asks them for the keys it needs, in a `.env` file, then
+  inspects the space and makes every change itself through Jira's API, from a
+  dry run they have approved. Works on company-managed and team-managed spaces.
   Trigger: "/install-enki", "set up Enki on our board", "install the dark
   factory on Jira", "connect Enki to project X".
 ---
 
 # Install Enki on a Jira space
 
-This skill is about the Jira side only: the project, its workflow, its board
-and the Automation rules that wake Enki. The repository side (the golden path's
+This skill is about the Jira side only: the space, its workflow, its board and
+the Automation rules that wake Enki. The repository side (the golden path's
 gates, the GitHub App, Azure Container Apps previews, the workflows) is
 separate, and Enki is not usable until both are done.
 
-Work through the four stages in order. Each one ends with something the human
-has agreed to, and nothing changes in Jira until stage 4.
+Work through the four stages in order:
+
+1. **Agree the design.** No credentials yet.
+2. **Get the keys.** The human creates them and puts them in a `.env` file.
+3. **Inspect, then dry run.** Read-only.
+4. **Apply, then prove it.**
+
+Nothing changes in Jira until stage 4.
 
 **Rules that hold throughout:**
 
-- **Never ask for a token in chat.** The human puts tokens in a file outside the
-  repository, such as `~/.config/enki/<site>.env` with `chmod 600`, and you read
-  them from there. Never print a token, never put one in a command's arguments,
-  and never commit one. Pass curl credentials on stdin (`-K -`), as below.
+- **You make every change, through the API.** The human's only hands-on job is
+  creating identities and keys and putting them in the `.env` file. Never give
+  them clicks to make in Jira. If a call fails, stop, show them the call and
+  what Jira said, and work out another API route with them. Do not hand the
+  change over as a click-path.
+- **Never ask for a token in chat.** Tokens go in a file outside the repository,
+  `~/.config/enki/<site>.env` with `chmod 600`, and you read them from there.
+  Never print a token, never put one in a command's arguments, and never commit
+  one. Pass curl credentials on stdin (`-K -`), as below.
 - **Dry run, approval, then apply.** Before any write, show the human every call
   you will make, with its method, path and a summary of the payload. Then wait
   for a yes. Approval for one change does not cover the next.
@@ -42,7 +53,7 @@ line of output is the HTTP status):
 ```bash
 # jira ADMIN|BOT METHOD PATH [BODY-FILE]
 jira() {
-  local who=$1 method=$2 path=$3 body=${4:-} u t
+  local who=$1 method=$2 path=$3 body=${4:-} u t base
   if [[ $who == BOT ]]; then u=$JIRA_BOT_EMAIL; t=$JIRA_BOT_TOKEN; base=$JIRA_BOT_BASE
   else u=$JIRA_USER; t=$JIRA_TOKEN; base=$JIRA_BASE; fi
   local args=(-s -X "$method" -H 'Accept: application/json' -H 'Content-Type: application/json'
@@ -55,30 +66,124 @@ jira() {
 
 ---
 
-## Stage 1: Credentials, and who Enki is
+## Stage 1: Agree the design
 
-### What the human has to do
+Don't ask for any credentials yet. Settle what the board will look like first,
+so the human knows what the keys are for when you ask for them.
 
-| Who                | What                                                                                                                                                                                 | Why                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| An **org admin**   | admin.atlassian.com → the org → Directory → Service accounts → Create. Name it "Enki", give it Jira on this site, and create an API token for it with the scopes listed below. | Enki needs its own identity in Jira. Only an organisation admin can create a service account. |
-| A **Jira admin**   | Run Stage 4 with their own API token: id.atlassian.com → Security → API tokens → Create. They need Jira admin on the site, plus Automation access on the project.                | Creating workflows, schemes and Automation rules needs Jira admin.                        |
-| Whoever owns the repo | A fine-grained GitHub PAT with Actions read and write on the repo, saved as `FACTORY_DISPATCH_PAT`.                                                                                | The Automation rules use it to start `poller.yml` and `stop.yml`.                         |
+Ask the human:
+
+- which Jira site and which space (its key, such as `WKB`), or whether Enki gets
+  a new space;
+- whether people will work on the same board as Enki, or the board is Enki's
+  alone;
+- what columns the board has today, and roughly where its cards sit.
+
+Their answers are enough to agree a plan. Stage 3 checks them against what the
+space really holds. Don't ask whether the space is team-managed or
+company-managed: people often can't find it, and stage 3 reads it from the API.
+
+### What is not negotiable
+
+These are what make Enki safe to leave alone with a board. Explain each one in a
+sentence; the human needs to know why, not just what.
+
+1. **The ten statuses, by these exact names.** They are Backlog, Ready for
+   design, Designing, Design review, Blocked on architect, Ready for build,
+   Building, In review, Blocked on engineer and Done. Enki moves a card by the
+   name of the status it is going to, so a renamed status leaves cards stuck.
+   Existing statuses with the same names are reused, not duplicated.
+2. **Every status can be reached from every other.** Each status has a global
+   transition into it, because a turn can end in any state from any state. The
+   gate on Enki's work is the PR review, not the Jira workflow.
+3. **Designing and Building belong to Enki.** While a turn runs, only Enki can
+   move or reassign the card. A human stops a turn by commenting
+   "@Enki stop", not by dragging the card.
+4. **Only Enki can move a card to Done.** It does that after the PR has merged
+   and production is serving it. A person can drag a card to Done before its
+   code ships, and then the board lies.
+5. **A card is Enki's only when it is in a Ready column *and* assigned to Enki.**
+   The board can be shared with work Enki must never touch.
+6. **Acceptance criteria Enki can read.** Enki reads a field called "Acceptance
+   criteria" if the card has one, and the card's description always. Where the
+   criteria live is settled in stage 3: in a team-managed space they usually go
+   in the description, under an "Acceptance criteria" heading (see Stage 4).
+7. **The Automation rules** that wake Enki: card ready, card assigned, new
+   comment, mentioned, stop and sweep (see `docs/factory/JIRA-TRIGGERS.md`).
+8. **The repository side**, which is not this skill's job, but the human should
+   hear it now. Enki's commits go through the repository's own golden-path gates;
+   it does not bypass them. Every PR gets its own preview on **Azure Container
+   Apps**, which is required, not optional. A project still on capped preview
+   environments, such as Static Web Apps, has to move to Container Apps.
+
+### The options
+
+| Option                                      | When it fits                                                                 | What changes                                                                                                                                      |
+| ------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. The whole space runs on Enki's workflow** | A new space, or a team happy to adopt the ten statuses for everything. | Every work type uses the Enki workflow. Existing cards are moved from their old statuses into the new ones.                                       |
+| **B. Enki gets its own work type**          | An established company-managed space whose other work must keep its own workflow. | A work type, such as "Enki task", is added to the space. Only that type uses the Enki workflow. The board shows Enki's columns beside the existing ones. |
+| **C. Enki gets its own board in a new space** | The team wants Enki at arm's length, or the workflow is shared with other spaces. | Nothing in the existing space changes. People raise cards in the new space.                                                             |
+
+Option B has only been proven on company-managed spaces. If stage 3 finds the
+space is team-managed, come back and choose between A and C.
+
+For option A, agree what happens to existing cards as a rule, for example "To
+Do → Backlog, In Progress → Ready for build, Done stays Done". Stage 3 turns it
+into a status-by-status mapping with real card counts. Cards Enki has no
+business with usually go to Backlog or Done.
+
+Also agree who in the team is told about "@Enki stop".
+
+Write the agreed plan back to the human in a few lines: the option, the ten
+columns in order, the card mapping, where acceptance criteria go, and who is
+told. Get a yes before Stage 2.
+
+---
+
+## Stage 2: Get the keys
+
+Now ask for what you need to make the changes, in so many words. For example:
+
+> We've agreed the board. To make those changes myself, I need some keys. I've
+> created `~/.config/enki/<site>.env` with the names to fill in. Please create
+> the keys below, paste each one into that file, save it, and tell me when it's
+> done. Don't paste them here.
+
+Create that file yourself, with the names and no values, and `chmod 600` it:
+
+```
+JIRA_BASE=https://<site>.atlassian.net
+JIRA_USER=
+JIRA_TOKEN=
+JIRA_BOT_BASE=
+JIRA_BOT_EMAIL=
+JIRA_BOT_TOKEN=
+FACTORY_DISPATCH_PAT=
+```
+
+Fill in `JIRA_BASE`, and `JIRA_BOT_BASE` once the route below is known. Leave
+every secret to the human.
+
+### What the human has to create
+
+| Who                | What                                                                                                                                                                                 | Goes in                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| An **org admin**   | A service account for Enki: admin.atlassian.com → the org → Directory → Service accounts → Create. Name it "Enki", give it Jira on this site, and create an API token for it with the scopes listed below. | `JIRA_BOT_EMAIL`, `JIRA_BOT_TOKEN`        |
+| A **Jira admin**   | Their own API token, for making the changes: id.atlassian.com → Security → API tokens → Create. They need Jira admin on the site, plus Automation access on the space.             | `JIRA_USER`, `JIRA_TOKEN`                 |
+| Whoever owns the repo | A fine-grained GitHub PAT with Actions read and write on the repo.                                                                                                              | `FACTORY_DISPATCH_PAT`                    |
 
 Tell the human plainly that **they will probably need an org admin** for the
 service account. A Jira admin is not enough. If the org admin can't help or
 won't, use the licensed-user route below.
 
-Ask the human for the path to their credentials file, never the values. It
-holds:
+When they say the file is saved, check that every name has a value, without
+printing any:
 
-```
-JIRA_BASE=https://<site>.atlassian.net
-JIRA_USER=<the Jira admin's email>
-JIRA_TOKEN=<the Jira admin's API token>
-JIRA_BOT_EMAIL=<the service account's email, or the licensed user's>
-JIRA_BOT_TOKEN=<its token>
-FACTORY_DISPATCH_PAT=<the GitHub PAT>
+```bash
+set -a; . ~/.config/enki/<site>.env; set +a
+for v in JIRA_BASE JIRA_USER JIRA_TOKEN JIRA_BOT_BASE JIRA_BOT_EMAIL JIRA_BOT_TOKEN FACTORY_DISPATCH_PAT; do
+  [[ -n ${!v:-} ]] && echo "$v set" || echo "$v MISSING"
+done
 ```
 
 ### Which route Enki takes
@@ -100,180 +205,115 @@ the site URL:
 - In the repository, the `JIRA_BASE` the factory's workflows use is the gateway
   URL. The factory only uses `JIRA_BASE` for API calls (`factory/src/jira-http.ts`),
   never for links people click, so this is safe.
-- A service account's `accountType` is `app`, not `atlassian`. Any code that
-  finds the bot by filtering on `accountType == "atlassian"` will not find it.
-  `bootstrap/jira.sh` and `bootstrap/jira-triggers.sh` both do this today. Look
-  the bot up with `GET /rest/api/3/myself` as the bot instead.
+- A service account's `accountType` is `app`, not `atlassian`.
+  `bootstrap/jira.sh` and `bootstrap/jira-triggers.sh` accept both. Any other
+  code that filters on `accountType == "atlassian"` will not find the bot.
+  Record the bot's accountId from `GET /rest/api/3/myself` as the bot.
 - Token scopes: `read:jira-work`, `write:jira-work`, `read:jira-user`. Add more
-  only if a check below fails for lack of one.
+  only if a check in Stage 4 fails for lack of one.
 
 > **Not yet proven.** The service-account route has not been run end to end.
 > The gateway URL, the `app` account type and the scopes come from Atlassian's
-> documentation. Run the checks below before relying on any of them.
+> documentation. The identity checks in Stage 4 decide whether it works.
 
 **Licensed user (fallback).** This is an ordinary Atlassian account, such as
 `enki@<company>`, with a Jira licence. It uses a classic API token against the
 site URL, so `JIRA_BOT_BASE` is the same as `JIRA_BASE`. It always passes the
-four checks, but it costs a seat.
+identity checks, but it costs a seat.
 
-### Check the identity before anything else
+---
 
-Run all four checks as the bot, on a scratch card in a project the bot can see.
-Then delete the scratch card. A Jira admin often lacks the project's *Delete
-work items* permission (`mypermissions` shows `DELETE_ISSUES`). If so, leave
-the card in Backlog and tell the human its key.
+## Stage 3: Inspect, then the dry run
+
+Everything in this stage is a read. Start with `BOT GET /rest/api/3/myself`, and
+record the bot's `accountId` and `accountType`. Then read the space and write the
+human a short summary.
+
+**Every space:**
+
+| What                    | How                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| Project and its type    | `GET /rest/api/3/project/<KEY>`; `.style` is `classic` (company-managed) or `next-gen` (team-managed) |
+| Work types and statuses | `GET /rest/api/3/project/<KEY>/statuses`                                                  |
+| Cards by status         | `POST /rest/api/3/search/approximate-count` with `project = <KEY> AND status = "<name>"`  |
+| Boards and columns      | `GET /rest/agile/1.0/board?projectKeyOrId=<KEY>`, then `GET /rest/greenhopper/1.0/rapidviewconfig/editmodel.json?rapidViewId=<id>` |
+| Acceptance criteria field | `GET /rest/api/3/issue/<a card>/editmeta`: is there a field called "Acceptance criteria"? |
+| Automation rules        | `GET https://api.atlassian.com/automation/public/jira/<cloudId>/rest/v1/rule/summary`     |
+
+**Company-managed (`classic`):**
+
+| What                    | How                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| Workflow scheme         | `GET /rest/api/3/workflowscheme/project?projectId=<id>`                                   |
+| Workflows and conditions | `POST /rest/api/3/workflows?expand=values.transitions` with `{workflowNames: [...]}`     |
+| Is the scheme shared?   | `GET /rest/api/3/workflowscheme/<id>/projectUsages`. Changing a shared scheme changes other spaces too. |
+| Existing fields         | `GET /rest/api/3/field/search?query=Acceptance%20criteria`                                |
+
+**Team-managed (`next-gen`):**
+
+| What                    | How                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| The workflow            | `POST /rest/api/3/workflows?expand=values.transitions` with `{"projectAndIssueTypes": [{"projectId": "<id>", "issueTypeId": "<a type>"}]}`. Its scope is `PROJECT`; by default every work type shares it. |
+| What the space allows   | `GET /rest/api/3/workflows/capabilities?projectId=<id>&issueTypeId=<a type>`. It must list `system:restrict-issue-transition`. |
+| The space's statuses    | `GET /rest/api/3/statuses/search?projectId=<id>`                                          |
+| Roles                   | `GET /rest/api/3/project/<KEY>/role`. A team-managed space has Administrator, Member and Viewer. |
+
+### Check it against the plan
+
+If anything contradicts what was agreed in stage 1, stop and agree the change
+before the dry run. Typical cases:
+
+- the space is team-managed and option B was chosen;
+- the scheme is shared with other spaces;
+- cards sit in a status the card mapping doesn't cover;
+- a status Enki needs exists with different capitals, such as "In Review"
+  (Stage 4 renames it, and the human should know);
+- the space has no "Acceptance criteria" field Enki can read (see Stage 4).
+
+### The dry run
+
+Show the human every call of Stage 4 in order, with what each one creates or
+changes, and how many cards each move touches. That includes the scratch card
+the identity checks use. Apply only after they say yes.
+
+---
+
+## Stage 4: Apply, then prove it
+
+Run everything with the Jira admin's token, except the identity checks and the
+final proof, which run as the bot. If a call fails, stop and report it. Don't
+retry it blindly, and don't hand the human a click-path.
+
+### 1. Check the identity
+
+Run all four checks as the bot, on a scratch card in the space. Then delete the
+scratch card. A Jira admin often lacks the space's *Delete work items*
+permission (`mypermissions` shows `DELETE_ISSUES`). If so, leave the card in
+Backlog and tell the human its key.
 
 | Check     | Call                                                                                           | Passes when                                                          |
 | --------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Who       | `BOT GET /rest/api/3/myself`                                                                   | 200. Record `accountId` and `accountType`.                           |
 | Assignable | `ADMIN GET /rest/api/3/user/assignable/search?project=<KEY>&accountId=<bot>`, then `ADMIN PUT /rest/api/3/issue/<card>/assignee {"accountId": "<bot>"}` | The bot is in the list, and the assign returns 204.               |
 | Mentionable | `ADMIN POST /rest/api/3/issue/<card>/comment` with an ADF `mention` node `{type: "mention", attrs: {id: "<bot>"}}`, then read it back | The mention node survives, and the bot can see the comment from its own token. |
 | Comments  | `BOT POST /rest/api/3/issue/<card>/comment`                                                    | 201, and the comment's `author.accountId` is the bot.                |
 | Moves     | `BOT GET /rest/api/3/issue/<card>/transitions`, then `BOT POST` one of them                    | The transitions are listed, and the move returns 204.                |
 
+If the bot can't see the space at all, give it access first (step 7, or the
+role step in step 4 for a team-managed space), then rerun the checks.
+
 If any check fails for the service account, tell the human which one failed and
-what Jira said. Then switch to the licensed-user route. Do not work around a
-failed check.
+what Jira said. Then go back to Stage 2 for the licensed-user route. Do not work
+around a failed check.
 
----
+### 2. The locks, in either kind of space
 
-## Stage 2: Look at the space, or make one
+Both kinds of space use the same two locks, set through the workflow API:
 
-Ask whether Enki is joining an existing project or getting a new one.
-
-**New project.** Create it as company-managed: `POST /rest/api/3/project`, with
-`projectTypeKey: "software"` and
-`projectTemplateKey: "com.pyxis.greenhopper.jira:gh-simplified-kanban-classic"`.
-A team-managed project keeps its workflow private, so the workflow API in
-Stage 4 can't reach it. Skip to Stage 3 with nothing to reconcile.
-
-**Existing project.** Read everything below, and write the human a short
-summary before asking anything:
-
-| What                    | How                                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------- |
-| Project and its style   | `GET /rest/api/3/project/<KEY>`; `.style` is `classic` (company-managed) or `next-gen` (team-managed) |
-| Work types              | `GET /rest/api/3/project/<KEY>/statuses`, which gives each work type with its statuses    |
-| Workflow scheme         | `GET /rest/api/3/workflowscheme/project?projectId=<id>`                                   |
-| Workflows and conditions | `POST /rest/api/3/workflows?expand=values.transitions` with `{workflowNames: [...]}`     |
-| Is the scheme shared?   | `GET /rest/api/3/workflowscheme/<id>/projectUsages`. Changing a shared scheme changes other projects too. |
-| Boards and columns      | `GET /rest/agile/1.0/board?projectKeyOrId=<KEY>`, then `/board/<id>/configuration`        |
-| Cards by status         | `POST /rest/api/3/search/approximate-count` with `project = <KEY> AND status = "<name>"`  |
-| Automation rules        | `GET https://api.atlassian.com/automation/public/jira/<cloudId>/rest/v1/rule/summary`     |
-| Fields                  | `GET /rest/api/3/field/search?query=Acceptance%20criteria` and `?query=Design%20owner`    |
-
-A team-managed project can't be changed into a company-managed one. If the
-project is team-managed, say so, and offer either a new company-managed project
-or moving the cards.
-
----
-
-## Stage 3: Agree how Enki fits in
-
-Explain what is fixed and what is up to them. Then lay out the options that fit
-what you found, and recommend one.
-
-### What is not negotiable
-
-These are what make Enki safe to leave alone with a board. Explain each one in a
-sentence; the human needs to know why, not just what.
-
-1. **The ten statuses, by these exact names.** They are Backlog, Ready for
-   design, Designing, Design review, Blocked on architect, Ready for build,
-   Building, In review, Blocked on engineer and Done. Enki moves a card by the
-   name of the status it is going to, so a renamed status leaves cards stuck.
-   Existing statuses with the same names are reused, not duplicated.
-2. **Every status can be reached from every other.** Each status has a global
-   transition into it, because a turn can end in any state from any state. The
-   gate on Enki's work is the PR review, not the Jira workflow.
-3. **Designing and Building belong to Enki.** While a turn runs, only Enki can
-   move or reassign the card. Two status properties set this:
-   `jira.permission.transition.user` and `jira.permission.assign.user`, both
-   set to the bot's accountId. A human stops a turn by commenting
-   "@Enki stop", not by dragging the card.
-4. **Only Enki can move a card to Done.** It does that after the PR has merged
-   and production is serving it. A person can drag a card to Done before its
-   code ships, and then the board lies. The lock is a
-   `system:restrict-issue-transition` condition on the transition into Done,
-   naming the bot. It needs no group.
-5. **A card is Enki's only when it is in a Ready column *and* assigned to Enki.**
-   The board can be shared with work Enki must never touch.
-6. **Two fields:** Acceptance criteria (a paragraph) and Design owner (a user
-   picker), both on the project's screens. Enki finds them by name.
-7. **The Automation rules** that wake Enki: card ready, card assigned, new
-   comment, mentioned, stop and sweep (see `docs/factory/JIRA-TRIGGERS.md`).
-8. **The repository side**, which is not this skill's job, but the human should
-   hear it now. Enki's commits go through the repository's own golden-path gates;
-   it does not bypass them. Every PR gets its own preview on **Azure Container
-   Apps**, which is required, not optional. A project still on capped preview
-   environments, such as Static Web Apps, has to move to Container Apps.
-
-### The options
-
-| Option                                      | When it fits                                                                 | What changes                                                                                                                                      |
-| ------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A. The whole project runs on Enki's workflow** | A new project, or a team happy to adopt the ten statuses for everything. | The project's scheme points every work type at the Enki workflow. Existing cards are mapped from their old statuses into the new ones.            |
-| **B. Enki gets its own work type**          | An established project whose other work must keep its own workflow.          | A work type, such as "Enki task", is added to the project. The scheme maps only that type to the Enki workflow. The board shows Enki's columns beside the existing ones. |
-| **C. Enki gets its own board in a new project** | The team wants Enki at arm's length, or the scheme is shared with other projects. | Nothing in the existing project changes. People raise cards in the new project.                                                            |
-
-For A and B, if the scheme is shared with other projects, copy it. Never edit a
-shared scheme in place.
-
-For A, existing cards need a status mapping when the scheme changes. Draw it up
-with the human: each old status → one of the ten. Cards Enki has no business
-with usually go to Backlog or Done.
-
-Also agree:
-
-- whether to remove board columns nobody will use, or leave them;
-- whether the empty placeholder "Backlog" column Jira keeps at the front of a
-  Kanban board stays (it is harmless);
-- who in the team is told about "@Enki stop".
-
-Write the agreed plan back to the human in a few lines, and get a yes before
-Stage 4.
-
----
-
-## Stage 4: Make the changes
-
-First show the human the dry run: every call in order, with what it creates or
-changes. Apply only after they say yes. Run it with the Jira admin's token,
-except the final checks, which run as the bot.
-
-### 1. Statuses
-
-`GET /rest/api/3/statuses/search` finds the ones that exist. `POST
-/rest/api/3/statuses` creates the rest, with scope `GLOBAL` and the category
-shown here:
-
-| Status                | Category    |
-| --------------------- | ----------- |
-| Backlog               | TODO        |
-| Ready for design      | TODO        |
-| Designing             | IN_PROGRESS |
-| Design review         | IN_PROGRESS |
-| Blocked on architect  | IN_PROGRESS |
-| Ready for build       | TODO        |
-| Building              | IN_PROGRESS |
-| In review             | IN_PROGRESS |
-| Blocked on engineer   | IN_PROGRESS |
-| Done                  | DONE        |
-
-### 2. The workflow, with both locks
-
-`POST /rest/api/3/workflows/create`. The shape below is tested. The
-`bootstrap/jira.sh` "Workflow" section has the rest, and explains why each
-required field is there.
-
-- Top-level `statuses[]`: `{statusReference, id, name, statusCategory, description}` for each status.
-  The `id` makes Jira reuse an existing status instead of failing on a duplicate name.
-- `workflows[0].statuses[]`: `{statusReference, layout: {x, y}, properties}`, where
-  `properties` is required even when it is `{}`. On Designing and Building, set:
-  `{"jira.permission.transition.user": "<bot>", "jira.permission.assign.user": "<bot>"}`.
-- `transitions`: one `INITIAL` into Backlog, and one `GLOBAL` into each status,
-  named after the status.
-- The transition into Done carries the Done lock:
+- **Designing and Building:** two status properties, both set to the bot's
+  accountId: `{"jira.permission.transition.user": "<bot>",
+  "jira.permission.assign.user": "<bot>"}`.
+- **Done:** a `system:restrict-issue-transition` condition on the transition into
+  Done, naming the bot. It needs no group:
 
 ```json
 "conditions": {
@@ -290,97 +330,183 @@ On every other transition, leave `conditions` out or send `null`. Rules go in
 `conditions` itself: putting them under a `rules` key gets a 400 that names no
 field.
 
-**For an existing Enki workflow** that lacks a lock, use
-`POST /rest/api/3/workflows/update`. It replaces the whole workflow. Read it
-first, with `POST /rest/api/3/workflows?expand=values.transitions`, and send
-everything back unchanged apart from the conditions and properties. Include the
-workflow's `version`: a workflow edited since the read gets a 409, not a lost
-edit.
+`POST /rest/api/3/workflows/update` replaces the whole workflow. Read it first
+with `POST /rest/api/3/workflows?expand=values.transitions`, and send everything
+back unchanged apart from what you mean to change. Include the workflow's
+`version`: a workflow edited since the read gets a 409, not a lost edit.
 
-### 3. The scheme, and assigning it
+### 3. A company-managed space
+
+**Statuses.** `GET /rest/api/3/statuses/search` finds the ones that exist.
+`POST /rest/api/3/statuses` creates the rest, with scope `GLOBAL` and the
+category shown here:
+
+| Status                | Category    |
+| --------------------- | ----------- |
+| Backlog               | TODO        |
+| Ready for design      | TODO        |
+| Designing             | IN_PROGRESS |
+| Design review         | IN_PROGRESS |
+| Blocked on architect  | IN_PROGRESS |
+| Ready for build       | TODO        |
+| Building              | IN_PROGRESS |
+| In review             | IN_PROGRESS |
+| Blocked on engineer   | IN_PROGRESS |
+| Done                  | DONE        |
+
+**The workflow.** `POST /rest/api/3/workflows/create`, with both locks from
+step 2. The shape below is tested. The `bootstrap/jira.sh` "Workflow" section has
+the rest, and explains why each required field is there.
+
+- Top-level `statuses[]`: `{statusReference, id, name, statusCategory, description}` for each status.
+  The `id` makes Jira reuse an existing status instead of failing on a duplicate name.
+- `workflows[0].statuses[]`: `{statusReference, layout: {x, y}, properties}`, where
+  `properties` is required even when it is `{}`.
+- `transitions`: one `INITIAL` into Backlog, and one `GLOBAL` into each status,
+  named after the status.
+
+**The scheme, and assigning it.**
 
 - **Option A:** `POST /rest/api/3/workflowscheme` with the Enki workflow as
   `defaultWorkflow`.
-- **Option B:** add the work type to the project's work type scheme. Then set
+- **Option B:** add the work type to the space's work type scheme. Then set
   `issueTypeMappings: {"<type id>": "<Enki workflow>"}` on a copy of the
-  project's scheme.
+  space's scheme.
 
-Then `PUT /rest/api/3/workflowscheme/project` with `{workflowSchemeId,
+If the scheme is shared with other spaces, copy it. Never edit a shared scheme
+in place. Then `PUT /rest/api/3/workflowscheme/project` with `{workflowSchemeId,
 projectId}`.
 
-- A project with no cards returns 204, and the change is done.
+- A space with no cards returns 204, and the change is done.
 - Otherwise Jira returns 303 and a task URL. Poll the URL until the task is
   `COMPLETE`.
 - If cards sit in statuses the new workflow doesn't have, the call needs the
-  status mapping from Stage 3, as `statusMappingsByIssueTypes`.
+  card mapping, as `statusMappingsByIssueTypes`.
 
-### 4. Fields
+**The field.** Create Acceptance criteria (a paragraph), then put it on the
+space's screens. The `bootstrap/jira.sh` "Custom fields" section does this. Look
+a field up with `/rest/api/3/field/search` before creating it:
+`/rest/api/3/field` leaves out fields that aren't on a screen yet, so checking
+that first creates duplicates.
 
-Create Acceptance criteria and Design owner, then put both on the project's
-screens. The `bootstrap/jira.sh` "Custom fields" section does this. Look a field
-up with `/rest/api/3/field/search` before creating it: `/rest/api/3/field`
-leaves out fields that aren't on a screen yet, so checking that first creates
-duplicates.
-
-### 5. Filter, board and columns
+**Filter and board**, if the space has no board to use:
 
 - **Filter:** `POST /rest/api/3/filter`, with JQL `project = <KEY> ORDER BY Rank
   ASC`. For option B, add `AND issuetype = "Enki task"`.
 - **Board:** `POST /rest/agile/1.0/board`, with `type: "kanban"`, `filterId`,
   and `location: {type: "project", projectKeyOrId: "<KEY>"}`. A board with no
-  location doesn't show in the project's sidebar.
-- **Columns:** the documented Agile API can only read columns, so this uses the
-  endpoint Jira's own board settings page calls. It is not in Atlassian's
-  published API, and it could change without notice:
+  location doesn't show in the space's sidebar.
+
+Then set the columns (step 5) and give the bot access (step 7).
+
+### 4. A team-managed space
+
+A team-managed space has its own workflow, statuses and board, and Jira's API
+reaches all of them. The order matters. Cards have to move before the locks go
+on, and the columns have to be set after the last workflow change.
+
+1. **Statuses.** `POST /rest/api/3/statuses` with
+   `{"scope": {"type": "PROJECT", "project": {"id": "<id>"}}, "statuses":
+   [{"name", "statusCategory"}]}`, using the categories in step 3. An existing
+   status of the same name is reused as it is.
+   Jira refuses a name that differs from an existing one only in capitals ("Status
+   name "In review" already in use"). Rename the existing status instead:
+   `PUT /rest/api/3/statuses` with `{"statuses": [{id, name, statusCategory,
+   description}]}`. A bare array gets a 400.
+2. **Add them to the workflow.** One `workflows/update` that keeps every
+   existing status and transition. It adds the new statuses, a `GLOBAL`
+   transition into each, and points the `INITIAL` (Create) transition at Backlog.
+   No locks yet. While no status is removed, the update needs no status mappings.
+3. **Move the cards**, following the agreed mapping, with the admin's
+   transitions: `POST /rest/api/3/issue/<key>/transitions`. This has to happen
+   before the locks, because afterwards only the bot can move cards into
+   Designing, Building or Done. Each move notifies the card's watchers; say so
+   in the dry run. For many cards, `POST /rest/api/3/bulk/issues/transition` can
+   do them in one go, but it has not been proven here.
+4. **Lock, and retire the old statuses.** One more `workflows/update`. It puts
+   on both locks from step 2. It also adds the same `restrict-issue-transition`
+   condition, naming the bot, to the transition into each template status
+   (such as To Do and In Progress), so no person can move a card into one.
+   Jira's API won't remove a status from a team-managed workflow. Every
+   mapping shape tried was refused, and `DELETE /rest/api/3/statuses` says the
+   status is in use. So the old statuses stay in the workflow, empty and
+   unreachable, and the next step leaves them off the board. New cards are
+   created into Backlog, so none land there.
+5. **Board columns, last** (step 5 below). Every workflow update rebuilds a
+   team-managed board's columns: one column per status, in Jira's own order,
+   template statuses included. So the columns go on after the final workflow
+   update. Tell the human that a later workflow change, made by anyone, resets
+   them, and the columns PUT has to run again.
+6. **The bot's access.** `POST /rest/api/3/project/<id>/role/<Member role id>`
+   with `{"user": ["<bot>"]}`. The `categorisedActors` form gets a 400.
+7. **Acceptance criteria.** If the space's cards already have a field called
+   "Acceptance criteria" (stage 3's `editmeta`), use it. If not, the criteria go
+   in the description under an "Acceptance criteria" heading. Enki reads the
+   whole description, so they reach it. Don't create a field. Jira's API can
+   create one and attach it to a team-managed space with
+   `PUT /rest/api/3/field/association`, and its value can then be written and
+   read. But no public API puts it on the space's layout, so people never see
+   it.
+
+### 5. Board columns
+
+The documented Agile API can only read columns, so this uses the endpoint Jira's
+own board settings page calls. It is not in Atlassian's published API, and it
+could change without notice.
+
+Read the board first with `GET
+/rest/greenhopper/1.0/rapidviewconfig/editmodel.json?rapidViewId=<id>`. Send
+existing columns back by their `id`, and leave out every column that isn't one
+of the ten:
 
 ```
 PUT /rest/greenhopper/1.0/rapidviewconfig/columns
 { "currentStatisticsField": {"id": "issueCount_"},
   "rapidViewId": <board id>,
   "mappedColumns": [
-    {"name": "Backlog", "mappedStatuses": [{"id": "<id>"}], "min": "", "max": "", "isKanPlanColumn": false},
+    {"id": <column id, if it exists>, "name": "Backlog", "mappedStatuses": [{"id": "<status id>"}],
+     "min": "", "max": "", "isKanPlanColumn": false},
     ... one per status, in this order: Backlog, Ready for design, Designing,
         Blocked on architect, Design review, Ready for build, Building,
         Blocked on engineer, In review, Done
   ] }
 ```
 
-Check the result with `GET /rest/agile/1.0/board/<id>/configuration`. Jira keeps
-its own empty "Backlog" placeholder column at the front; leave it.
+Each "Blocked on …" column sits just before the review column it pairs with.
+Both are ways out of the same running state, and "blocked" is the one that goes
+backwards.
 
-**If the PUT fails, don't retry it.** Give the human the clicks instead:
+- **Company-managed Kanban board from the template:** Jira keeps an empty
+  placeholder column, flagged `isKanPlanColumn: true`, at the front. Send it
+  back as it was, in front; `bootstrap/jira.sh` shows how.
+- **Team-managed board:** it has no placeholder. The template statuses left out
+  show as unmapped, which is what you want.
 
-1. Open the board, then **⋯** (top right) → **Board settings** → **Columns and
-   statuses**.
-2. Create columns until there are ten, named as above, in that order. Use
-   **+** at the right-hand end, and drag a column by its header to move it.
-3. Drag each status from **Unmapped statuses** (or from the template's To Do,
-   In Progress and Done columns) into the column of the same name.
-4. Delete the template's To Do and In Progress columns once they are empty.
-5. Each "Blocked on …" column sits just before the review column it pairs with.
-   Both are ways out of the same running state, and "blocked" is the one that
-   goes backwards.
+Read the board back and check it shows the ten columns in that order.
 
-### 6. The bot's access
-
-Enki needs to browse the project, assign cards, move them and comment.
-Check this as the bot with `GET /rest/api/3/mypermissions?projectKey=<KEY>&permissions=BROWSE_PROJECTS,ASSIGNABLE_USER,TRANSITION_ISSUES,ADD_COMMENTS,EDIT_ISSUES`.
-If a permission is missing, add the bot to the project role that the
-permission scheme grants it to, and tell the human which role you used.
-
-### 7. The Automation rules
+### 6. The Automation rules
 
 Create the six rules from `bootstrap/jira-triggers.sh` with the Automation Rule
 Management API, at
 `https://api.atlassian.com/automation/public/jira/<cloudId>/rest/v1`, using the
 Jira admin's token.
 
-- Scope each rule to this project's ARI only.
-- Name each rule after the project, so two projects don't share rules.
-- The script finds the bot with a filter that misses service accounts (see
-  Stage 1). Pass it the bot's accountId instead.
-- The rules are created disabled. Enable them once the human confirms the
-  repository side is ready, so Enki isn't sent work it can't do yet.
+- Scope each rule to this space's ARI only:
+  `ari:cloud:jira:<cloudId>:project/<id>`.
+- Name each rule after the space, so two spaces don't share rules.
+- The script finds the bot by searching for `JIRA_BOT_EMAIL`. Check that the
+  accountId it prints is the one `myself` gave in stage 3.
+- The rules are created disabled. Enable them, through the same API, once the
+  human confirms the repository side is ready, so Enki isn't sent work it can't
+  do yet.
+
+### 7. The bot's access in a company-managed space
+
+Enki needs to browse the space, assign cards, move them and comment.
+Check this as the bot with `GET /rest/api/3/mypermissions?projectKey=<KEY>&permissions=BROWSE_PROJECTS,ASSIGNABLE_USER,TRANSITION_ISSUES,ADD_COMMENTS,EDIT_ISSUES`.
+If a permission is missing, add the bot to the project role that the
+permission scheme grants it to, and tell the human which role you used. Run the
+same check in a team-managed space after its role step.
 
 ### 8. Prove it
 
@@ -388,8 +514,9 @@ Run these on a scratch card that is never in a Ready column and never assigned
 to Enki, so that no Automation rule fires. Then delete the card, or leave it in
 Done if the admin cannot delete it:
 
-- **As the admin:** `GET /issue/<card>/transitions` does **not** offer Done.
-  `POST`ing the Done transition is refused with a 400, and the card stays put.
+- **As the admin:** `GET /issue/<card>/transitions` does **not** offer Done, or
+  any retired template status. `POST`ing the Done transition is refused with a
+  400, and the card stays put.
 - **As the bot:** Done is offered, and the move returns 204.
 - **Each lock:** move the card into Designing as the bot. As the admin, the
   card should offer no transitions. Moving it should be refused with a 400, and
@@ -397,17 +524,43 @@ Done if the admin cannot delete it:
   ten minutes: the poller releases a locked card that has no run behind it.
 - **The board:** shows the ten columns, and the card sits in the right one.
 
-These calls were proven on 7 October 2026, on a scratch project on a
-non-production site:
+These calls were proven on non-production sites, on scratch spaces:
 
-- the workflow create with the Done condition, and the update that strips it
-  and puts it back;
-- the bot passing every check while the admin is refused Done;
-- the column PUT, and the licensed bot passing all five identity checks;
-- every lock on a live project's workflow, applied by `bootstrap/jira.sh` from
-  the update above.
+- **Company-managed, 7 October 2026:**
+  - the workflow create with the Done condition, and the update that strips it
+    and puts it back;
+  - the bot passing every check while the admin is refused Done;
+  - the column PUT, and the licensed bot passing all five identity checks;
+  - every lock on a live project's workflow, applied by `bootstrap/jira.sh`
+    from the update above.
+- **Team-managed, 9 to 12 October 2026:**
+  - the capabilities read listing `restrict-issue-transition`;
+  - creating project-scoped statuses, and renaming "In Review" to "In review";
+  - adding the ten statuses to the workflow, and moving cards across with the
+    admin's transitions;
+  - both locks: the admin refused moves (400), reassignment (403) and Done
+    (400), while the bot assigns, moves and closes;
+  - retiring the template statuses with the bot-only condition, and a new card
+    landing in Backlog;
+  - the column PUT after the final workflow update, with both locks intact
+    after it;
+  - adding the bot to the Member role;
+  - creating a field and attaching it to the space: the value is stored but not
+    shown;
+  - Jira refusing to remove a status from the workflow.
 
-Report to the human what changed, with links to the board, the workflow and the
-rules. Then remind them of the tokens: the Jira admin's token was only for
-setup, and they can revoke it now. Keep the bot's token, because Enki uses it
-on every turn.
+Not yet proven: Automation rules on a team-managed space, option B on a
+team-managed space, and the bulk transition.
+
+### Report back
+
+Tell the human what changed, with links to the board, the workflow and the
+rules. Then:
+
+- **Tokens:** the Jira admin's token was only for setup, and they can revoke it
+  and clear `JIRA_USER` and `JIRA_TOKEN` from the `.env` file now. Keep the
+  bot's token, because Enki uses it on every turn.
+- **Acceptance criteria:** the factory finds the field by name across the whole
+  site (`factory/src/gather.ts`). If the site has more than one field called
+  "Acceptance criteria", it can read the wrong one and find nothing. Say so if
+  stage 3 found more than one.
