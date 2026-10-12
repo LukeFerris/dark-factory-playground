@@ -47,22 +47,17 @@ Nothing changes in Jira until stage 4.
 - **Never delete what you did not create.** Boards, workflows, schemes and rules
   that were there before stay. If one is in the way, tell the human.
 
-A helper the rest of this skill assumes (Basic auth, credentials on stdin, last
-line of output is the HTTP status):
+The rest of this skill calls Jira through `jira.sh`, which sits next to this
+file. It uses Basic auth, sends the credentials to curl on stdin, and prints the
+HTTP status as its last line:
 
 ```bash
-# jira ADMIN|BOT METHOD PATH [BODY-FILE]
-jira() {
-  local who=$1 method=$2 path=$3 body=${4:-} u t base
-  if [[ $who == BOT ]]; then u=$JIRA_BOT_EMAIL; t=$JIRA_BOT_TOKEN; base=$JIRA_BOT_BASE
-  else u=$JIRA_USER; t=$JIRA_TOKEN; base=$JIRA_BASE; fi
-  local args=(-s -X "$method" -H 'Accept: application/json' -H 'Content-Type: application/json'
-              -w '\n%{http_code}\n' -K -)
-  [[ -n $body ]] && args+=(--data-binary "@$body")
-  printf 'user = "%s:%s"\n' "$u" "$t" | curl "${args[@]}" "$base$path"
-}
-# Strip the status line with `sed '$d'`. macOS head has no `-n -1`.
+ENKI_ENV=~/.config/enki/<site>.env <this skill's directory>/jira.sh ADMIN|BOT METHOD PATH [BODY-FILE]
 ```
+
+It is a script rather than a shell function written out here because the skill
+loader replaces numbered placeholders in this file with the words the skill was
+invoked with, which broke the function's arguments.
 
 ---
 
@@ -88,11 +83,15 @@ company-managed: people often can't find it, and stage 3 reads it from the API.
 These are what make Enki safe to leave alone with a board. Explain each one in a
 sentence; the human needs to know why, not just what.
 
-1. **The ten statuses, by these exact names.** They are Backlog, Ready for
-   design, Designing, Design review, Blocked on architect, Ready for build,
-   Building, In review, Blocked on engineer and Done. Enki moves a card by the
-   name of the status it is going to, so a renamed status leaves cards stuck.
-   Existing statuses with the same names are reused, not duplicated.
+1. **Ten statuses, one for each step of the process.** They are created as
+   Backlog, Ready for design, Designing, Design review, Blocked on architect,
+   Ready for build, Building, In review, Blocked on engineer and Done. Existing
+   statuses with the same names are reused, not duplicated. Once they exist,
+   their ids are written into the repository's `enki.json`, and Enki moves,
+   searches and reads cards by id. So the team can rename the columns
+   afterwards: in a team-managed space renaming a column renames its status,
+   and nothing breaks. What they can't do is delete a status, merge two into
+   one column, or add steps Enki would have to know about.
 2. **Every status can be reached from every other.** Each status has a global
    transition into it, because a turn can end in any state from any state. The
    gate on Enki's work is the PR review, not the Jira workflow.
@@ -274,7 +273,8 @@ before the dry run. Typical cases:
 
 Show the human every call of Stage 4 in order, with what each one creates or
 changes, and how many cards each move touches. That includes the scratch card
-the identity checks use. Apply only after they say yes.
+the identity checks use, and the `enki.json` change to the repository (step 6
+of Stage 4). Apply only after they say yes.
 
 ---
 
@@ -298,7 +298,7 @@ Backlog and tell the human its key.
 | Comments  | `BOT POST /rest/api/3/issue/<card>/comment`                                                    | 201, and the comment's `author.accountId` is the bot.                |
 | Moves     | `BOT GET /rest/api/3/issue/<card>/transitions`, then `BOT POST` one of them                    | The transitions are listed, and the move returns 204.                |
 
-If the bot can't see the space at all, give it access first (step 7, or the
+If the bot can't see the space at all, give it access first (step 8, or the
 role step in step 4 for a team-managed space), then rerun the checks.
 
 If any check fails for the service account, tell the human which one failed and
@@ -397,7 +397,8 @@ that first creates duplicates.
   and `location: {type: "project", projectKeyOrId: "<KEY>"}`. A board with no
   location doesn't show in the space's sidebar.
 
-Then set the columns (step 5) and give the bot access (step 7).
+Then set the columns (step 5), pin the status ids (step 6) and give the bot
+access (step 8).
 
 ### 4. A team-managed space
 
@@ -484,7 +485,38 @@ backwards.
 
 Read the board back and check it shows the ten columns in that order.
 
-### 6. The Automation rules
+### 6. Pin the status ids in the repository
+
+Enki finds the ten statuses by the ids in `enki.json` at the repository root,
+so that renaming a column changes nothing but its label. Write them once the
+statuses exist, which means after step 3's statuses or step 4's first step,
+and check them against the space:
+
+1. `GET /rest/api/3/statuses/search?projectId=<id>` (team-managed) or
+   `GET /rest/api/3/statuses/search` (company-managed), and take the id of each
+   of the ten. In a company-managed space, take the ids the Enki workflow uses
+   (its `statuses[].statusReference`), not just any status with the name.
+2. Write them under `jira.statuses`, keeping everything else the file already
+   holds:
+
+   ```json
+   { "jira": { "statuses": {
+       "Backlog": "10054", "Ready for design": "10055", "Designing": "10056",
+       "Design review": "10057", "Blocked on architect": "10058",
+       "Ready for build": "10059", "Building": "10060", "In review": "10061",
+       "Blocked on engineer": "10062", "Done": "10063" } } }
+   ```
+
+   The keys are always these ten names, whatever the columns are called later.
+   All ten or none: the factory refuses a partial list, or an id used twice.
+3. Agents are never allowed to edit `enki.json`, so this goes in as its own
+   pull request for a person to review. Tell the human it has to merge before
+   anyone renames a column. Until it does, Enki goes by name.
+
+The repository's factory has to be one that reads `jira.statuses`
+(`factory/src/statuses.ts`). An older one ignores it and goes by name.
+
+### 7. The Automation rules
 
 Create the six rules from `bootstrap/jira-triggers.sh` with the Automation Rule
 Management API, at
@@ -500,7 +532,7 @@ Jira admin's token.
   human confirms the repository side is ready, so Enki isn't sent work it can't
   do yet.
 
-### 7. The bot's access in a company-managed space
+### 8. The bot's access in a company-managed space
 
 Enki needs to browse the space, assign cards, move them and comment.
 Check this as the bot with `GET /rest/api/3/mypermissions?projectKey=<KEY>&permissions=BROWSE_PROJECTS,ASSIGNABLE_USER,TRANSITION_ISSUES,ADD_COMMENTS,EDIT_ISSUES`.
@@ -508,7 +540,7 @@ If a permission is missing, add the bot to the project role that the
 permission scheme grants it to, and tell the human which role you used. Run the
 same check in a team-managed space after its role step.
 
-### 8. Prove it
+### 9. Prove it
 
 Run these on a scratch card that is never in a Ready column and never assigned
 to Enki, so that no Automation rule fires. Then delete the card, or leave it in
@@ -523,6 +555,9 @@ Done if the admin cannot delete it:
   reassigning it with a 403. Do the same in Building. Move the card on within
   ten minutes: the poller releases a locked card that has no run behind it.
 - **The board:** shows the ten columns, and the card sits in the right one.
+- **The pinned ids:** each id in `enki.json` is a status in the Enki workflow,
+  under the name it is pinned to, and the scratch card's moves above went
+  through those ids.
 
 These calls were proven on non-production sites, on scratch spaces:
 
@@ -554,8 +589,8 @@ team-managed space, and the bulk transition.
 
 ### Report back
 
-Tell the human what changed, with links to the board, the workflow and the
-rules. Then:
+Tell the human what changed, with links to the board, the workflow, the
+rules and the `enki.json` pull request. Then:
 
 - **Tokens:** the Jira admin's token was only for setup, and they can revoke it
   and clear `JIRA_USER` and `JIRA_TOKEN` from the `.env` file now. Keep the
