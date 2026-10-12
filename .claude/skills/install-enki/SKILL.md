@@ -757,12 +757,18 @@ or they build the rules themselves from a guide you write. That guide is the
 one click-path this skill allows, and only when the human chooses it. Make it
 exact:
 
-- where to start (the space's settings → Automation → Create rule);
+- in the words Jira's builder uses today. Since 2026 Jira calls rules *flows*:
+  Space settings → Automation → **Create flow** → **Create from scratch**, then
+  **Add trigger**, **Add step** for each condition and action, **Flow details**
+  for the name, scope and actor, and **Turn on flow** to save;
 - for each rule, its name, then each trigger, condition and action in order,
   with every value written out to copy: status names to pick, JQL with ids, the
   bot's accountId, URLs, bodies and headers;
-- leave each rule off, and don't press "Validate" on a web request, because it
-  sends the request for real;
+- leave each rule off (if the builder only offers **Turn on flow**, turn the
+  toggle off straight after), and don't press "Validate" on a web request,
+  because it sends the request for real;
+- build each one from scratch: Jira drops hidden header values from a
+  duplicated flow;
 - if the PAT doesn't exist yet, `Bearer PENDING` in the header, replaced later.
 
 Publish the guide as a page the human can work through, with copy buttons and
