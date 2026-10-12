@@ -767,8 +767,9 @@ exact:
 - leave each rule off (if the builder only offers **Turn on flow**, turn the
   toggle off straight after), and don't press "Validate" on a web request,
   because it sends the request for real;
-- build each one from scratch: Jira drops hidden header values from a
-  duplicated flow;
+- Jira Cloud has no shared secret store for flows, so each web request
+  carries its own token. Duplicating a flow saves typing, but the hidden
+  token is dropped from the copy and has to be pasted again;
 - if the PAT doesn't exist yet, `Bearer PENDING` in the header, replaced later.
 
 Publish the guide as a page the human can work through, with copy buttons and
