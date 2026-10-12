@@ -1,12 +1,12 @@
 ---
 name: install-enki
 description: |
-  **Install Enki on a Jira space**: agrees with the human how Enki should fit
-  into the space, then asks them for the keys it needs, in a `.env` file, then
-  inspects the space and makes every change itself through Jira's API, from a
-  dry run they have approved. Works on company-managed and team-managed spaces.
-  Trigger: "/install-enki", "set up Enki on our board", "install the dark
-  factory on Jira", "connect Enki to project X".
+  **Install Enki on a Jira space**: asks the human for the keys it needs, in a
+  `.env` file, then reads the space and shows them what is there, then plans
+  the change with them, and makes every change itself through Jira's API, from
+  a dry run they have approved. Works on company-managed and team-managed
+  spaces. Trigger: "/install-enki", "set up Enki on our board", "install the
+  dark factory on Jira", "connect Enki to project X".
 ---
 
 # Install Enki on a Jira space
@@ -18,12 +18,15 @@ separate, and Enki is not usable until both are done.
 
 Work through the four stages in order:
 
-1. **Agree the design.** No credentials yet.
-2. **Get the keys.** The human creates them and puts them in a `.env` file.
-3. **Inspect, then dry run.** Read-only.
+1. **Get the keys.** The human creates them and puts them in a `.env` file.
+2. **Look at the space.** Read-only. Show the human what is there.
+3. **Plan it together, then dry run.** Still read-only.
 4. **Apply, then prove it.**
 
-Nothing changes in Jira until stage 4.
+Keys come first so the plan is made against the board as it really is, with
+real columns and real card counts, not what someone remembers of it. Nothing
+changes in Jira until stage 4: the Jira admin's token is only used to read
+until the human approves the dry run.
 
 **Rules that hold throughout:**
 
@@ -61,92 +64,20 @@ invoked with, which broke the function's arguments.
 
 ---
 
-## Stage 1: Agree the design
+## Stage 1: Get the keys
 
-Don't ask for any credentials yet. Settle what the board will look like first,
-so the human knows what the keys are for when you ask for them.
+Ask only which Jira site and which space (its key, such as `WKB`), or whether
+Enki gets a new space. Everything else about the space comes from the API in
+stage 2. Don't ask whether it is team-managed or company-managed, or what its
+columns are: people often can't find the one and misremember the other.
 
-Ask the human:
+Then ask for the keys, in so many words. For example:
 
-- which Jira site and which space (its key, such as `WKB`), or whether Enki gets
-  a new space;
-- whether people will work on the same board as Enki, or the board is Enki's
-  alone;
-- what columns the board has today, and roughly where its cards sit.
-
-Their answers are enough to agree a plan. Stage 3 checks them against what the
-space really holds. Don't ask whether the space is team-managed or
-company-managed: people often can't find it, and stage 3 reads it from the API.
-
-### What is not negotiable
-
-These are what make Enki safe to leave alone with a board. Explain each one in a
-sentence; the human needs to know why, not just what.
-
-1. **Ten statuses, one for each step of the process.** They are created as
-   Backlog, Ready for design, Designing, Design review, Blocked on architect,
-   Ready for build, Building, In review, Blocked on engineer and Done. Existing
-   statuses with the same names are reused, not duplicated. Once they exist,
-   their ids are written into the repository's `enki.json`, and Enki moves,
-   searches and reads cards by id. So the team can rename the columns
-   afterwards: in a team-managed space renaming a column renames its status,
-   and nothing breaks. What they can't do is delete a status, merge two into
-   one column, or add steps Enki would have to know about.
-2. **Every status can be reached from every other.** Each status has a global
-   transition into it, because a turn can end in any state from any state. The
-   gate on Enki's work is the PR review, not the Jira workflow.
-3. **Designing and Building belong to Enki.** While a turn runs, only Enki can
-   move or reassign the card. A human stops a turn by commenting
-   "@Enki stop", not by dragging the card.
-4. **Only Enki can move a card to Done.** It does that after the PR has merged
-   and production is serving it. A person can drag a card to Done before its
-   code ships, and then the board lies.
-5. **A card is Enki's only when it is in a Ready column *and* assigned to Enki.**
-   The board can be shared with work Enki must never touch.
-6. **Acceptance criteria Enki can read.** Enki reads a field called "Acceptance
-   criteria" if the card has one, and the card's description always. Where the
-   criteria live is settled in stage 3: in a team-managed space they usually go
-   in the description, under an "Acceptance criteria" heading (see Stage 4).
-7. **The Automation rules** that wake Enki: card ready, card assigned, new
-   comment, mentioned, stop and sweep (see `docs/factory/JIRA-TRIGGERS.md`).
-8. **The repository side**, which is not this skill's job, but the human should
-   hear it now. Enki's commits go through the repository's own golden-path gates;
-   it does not bypass them. Every PR gets its own preview on **Azure Container
-   Apps**, which is required, not optional. A project still on capped preview
-   environments, such as Static Web Apps, has to move to Container Apps.
-
-### The options
-
-| Option                                      | When it fits                                                                 | What changes                                                                                                                                      |
-| ------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A. The whole space runs on Enki's workflow** | A new space, or a team happy to adopt the ten statuses for everything. | Every work type uses the Enki workflow. Existing cards are moved from their old statuses into the new ones.                                       |
-| **B. Enki gets its own work type**          | An established company-managed space whose other work must keep its own workflow. | A work type, such as "Enki task", is added to the space. Only that type uses the Enki workflow. The board shows Enki's columns beside the existing ones. |
-| **C. Enki gets its own board in a new space** | The team wants Enki at arm's length, or the workflow is shared with other spaces. | Nothing in the existing space changes. People raise cards in the new space.                                                             |
-
-Option B has only been proven on company-managed spaces. If stage 3 finds the
-space is team-managed, come back and choose between A and C.
-
-For option A, agree what happens to existing cards as a rule, for example "To
-Do → Backlog, In Progress → Ready for build, Done stays Done". Stage 3 turns it
-into a status-by-status mapping with real card counts. Cards Enki has no
-business with usually go to Backlog or Done.
-
-Also agree who in the team is told about "@Enki stop".
-
-Write the agreed plan back to the human in a few lines: the option, the ten
-columns in order, the card mapping, where acceptance criteria go, and who is
-told. Get a yes before Stage 2.
-
----
-
-## Stage 2: Get the keys
-
-Now ask for what you need to make the changes, in so many words. For example:
-
-> We've agreed the board. To make those changes myself, I need some keys. I've
-> created `~/.config/enki/<site>.env` with the names to fill in. Please create
-> the keys below, paste each one into that file, save it, and tell me when it's
-> done. Don't paste them here.
+> To look at your board, and later to make the changes we agree, I need some
+> keys. I've created `~/.config/enki/<site>.env` with the names to fill in.
+> Please create the keys below, paste each one into that file, save it, and
+> tell me when it's done. Don't paste them here. I'll only read from Jira until
+> you've seen and approved a plan.
 
 Create that file yourself, with the names and no values, and `chmod 600` it:
 
@@ -209,7 +140,7 @@ the site URL:
   code that filters on `accountType == "atlassian"` will not find the bot.
   Record the bot's accountId from `GET /rest/api/3/myself` as the bot.
 - Token scopes: `read:jira-work`, `write:jira-work`, `read:jira-user`. Add more
-  only if a check in Stage 4 fails for lack of one.
+  only if a check in stage 4 fails for lack of one.
 
 > **Not yet proven.** The service-account route has not been run end to end.
 > The gateway URL, the `app` account type and the scopes come from Atlassian's
@@ -222,11 +153,14 @@ identity checks, but it costs a seat.
 
 ---
 
-## Stage 3: Inspect, then the dry run
+## Stage 2: Look at the space
 
 Everything in this stage is a read. Start with `BOT GET /rest/api/3/myself`, and
-record the bot's `accountId` and `accountType`. Then read the space and write the
-human a short summary.
+record the bot's `accountId` and `accountType`. If the bot can't see the space
+yet, say so; giving it access is part of the plan. The service account often
+waits on an org admin: if only the Jira admin's keys are in, read the space
+with those and plan with the human, and do the bot's checks when its keys
+arrive. They're needed before the dry run.
 
 **Every space:**
 
@@ -257,17 +191,115 @@ human a short summary.
 | The space's statuses    | `GET /rest/api/3/statuses/search?projectId=<id>`                                          |
 | Roles                   | `GET /rest/api/3/project/<KEY>/role`. A team-managed space has Administrator, Member and Viewer. |
 
-### Check it against the plan
+### Show the human what is there
 
-If anything contradicts what was agreed in stage 1, stop and agree the change
-before the dry run. Typical cases:
+Write a short summary before proposing anything:
 
-- the space is team-managed and option B was chosen;
+- whether the space is team-managed or company-managed, and its work types;
+- the board's columns in order, the statuses behind each, and how many cards
+  sit in each status, including statuses that have no column;
+- whether there is an "Acceptance criteria" field Enki can read, and how many
+  fields of that name the site has;
+- the Automation rules already on the space;
+- in a company-managed space, whether the workflow scheme is shared with other
+  spaces.
+
+---
+
+## Stage 3: Plan it together, then the dry run
+
+Now agree the design, against what stage 2 found. Ask whether people will work
+on the same board as Enki, or the board is Enki's alone.
+
+### What is not negotiable
+
+These are what make Enki safe to leave alone with a board. Explain each one in a
+sentence; the human needs to know why, not just what.
+
+1. **Ten statuses, one for each step of the process.** They are created as
+   Backlog, Ready for design, Designing, Design review, Blocked on architect,
+   Ready for build, Building, In review, Blocked on engineer and Done. Existing
+   statuses with the same names are reused, not duplicated. Once they exist,
+   their ids are written into the repository's `enki.json`, and Enki moves,
+   searches and reads cards by id. So the team can rename the columns
+   afterwards: in a team-managed space renaming a column renames its status,
+   and nothing breaks. What they can't do is delete a status, merge two into
+   one column, or add steps Enki would have to know about.
+2. **Every status can be reached from every other.** Each status has a global
+   transition into it, because a turn can end in any state from any state. The
+   gate on Enki's work is the PR review, not the Jira workflow.
+3. **Designing and Building belong to Enki.** While a turn runs, only Enki can
+   move or reassign the card. A human stops a turn by commenting
+   "@Enki stop", not by dragging the card.
+4. **Only Enki can move a card to Done.** It does that after the PR has merged
+   and production is serving it. A person can drag a card to Done before its
+   code ships, and then the board lies.
+5. **A card is Enki's only when it is in a Ready column *and* assigned to Enki.**
+   The board can be shared with work Enki must never touch.
+6. **Acceptance criteria Enki can read.** Enki reads a field called "Acceptance
+   criteria" if the card has one, and the card's description always. Where the
+   criteria live is settled here: in a team-managed space they usually go
+   in the description, under an "Acceptance criteria" heading (see Stage 4).
+7. **The Automation rules** that wake Enki: card ready, card assigned, new
+   comment, mentioned, stop and sweep (see `docs/factory/JIRA-TRIGGERS.md`).
+8. **The repository side**, which is not this skill's job, but the human should
+   hear it now. Enki's commits go through the repository's own golden-path gates;
+   it does not bypass them. Every PR gets its own preview on **Azure Container
+   Apps**, which is required, not optional. A project still on capped preview
+   environments, such as Static Web Apps, has to move to Container Apps.
+
+### The options
+
+| Option                                      | When it fits                                                                 | What changes                                                                                                                                      |
+| ------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. The whole space runs on Enki's workflow** | A new space, or a team happy to adopt the ten statuses for everything. | Every work type uses the Enki workflow. Existing cards are moved from their old statuses into the new ones.                                       |
+| **B. Enki gets its own work type**          | An established company-managed space whose other work must keep its own workflow. | A work type, such as "Enki task", is added to the space. Only that type uses the Enki workflow. The board shows Enki's columns beside the existing ones. |
+| **C. Enki gets its own board in a new space** | The team wants Enki at arm's length, or the workflow is shared with other spaces. | Nothing in the existing space changes. People raise cards in the new space.                                                             |
+
+Option B has only been proven on company-managed spaces. In a team-managed
+space, choose between A and C.
+
+### What happens to the existing cards
+
+Under option A, every card in the space ends up in one of the ten statuses.
+Tell the human plainly what that means:
+
+- **Only the status changes.** Each card keeps its comments, history,
+  assignee, links and fields. Each move adds a line to the card's history and
+  notifies its watchers.
+- **A card already in a status with the same name stays put**, such as a card
+  in Done when the space already has a Done status.
+- **The old statuses stop being used.** In a team-managed space they stay in
+  the workflow, because Jira's API won't remove them, but they're empty, no one
+  can move a card into them, and they're left off the board. In a
+  company-managed space they go with the old workflow.
+- **Nothing is assigned to Enki by the move.** A card becomes Enki's work only
+  when a person puts it in a Ready column and assigns it to Enki, so moving
+  cards doesn't start any turns.
+
+Propose a mapping for every status that has cards, using stage 2's counts, and
+agree it status by status. Cards Enki has no business with usually go to
+Backlog, and finished ones to Done. Work in progress goes to Backlog unless the
+human wants Enki to pick it up, in which case it goes to the Ready column for
+its stage, still unassigned.
+
+### Raise what stage 2 found
+
+For example:
+
+- the space is team-managed, so option B is out;
 - the scheme is shared with other spaces;
-- cards sit in a status the card mapping doesn't cover;
 - a status Enki needs exists with different capitals, such as "In Review"
-  (Stage 4 renames it, and the human should know);
-- the space has no "Acceptance criteria" field Enki can read (see Stage 4).
+  (stage 4 renames it);
+- the space has no "Acceptance criteria" field Enki can read (see stage 4);
+- the site has more than one field called "Acceptance criteria" (see Report
+  back).
+
+Also agree who in the team is told about "@Enki stop".
+
+Write the agreed plan back to the human in a few lines: the option, the ten
+columns in order, the card mapping with counts, where acceptance criteria go,
+and who is told. Get a yes before the dry run.
 
 ### The dry run
 
@@ -302,7 +334,7 @@ If the bot can't see the space at all, give it access first (step 8, or the
 role step in step 4 for a team-managed space), then rerun the checks.
 
 If any check fails for the service account, tell the human which one failed and
-what Jira said. Then go back to Stage 2 for the licensed-user route. Do not work
+what Jira said. Then go back to Stage 1 for the licensed-user route. Do not work
 around a failed check.
 
 ### 2. The locks, in either kind of space
@@ -441,7 +473,7 @@ on, and the columns have to be set after the last workflow change.
 6. **The bot's access.** `POST /rest/api/3/project/<id>/role/<Member role id>`
    with `{"user": ["<bot>"]}`. The `categorisedActors` form gets a 400.
 7. **Acceptance criteria.** If the space's cards already have a field called
-   "Acceptance criteria" (stage 3's `editmeta`), use it. If not, the criteria go
+   "Acceptance criteria" (stage 2's `editmeta`), use it. If not, the criteria go
    in the description under an "Acceptance criteria" heading. Enki reads the
    whole description, so they reach it. Don't create a field. Jira's API can
    create one and attach it to a team-managed space with
@@ -527,7 +559,7 @@ Jira admin's token.
   `ari:cloud:jira:<cloudId>:project/<id>`.
 - Name each rule after the space, so two spaces don't share rules.
 - The script finds the bot by searching for `JIRA_BOT_EMAIL`. Check that the
-  accountId it prints is the one `myself` gave in stage 3.
+  accountId it prints is the one `myself` gave in stage 2.
 - The rules are created disabled. Enable them, through the same API, once the
   human confirms the repository side is ready, so Enki isn't sent work it can't
   do yet.
@@ -598,4 +630,4 @@ rules and the `enki.json` pull request. Then:
 - **Acceptance criteria:** the factory finds the field by name across the whole
   site (`factory/src/gather.ts`). If the site has more than one field called
   "Acceptance criteria", it can read the wrong one and find nothing. Say so if
-  stage 3 found more than one.
+  stage 2 found more than one.
