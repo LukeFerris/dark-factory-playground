@@ -570,7 +570,8 @@ npm run --silent factory -- jira-transition DF-1 "In review"
 ```
 
 If that fails too, the status name in Jira no longer matches
-`STATUS_TRANSITIONS`. `smoke.sh` lists all ten.
+`STATUS_TRANSITIONS`, or, where `enki.json` pins the status ids, the id there
+no longer matches the status the workflow uses. `smoke.sh` lists all ten.
 
 *Done* is the exception and does not belong here: it is restricted to the bot
 by a workflow condition, and nothing but `production.yml` should be setting it.

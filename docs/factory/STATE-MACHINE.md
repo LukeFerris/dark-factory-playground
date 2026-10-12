@@ -373,6 +373,21 @@ insensitively. Rename a transition in Jira and nothing breaks. Rename a
 **status** and reporting breaks until `STATUS_TRANSITIONS` is changed to match —
 which is why `bootstrap/smoke.sh` asserts all ten names.
 
+A space can take status renames out of that by pinning each of the ten names to
+its status id, in `enki.json` at the repository root:
+
+```json
+{ "jira": { "statuses": { "Backlog": "10054", "Ready for design": "10055", "…": "…" } } }
+```
+
+With the ids pinned, the factory matches `to.id` instead, searches with
+`status = <id>`, and reads a card's status and history by id. In a
+team-managed space, renaming a board column renames its status, and anyone who
+administers the space can do it, so a team-managed space should always pin. It
+is all ten or none: `factory/src/statuses.ts` refuses a partial list rather
+than match some statuses one way and the rest the other. This repository has
+no `enki.json`, so it still goes by name.
+
 The `Factory` workflow that `bootstrap/jira.sh` creates gives every status a
 global transition, so any status is reachable from any other. That is deliberate:
 a failed turn must be able to reach *Blocked on engineer* from wherever the card

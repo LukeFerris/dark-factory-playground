@@ -7,6 +7,27 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-12
+
+### Statuses can be pinned by id
+
+The factory found every status by name: when moving a card, in its JQL, and
+when reading a card's status and history. In a team-managed space, renaming a
+board column renames its status, so one rename by anyone who administers the
+space left every card stuck at its next move, and the poller stopped seeing
+cards waiting in that column.
+
+A repository can now pin the ten names to their status ids in `enki.json`
+(`jira.statuses`). With them pinned, `transitionTo` matches the transition's
+target id, the poller, triage, refresh and orphan sweep search with
+`status = <id>`, and the lock and hand-back read history by id, because a
+history line keeps the name the status had at the time. The poller gets the
+JQL value from a new `jira-status-jql` command rather than quoting the name in
+shell. Without `enki.json`, as in this repository, nothing changes.
+
+`enki.json` is on `ALWAYS_DENIED`. An agent that rewrote it could send cards to
+statuses the locks don't cover.
+
 ## 2026-10-05
 
 ### A build turn from review now pushes to its branch

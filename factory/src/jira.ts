@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { required } from './env.ts'
 import type { AdfDoc } from './adf.ts'
+import { pinnedId } from './statuses.ts'
 
 /** Thrown for a 401/403 from Jira, so the CLI can exit 2 rather than 1. */
 export class JiraAuthError extends Error {}
@@ -127,6 +128,8 @@ export interface ChangeItem {
   to: string | null
   /** The display form: a name for `assignee` and `status`. */
   toString: string | null
+  /** The raw old value: for `status`, the id of where the card came from. */
+  from: string | null
   /** The display form of the old value: where a status change came from. */
   fromString: string | null
 }
@@ -166,6 +169,7 @@ export async function changelog(cfg: JiraConfig, key: string): Promise<ChangeEnt
           field: item.field,
           to: item.to ?? null,
           toString: item.toString ?? null,
+          from: item.from ?? null,
           fromString: item.fromString ?? null,
         })),
       })
@@ -484,7 +488,7 @@ export async function assign(cfg: JiraConfig, key: string, accountId: string): P
 export interface Transition {
   id: string
   name: string
-  to: { name: string }
+  to: { id?: string; name: string }
 }
 
 export async function getTransitions(cfg: JiraConfig, key: string): Promise<Transition[]> {
@@ -497,11 +501,13 @@ export async function getTransitions(cfg: JiraConfig, key: string): Promise<Tran
 }
 
 /**
- * Moves a card to a status BY TARGET STATUS NAME, not by transition name.
+ * Moves a card to a status BY TARGET STATUS, not by transition name.
  *
  * Transition names drift ("Start progress" vs "In Progress"); the destination
- * status name is what the state machine in docs/factory/STATE-MACHINE.md is
- * written against, so that is what we match on.
+ * status is what the state machine in docs/factory/STATE-MACHINE.md is written
+ * against, so that is what we match on. By its id when `enki.json` pins one,
+ * so a renamed column is still found (see statuses.ts), and by its name
+ * otherwise.
  */
 export async function transitionTo(
   cfg: JiraConfig,
@@ -509,13 +515,17 @@ export async function transitionTo(
   statusName: string,
 ): Promise<void> {
   const transitions = await getTransitions(cfg, key)
+  const id = pinnedId(statusName)
   const wanted = statusName.toLowerCase()
-  const match = transitions.find((t) => t.to?.name?.toLowerCase() === wanted)
+  const match = transitions.find((t) =>
+    id !== undefined ? t.to?.id === id : t.to?.name?.toLowerCase() === wanted,
+  )
 
   if (match === undefined) {
     const available = transitions.map((t) => t.to?.name ?? t.name).join(', ')
+    const target = id === undefined ? `"${statusName}"` : `"${statusName}" (status ${id})`
     throw new JiraTransitionError(
-      `${key} has no transition to "${statusName}". Available: ${available || '(none)'}`,
+      `${key} has no transition to ${target}. Available: ${available || '(none)'}`,
     )
   }
 

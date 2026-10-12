@@ -157,6 +157,9 @@ export const ALWAYS_DENIED: readonly string[] = [
   // to relax when a step will not go green.
   'app/playwright.config.ts',
   'factory/tsconfig.json',
+  // Pins the board's status ids. An agent that rewrote it could send cards to
+  // statuses the locks don't cover.
+  'enki.json',
 ]
 
 /**

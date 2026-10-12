@@ -1,6 +1,7 @@
 import { prUrl } from './env.ts'
 import * as jira from './jira.ts'
 import { launcherFor } from './launcher.ts'
+import { nameOf } from './statuses.ts'
 import type { Meta } from './meta.ts'
 
 /**
@@ -94,7 +95,7 @@ export async function sentInBy(cfg: jira.JiraConfig, key: string, status: string
       ?.authorId ?? ''
 
   return (
-    by((item) => item.field === 'status' && item.toString === status) ||
+    by((item) => item.field === 'status' && nameOf({ id: item.to, name: item.toString }) === status) ||
     by((item) => item.field === 'assignee' && item.to === me)
   )
 }

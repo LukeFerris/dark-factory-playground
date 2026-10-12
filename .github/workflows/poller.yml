@@ -159,7 +159,10 @@ jobs:
             claimed_status="$2"
             workflow="$3"
 
-            jql="project = ${JIRA_PROJECT_KEY} AND status = \"${waiting_status}\" AND assignee = currentUser() ORDER BY created ASC"
+            # The status by id when enki.json pins it, so a renamed column
+            # still matches; by its quoted name otherwise.
+            status_jql="$(npm run --silent factory -- jira-status-jql "$waiting_status")"
+            jql="project = ${JIRA_PROJECT_KEY} AND status = ${status_jql} AND assignee = currentUser() ORDER BY created ASC"
             keys="$(npm run --silent factory -- jira-search "$jql")"
 
             if [ -z "$keys" ]; then
