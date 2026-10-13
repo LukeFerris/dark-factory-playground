@@ -9,6 +9,21 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-13
 
+### Previews and production a repository deploys itself
+
+A repository that already deploys a preview of every PR, and production on
+every push to main, had no way to use them: the factory built and deployed its
+own, on Container Apps or the `ghcr` stub.
+
+A third preview backend, `swa`, waits for the repository's Azure Static Web
+Apps workflow to finish on the turn's commit and hands back the preview URL. It
+reruns the workflow when the site was built too early (`SWA_PREVIEW_NOT_READY`).
+Setting `FACTORY_PRODUCTION_URL` and `FACTORY_PRODUCTION_WORKFLOWS` puts
+`production-up` in a mode that waits for the repository's own deployment of the
+merge commit instead of making one. Both are for Workbench, whose previews move
+to Container Apps once its infrastructure is in place. The waiting is in
+`runs.ts`. The warm-up's failure message no longer assumes a Container App.
+
 ### What a stage may write can be set per repository
 
 The allow and deny lists were constants in `schema.ts`, written for this

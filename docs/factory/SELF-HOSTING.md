@@ -1,13 +1,13 @@
 # Self-hosting
 
 Everything in this repository runs on GitHub-hosted runners against a free Jira
-site. The preview environment has two backends, selected by the
+site. The preview environment has three backends, selected by the
 `FACTORY_PREVIEW_BACKEND` repository variable. This document says what each one
-does and what it takes to turn the second one on.
+does and what it takes to turn them on.
 
 ## When the preview is raised
 
-Both backends are raised by the turn that produced the code, in a second job of
+Every backend is raised by the turn that produced the code, in a second job of
 the same workflow run:
 
 | Where | Effect |
@@ -227,6 +227,48 @@ Nothing about the factory is Azure-specific. `previewUp` in
 `factory/src/preview.ts` is a switch on one variable; any host that can run a
 container per pull request and hand back a URL fits the same shape — Cloud Run,
 Fly, ECS, or a single VM running the images the stub already builds.
+
+## Backend: `swa` — a repository's own Static Web Apps
+
+For a repository that already deploys a preview of every pull request with an
+Azure Static Web Apps workflow, and has not moved to Container Apps yet. It is a
+stopgap: an SWA has a fixed number of staging environments, shared by every
+open PR, and that cap is why the factory's own previews run on Container Apps.
+
+The factory builds nothing. `preview-up` waits for the repository's workflow to
+finish on the commit the turn pushed, and hands back that preview's URL. If the
+deployed site still contains a marker that says it was built too early (for
+example, before its database branch existed), it runs the workflow again, up to
+three times. `preview-down` does nothing: the repository's workflow closes its
+own staging environment when the PR closes.
+
+| Variable | Example |
+| --- | --- |
+| `FACTORY_PREVIEW_BACKEND` | `swa` |
+| `SWA_PREVIEW_WORKFLOW` | `azure-static-web-apps.yml` |
+| `SWA_PREVIEW_URL` | `https://gentle-forest-0cd2b7603-{pr}.westeurope.7.azurestaticapps.net` |
+| `SWA_PREVIEW_NOT_READY` (optional) | `preview-not-found` |
+
+The preview job needs `actions: write` to run the workflow again. The workflow
+runs because the factory pushes with the App's token; a push with the
+`GITHUB_TOKEN` would not start it.
+
+## Production the repository deploys itself
+
+A repository that deploys main on every push already has production, and a
+second one from the factory would be a rival. Set two variables and
+`production.yml` builds nothing: `production-up` waits for the listed workflows
+to succeed on the merge commit, then for the URL to answer, and only then does
+`ship` move the card to *Done*. This works with any preview backend.
+
+| Variable | Example |
+| --- | --- |
+| `FACTORY_PRODUCTION_URL` | `https://workbench.example.com` |
+| `FACTORY_PRODUCTION_WORKFLOWS` | `azure-static-web-apps.yml,deploy-production.yml?` |
+
+A workflow ending in `?` is waited for only if it ran, for a workflow filtered
+by path (such as one that applies database migrations). At least one must
+not be optional. A failed deployment stops the card from moving.
 
 ## Running the agent somewhere other than GitHub Actions
 

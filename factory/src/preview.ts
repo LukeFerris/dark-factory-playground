@@ -23,11 +23,12 @@ import {
   deletePreviewImage,
   deployPreview,
 } from './azure.ts'
+import { raiseSwa, swaConfig, swaUrl } from './swa.ts'
 
 /**
  * Preview environments — one per pull request.
  *
- * Two backends, chosen by `FACTORY_PREVIEW_BACKEND`:
+ * Three backends, chosen by `FACTORY_PREVIEW_BACKEND`:
  *
  * - `azure` builds the image in Azure Container Registry and runs it as an
  *   Azure Container App with external ingress. That is a real, running site on
@@ -36,22 +37,27 @@ import {
  *   tagged `pr-<N>`, and records a Deployment pointing at the package page.
  *   Nothing serves it. It exists so the factory's plumbing can be exercised end
  *   to end with no cloud account at all.
+ * - `swa` builds nothing. It waits for the repository's own Azure Static Web
+ *   Apps workflow to deploy the PR, and hands back that preview's URL. A
+ *   stopgap for a repository that has not moved to Container Apps; see swa.ts.
  *
  * The default stays `ghcr` deliberately: `azure` needs a subscription and a
  * Terraformed estate, so it is opt-in rather than something a clone inherits.
  * See docs/factory/SELF-HOSTING.md.
  */
 
-export type PreviewBackend = 'ghcr' | 'azure'
+const BACKENDS = ['ghcr', 'azure', 'swa'] as const
+export type PreviewBackend = (typeof BACKENDS)[number]
 
 export function previewBackend(): PreviewBackend {
   const value = optional('FACTORY_PREVIEW_BACKEND', 'ghcr').toLowerCase()
-  if (value !== 'ghcr' && value !== 'azure') {
+  const backend = BACKENDS.find((b) => b === value)
+  if (backend === undefined) {
     throw new Error(
-      `FACTORY_PREVIEW_BACKEND must be "ghcr" or "azure", not "${value}".`,
+      `FACTORY_PREVIEW_BACKEND must be "ghcr", "azure" or "swa", not "${value}".`,
     )
   }
-  return value
+  return backend
 }
 
 function run(command: string, args: string[]): void {
@@ -72,7 +78,9 @@ function packageUrl(): string {
 }
 
 /** Builds and publishes the image, and returns the URL a human should open. */
-function raise(prNumber: number): string {
+async function raise(prNumber: number, headSha: string): Promise<string> {
+  if (previewBackend() === 'swa') return raiseSwa(prNumber, headSha)
+
   if (previewBackend() === 'azure') {
     const config = azureConfig()
     const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
@@ -158,8 +166,8 @@ export async function waitUntilAwake(url: string, options: WarmOptions = {}): Pr
 
   throw new Error(
     `${url} did not answer within ${Math.round(budgetMs / 1000)}s: ${lastReason}. ` +
-      `The image was built and deployed, so this is the container failing to serve ` +
-      `rather than the build failing — check the Container App's console logs.`,
+      `It was deployed, so this is the site failing to serve rather than the build ` +
+      `failing — check the host's logs (for a Container App, its console logs).`,
   )
 }
 
@@ -177,36 +185,36 @@ export async function previewUp(prNumber: number, dryRun = false): Promise<strin
 
   if (dryRun) {
     console.log(`preview-up --dry-run: would raise the ${backend} preview for PR #${prNumber}`)
+    if (backend === 'swa') return swaUrl(swaConfig().urlTemplate, prNumber)
     return backend === 'azure' ? 'https://<container-app>.azurecontainerapps.io' : packageUrl()
   }
 
-  const url = raise(prNumber)
+  const view = (fields: string): { headRefOid: string; body: string } =>
+    ghJson(['pr', 'view', String(prNumber), '--repo', repoSlug(), '--json', fields])
+
+  // The commit being previewed, read before the wait: the `swa` backend can
+  // take many minutes, and the Deployment belongs to the commit it waited for.
+  const { headRefOid } = view('headRefOid')
+  const url = await raise(prNumber, headRefOid)
 
   // Spend the cold start here rather than in the reviewer's tab. Deliberately
   // fatal if it never answers: publishing a link to a container that does not
   // serve is worse than a red cross on the pull request, because the red cross
   // says which of the two it is. The `ghcr` stub has nothing to warm — its URL
   // is a package page, which is already awake and never was the app.
-  if (backend === 'azure') {
+  if (backend !== 'ghcr') {
     const elapsed = await waitUntilAwake(url)
     console.log(`preview-up: ${url} answered after ${(elapsed / 1000).toFixed(1)}s and is warm.`)
   }
-
-  const pr = ghJson<{ headRefOid: string; body: string }>([
-    'pr',
-    'view',
-    String(prNumber),
-    '--repo',
-    repoSlug(),
-    '--json',
-    'headRefOid,body',
-  ])
 
   // The Deployment's URL is the "View deployment" button on the PR — a human
   // link, so it goes through the launcher. The factory block below keeps the
   // raw one: that is what the agent is handed, and it must not be satisfied by
   // a loading page.
-  createDeployment(pr.headRefOid, 'preview', launcherFor(url))
+  createDeployment(headRefOid, 'preview', launcherFor(url))
+
+  // Read now rather than before the wait, so an edit made meanwhile survives.
+  const pr = view('body')
 
   // Record the preview URL where later turns can find it. The PR body is the
   // only place that survives this runner, so losing it here means the agent
@@ -262,6 +270,10 @@ export function previewDown(prNumber: number, dryRun = false): void {
     }
     return
   }
+
+  // The repository's own workflow closes its staging environment when the PR
+  // closes. There is nothing of the factory's to remove.
+  if (backend === 'swa') return
 
   // Find the GHCR version tagged pr-<N> and delete just that one.
   try {
