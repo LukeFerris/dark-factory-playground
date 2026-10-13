@@ -4,7 +4,8 @@ import { uatStep } from './uat'
 /**
  * The walkthrough for DF-17: every pipeline column shows how many deals it
  * holds beside its name, and the number keeps up as deals are added, moved,
- * dragged and passed on. An emptied column shows 0.
+ * dragged and passed on. An emptied column shows 0. The number is a small grey
+ * pill straight after the name, as the reviewer asked on turn 2.
  *
  * Step numbers are the flattened `acceptance_criteria` steps a build turn
  * writes into `result.json`. A turn that changes those steps renumbers here in
@@ -29,6 +30,24 @@ function header(page: Page, stage: string) {
   return column(page, stage).getByRole('heading', { level: 2 })
 }
 
+// The count is a small grey pill straight after the name, not out at the far
+// end of the header: its left edge is within a few pixels of the name's end.
+async function expectPillBesideName(page: Page, stage: string, count: number) {
+  const pill = header(page, stage).getByText(String(count), { exact: true })
+  await expect(pill).toHaveCSS('background-color', 'rgb(228, 228, 224)')
+  await expect(pill).toHaveCSS('border-top-color', 'rgb(202, 202, 196)')
+  await expect(pill).toHaveCSS('border-radius', '999px')
+  const nameRight = await header(page, stage).evaluate((heading) => {
+    const range = document.createRange()
+    range.selectNodeContents(heading.firstChild ?? heading)
+    // A wrapped name has one box per line; the pill follows the last one.
+    return [...range.getClientRects()].at(-1)?.right ?? 0
+  })
+  const pillBox = await pill.boundingBox()
+  expect(pillBox).not.toBeNull()
+  if (pillBox) expect(pillBox.x - nameRight).toBeLessThanOrEqual(12)
+}
+
 function stagePicker(page: Page, company: string) {
   return page.getByRole('combobox', { name: `Stage for ${company}` })
 }
@@ -48,6 +67,7 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
     for (const stage of STAGES) {
       await expect(header(page, stage)).toHaveText(`${stage}1`)
       await expect(column(page, stage).getByRole('article')).toHaveCount(1)
+      await expectPillBesideName(page, stage, 1)
     }
   })
 
@@ -112,5 +132,6 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
   await uatStep(page, 14, async () => {
     await expect(column(page, 'Screening').getByText('No deals')).toBeVisible()
     await expect(header(page, 'Screening')).toHaveText('Screening0')
+    await expectPillBesideName(page, 'Screening', 0)
   })
 })

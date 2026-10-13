@@ -10,6 +10,8 @@
   --page: #f7f7f5;
   --surface: #ffffff;
   --border: #e4e4e0;
+  --pill: #e4e4e0;
+  --pill-edge: #cacac4;
   --text: #1c1c1a;
   --muted: #5c5c57;
   --accent: #1e3a5f;
@@ -181,10 +183,8 @@ body {
   border-radius: var(--radius);
 }
 
+/* Plain inline flow rather than flex, so a name that wraps ("Investment committee") still has its count right after the last word. */
 .column__title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin: 0 0 2px;
   padding-bottom: 8px;
   font-size: 0.8rem;
@@ -194,13 +194,19 @@ body {
   border-bottom: 2px solid var(--border);
 }
 
+/* A small grey pill straight after the column name. The edge keeps it visible on the off-white page; #5c5c57 on #e4e4e0 is above 5:1. */
 .column__count {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
   min-width: 24px;
   padding: 1px 8px;
   font-size: 0.75rem;
+  letter-spacing: normal;
   text-align: center;
   color: var(--muted);
-  background: var(--border);
+  background: var(--pill);
+  border: 1px solid var(--pill-edge);
   border-radius: 999px;
 }
 
