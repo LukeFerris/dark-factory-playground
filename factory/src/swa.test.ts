@@ -9,6 +9,8 @@ const CONFIG: SwaConfig = {
   workflow: 'azure-static-web-apps.yml',
   urlTemplate: 'https://gentle-forest-0cd2b7603-{pr}.westeurope.7.azurestaticapps.net',
   notReadyMarker: 'preview-not-found',
+  maxReruns: 3,
+  rerunDelayMs: 0,
 }
 const URL_183 = 'https://gentle-forest-0cd2b7603-183.westeurope.7.azurestaticapps.net'
 const FAST = { gapMs: 0, rerunDelayMs: 0, runBudgetMs: 50 }
@@ -59,7 +61,14 @@ function stub(respond: (args: string[]) => unknown): void {
 }
 
 describe('configuration', () => {
-  const keys = ['SWA_PREVIEW_URL', 'SWA_PREVIEW_WORKFLOW', 'SWA_PREVIEW_NOT_READY', 'FACTORY_PREVIEW_BACKEND']
+  const keys = [
+    'SWA_PREVIEW_URL',
+    'SWA_PREVIEW_WORKFLOW',
+    'SWA_PREVIEW_NOT_READY',
+    'SWA_PREVIEW_MAX_RERUNS',
+    'SWA_PREVIEW_RERUN_DELAY_SECONDS',
+    'FACTORY_PREVIEW_BACKEND',
+  ]
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   afterEach(() => {
     for (const k of keys) {
@@ -84,6 +93,17 @@ describe('configuration', () => {
     process.env['SWA_PREVIEW_WORKFLOW'] = 'swa.yml'
     process.env['SWA_PREVIEW_URL'] = 'https://gentle-forest.example'
     expect(() => swaConfig()).toThrow(/\{pr\}/)
+  })
+
+  it('waits as long as it is told to for what the bundle depends on', () => {
+    process.env['SWA_PREVIEW_WORKFLOW'] = 'swa.yml'
+    process.env['SWA_PREVIEW_URL'] = CONFIG.urlTemplate
+    expect(swaConfig()).toMatchObject({ maxReruns: 3, rerunDelayMs: 60_000 })
+    process.env['SWA_PREVIEW_MAX_RERUNS'] = '10'
+    process.env['SWA_PREVIEW_RERUN_DELAY_SECONDS'] = '120'
+    expect(swaConfig()).toMatchObject({ maxReruns: 10, rerunDelayMs: 120_000 })
+    process.env['SWA_PREVIEW_MAX_RERUNS'] = 'lots'
+    expect(() => swaConfig()).toThrow(/SWA_PREVIEW_MAX_RERUNS/)
   })
 })
 

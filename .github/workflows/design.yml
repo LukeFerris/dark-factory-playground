@@ -1,11 +1,11 @@
 name: factory design
 
 # One design turn. Dispatched by the poller when a card reaches "Ready for
-# design". Produces docs/design/<KEY>/design.md on a design/* branch and a draft
-# PR, then reports the outcome to Jira.
+# design", and by triage. Produces docs/design/<KEY>/design.md on the card's
+# branch and a draft PR, then reports the outcome to Jira.
 #
-# The Agent step holds ANTHROPIC_API_KEY and nothing else. Everything that can
-# write to GitHub or Jira runs in a later step with its own env block.
+# The turn itself is turn.yml, shared with the build turns. Its header says how
+# the agent is kept apart from every token the factory holds (ADR 0008).
 
 run-name: ${{ inputs.key }} design turn
 
@@ -20,157 +20,27 @@ on:
 permissions:
   contents: read
 
+# The card's group, shared with build-start.yml, build-turn.yml and refresh's
+# leg for the card, so that two runs never work one card at once (ADR 0007).
 concurrency:
   group: factory-card-${{ inputs.key }}
   cancel-in-progress: false
 
 jobs:
-  design:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The validator diffs against origin/main, so it needs real history.
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - run: npm ci
-
-      - name: Gather the card
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-        run: npm run --silent factory -- gather "${{ inputs.key }}" --stage design
-
-      # Straight after gather, which is the first step that knows which turn
-      # this is. The card is otherwise silent from the moment the poller claims
-      # it until `report` runs — a status change notifies nobody.
-      - name: Say the turn has started
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- announce
-
-      - name: Prepare the branch
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
-
-      # A design turn writes only under docs/design/<card>/ and docs/adr/, so a
-      # conflict here is close to unimaginable. It gets the same treatment as a
-      # build turn anyway, because the reason to merge is not the card's own
-      # files: it is that .agent/design.md and the factory code being run are
-      # whatever this branch last saw.
-      - name: Bring the branch up to main
-        uses: ./.github/actions/merge-main
-        with:
-          key: ${{ inputs.key }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          jira-base: ${{ vars.JIRA_BASE }}
-          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
-          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
-          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}
-          agent-model: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
-          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
-
-      # Pinned deliberately, and the version and the model are pinned together.
-      #
-      # The flag surface is version-coupled — see the CHANGELOG entry for
-      # --max-turns — so an unpinned install lets a CLI release change how a turn
-      # behaves with nobody watching. The model is coupled in the other
-      # direction: the API refuses a model the CLI is too old for, with
-      # "Claude Code 2.1.224 does not support this model; version 2.1.280 or
-      # newer is required". So raising FACTORY_AGENT_MODEL without raising
-      # FACTORY_AGENT_VERSION fails every turn at its first API call, and the
-      # two defaults have to move as a pair.
-      - name: Install the agent
-        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}"
-
-      # No GitHub token, no Jira token, no repository variables. The agent reads
-      # its manual and .agent/in, and writes .agent/out. Tools are allow-listed;
-      # Bash is denied outright, so a design turn cannot run anything at all.
-      - name: Agent
-        id: agent
-        continue-on-error: true
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p .agent/out
-          claude -p "$(cat .agent/design.md)" \
-            --model "${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}" \
-            --allowedTools "Read,Glob,Grep,Write,Edit" \
-            --disallowedTools "Bash,WebFetch,WebSearch,Task,NotebookEdit" \
-            --strict-mcp-config \
-            --max-budget-usd "${{ vars.FACTORY_DESIGN_BUDGET_USD || '5' }}" \
-            --output-format json > .agent/out/transcript.json
-
-      - name: Validate
-        id: validate
-        continue-on-error: true
-        run: npm run --silent factory -- validate --stage design
-
-      - name: Mint App token
-        id: app-token
-        if: steps.validate.outcome == 'success'
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.FACTORY_APP_ID }}
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-
-      - name: Publish
-        id: publish
-        if: steps.validate.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npm run --silent factory -- publish --stage design
-
-      # Runs on failure too: a rejected turn still has to land on the card,
-      # otherwise it sits in "Designing" with nobody told why. Not on
-      # cancellation, which is a stop — `factory stop` reports that itself.
-      - name: Report
-        if: ${{ !cancelled() }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- report --stage design
-
-      - name: Upload the turn
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: design-${{ inputs.key }}-${{ github.run_id }}
-          # Inputs as well as outputs. A turn is a pure function of .agent/in,
-          # so shipping both is what makes a failed turn replayable locally.
-          path: |
-            .agent/in/
-            .agent/out/
-          retention-days: 14
-          if-no-files-found: warn
-
-      - name: Fail the run if the turn was rejected
-        if: steps.validate.outcome != 'success'
-        run: |
-          echo "::error::The design turn was rejected by validation. See the Jira comment and the uploaded artifact."
-          exit 1
+  turn:
+    # The most any job in turn.yml asks for. A called workflow can only narrow
+    # what its caller grants, and GitHub checks every job's request against
+    # this when the run starts, whether or not the job will run. Each job in
+    # turn.yml then asks for only what it needs: the agent's, contents: read.
+    permissions:
+      contents: read
+      packages: write
+      deployments: write
+      id-token: write
+      pull-requests: write
+      actions: write
+    uses: ./.github/workflows/turn.yml
+    with:
+      key: ${{ inputs.key }}
+      stage: design
+    secrets: inherit

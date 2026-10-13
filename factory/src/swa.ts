@@ -24,12 +24,28 @@ import { findRun, getRun, waitForRun, type RunWaitOptions } from './runs.ts'
  * - `SWA_PREVIEW_NOT_READY` (optional): text that appears in the deployed
  *   bundle when the workflow built it before something it depends on was ready,
  *   such as a database branch. When it is found, the workflow is run again.
+ * - `SWA_PREVIEW_MAX_RERUNS` (optional, default 3) and
+ *   `SWA_PREVIEW_RERUN_DELAY_SECONDS` (optional, default 60): how many times to
+ *   run it again, and how long to wait before each. Size them to what the
+ *   bundle waits on: a Supabase preview branch takes about 13 minutes.
  */
 
 export interface SwaConfig {
   workflow: string
   urlTemplate: string
   notReadyMarker: string
+  maxReruns: number
+  rerunDelayMs: number
+}
+
+const MAX_RERUNS = 3
+const RERUN_DELAY_SECONDS = 60
+
+function count(name: string, fallback: number): number {
+  const raw = optional(name, String(fallback))
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${name} must be a whole number of 0 or more: ${raw}`)
+  return value
 }
 
 export function swaConfig(): SwaConfig {
@@ -41,6 +57,8 @@ export function swaConfig(): SwaConfig {
     workflow: required('SWA_PREVIEW_WORKFLOW'),
     urlTemplate,
     notReadyMarker: optional('SWA_PREVIEW_NOT_READY'),
+    maxReruns: count('SWA_PREVIEW_MAX_RERUNS', MAX_RERUNS),
+    rerunDelayMs: count('SWA_PREVIEW_RERUN_DELAY_SECONDS', RERUN_DELAY_SECONDS) * 1000,
   }
 }
 
@@ -49,15 +67,12 @@ export function swaUrl(template: string, prNumber: number): string {
 }
 
 export interface SwaWaitOptions extends RunWaitOptions {
-  /** How many times to run the workflow again while the bundle is not ready. */
+  /** Overrides `config.maxReruns`. */
   maxReruns?: number
-  /** How long to wait before each rerun, for whatever was not ready. */
+  /** Overrides `config.rerunDelayMs`. */
   rerunDelayMs?: number
   fetchImpl?: typeof fetch
 }
-
-const MAX_RERUNS = 3
-const RERUN_DELAY_MS = 60_000
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -101,8 +116,8 @@ export async function raiseSwa(
   options: SwaWaitOptions = {},
 ): Promise<string> {
   const url = swaUrl(config.urlTemplate, prNumber)
-  const maxReruns = options.maxReruns ?? MAX_RERUNS
-  const rerunDelayMs = options.rerunDelayMs ?? RERUN_DELAY_MS
+  const maxReruns = options.maxReruns ?? config.maxReruns
+  const rerunDelayMs = options.rerunDelayMs ?? config.rerunDelayMs
 
   let run = await waitForRun(config.workflow, () => findRun(config.workflow, sha, 'pull_request'), 1, options)
   console.log(`preview-up: ${config.workflow} deployed ${sha.slice(0, 7)} (${run.html_url})`)

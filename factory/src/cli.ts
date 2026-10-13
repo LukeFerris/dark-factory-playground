@@ -20,9 +20,10 @@ import {
   recordMerge,
 } from './merge.ts'
 import { claimCard, sentInBy } from './progress.ts'
-import { refresh, refreshTargets } from './refresh.ts'
+import { refresh, refreshTargets, reportedChecks } from './refresh.ts'
 import { jqlStatus } from './statuses.ts'
 import { validate } from './validate.ts'
+import { acceptTurn } from './accept.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
@@ -201,12 +202,14 @@ program
     console.log(prepareBranch(key, summary))
   })
 
-// The merge, in three subcommands rather than one, because the middle of it runs
-// an agent: `merge-begin` leaves a conflicted merge in the index and describes it
-// in .agent/in/merge.json, the agent resolves it in a step holding nothing but an
-// Anthropic key, and `merge-finish` decides whether what came back is a commit or
-// a question for the card. `.github/actions/merge-main` is the three of them in
-// order and is the only thing that should be calling them.
+// The merge, in pieces rather than one command, because the middle of it runs
+// an agent: `merge-begin` works out whether main merges and describes a conflict
+// in .agent/in/merge.json, the agent resolves it in a job holding nothing but an
+// Anthropic key, and `accept` merges again and has `finishMerge` decide whether
+// what came back is a commit or a question for the card (ADR 0008). turn.yml
+// calls them in that order. `merge-finish` is the same decision for a merge
+// left in this checkout's index, which turn.yml's `prepare` uses to clear a
+// refused one.
 
 program
   .command('merge-begin')
@@ -279,15 +282,52 @@ program
     Number.parseInt(v, 10),
   )
   .requiredOption('--because-title <title>', 'That pull request\'s title')
+  .option('--main <ref>', 'The commit of main to merge, rather than origin/main as fetched now')
+  .option(
+    '--checks <outcome>',
+    'How the checks went on the same merge in another job: "passed", or the command that failed. ' +
+      'Without it they are run here.',
+  )
   .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
-  .action(async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
-    const outcome = await refresh({
-      key,
-      because: { number: opts.becausePr, title: opts.becauseTitle },
-      cfg: jira.configFromEnv(),
-      dryRun: opts.dryRun,
-    })
-    console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+  .action(
+    async (
+      key: string,
+      opts: { becausePr: number; becauseTitle: string; main?: string; checks?: string; dryRun: boolean },
+    ) => {
+      const outcome = await refresh({
+        key,
+        because: { number: opts.becausePr, title: opts.becauseTitle },
+        cfg: jira.configFromEnv(),
+        dryRun: opts.dryRun,
+        ...(opts.main !== undefined ? { main: opts.main } : {}),
+        ...(opts.checks !== undefined ? { checks: reportedChecks(opts.checks) } : {}),
+      })
+      console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+    },
+  )
+
+// The join between the agent's job and the job that publishes it (ADR 0008).
+// The agent job hands over a git bundle and its result; this merges main again
+// here, takes from the agent's merge only the conflicted files, and lays the
+// turn's work on top as uncommitted changes, ready for `validate`.
+program
+  .command('accept')
+  .description("Take an agent job's turn onto the card branch without running any of it.")
+  .requiredOption('--stage <stage>', 'design | build')
+  .requiredOption('--bundle <path>', 'The git bundle the agent job left')
+  .action((opts: { stage: string; bundle: string }) => {
+    const outcome = acceptTurn(parseStage(opts.stage), resolve(opts.bundle))
+    if (outcome.state === 'accepted') {
+      console.log(`accept: the turn is on ${outcome.base.slice(0, 12)}, uncommitted.`)
+      return
+    }
+    console.error(
+      outcome.state === 'merge-unresolved'
+        ? 'accept: the merge from main was not resolved.'
+        : 'accept: REJECTED',
+    )
+    for (const problem of outcome.problems) console.error(`  - ${problem}`)
+    process.exit(outcome.state === 'merge-unresolved' ? EXIT.MERGE : EXIT.VALIDATION)
   })
 
 program

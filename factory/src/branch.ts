@@ -42,10 +42,12 @@ export function branchName(key: string, summary: string): string {
  * applied everywhere you check.
  *
  * `merge-begin` is what does it, and every workflow that calls this calls that
- * immediately afterwards — by way of `.github/actions/merge-main`, which also
- * carries the agent that resolves a conflict. It used to happen here instead,
- * which read better but could not work: resolving a conflict needs a model, a
- * model needs a credential, and a credential needs a workflow step of its own.
+ * immediately afterwards, in turn.yml's `prepare` job. The merge itself then
+ * happens in the agent job, which carries the agent that resolves a conflict,
+ * and again in `publish`, which takes only the resolution (ADR 0008). It used
+ * to happen here instead, which read better but could not work: resolving a
+ * conflict needs a model, a model needs a credential, and a credential needs a
+ * job of its own.
  *
  * The HEAD it settles on is recorded as the turn's base, so everything already
  * on the branch is the turn's inheritance rather than its output — which is what

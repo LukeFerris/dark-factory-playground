@@ -89,11 +89,14 @@ export interface PublishOptions {
  * A repository with workspaces, like this one, keeps every workspace's
  * dependencies in the root lockfile, so all of them are resolved. One without
  * has a single package at the root, and `--workspaces` would fail there.
+ *
+ * It runs in a job that holds tokens, on a package.json the agent may have
+ * written, so no script in it runs (ADR 0008).
  */
 export function lockfileArgs(root: string = REPO_ROOT): string[] {
   const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { workspaces?: unknown }
   const workspaces = Array.isArray(manifest.workspaces) ? manifest.workspaces.length > 0 : manifest.workspaces != null
-  return ['install', '--package-lock-only', ...(workspaces ? ['--workspaces', '--include-workspace-root'] : [])]
+  return ['install', '--package-lock-only', '--ignore-scripts', ...(workspaces ? ['--workspaces', '--include-workspace-root'] : [])]
 }
 
 /**

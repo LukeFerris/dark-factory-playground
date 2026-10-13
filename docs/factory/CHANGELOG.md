@@ -9,6 +9,31 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-13
 
+### Code the agent touched never shares a job with a token
+
+The agent ran in a step with only the Anthropic key, and the App and Jira
+tokens were in other steps of the same job. A build agent runs its own tests
+and `npm ci`, and a hosted runner gives that code passwordless `sudo`, so it
+could read the later steps' tokens. Refresh ran the card's checks beside the
+same tokens, and `build-setup.yml` ran the factory from the PR.
+
+A turn is now `turn.yml`, called by `design.yml`, `build-start.yml` and
+`build-turn.yml`, in six jobs. The trusted ones (`prepare`, `publish`,
+`preview`, `report`) hold the tokens, run the factory from main with the card
+in `card/` (`FACTORY_REPO_ROOT`), and run none of the card's code. The
+untrusted ones (`agent`, `walkthrough`) run it, and hold the Anthropic key or
+nothing. The agent job hands its turn over as a git bundle, and the new
+`factory accept` merges main again, takes only the conflicted files from the
+agent's merge, and applies the work for `validate` and `publish` to judge.
+`.github/actions/merge-main` is gone.
+
+Refresh is split the same way into `refresh-card.yml`: a `checks` job with no
+secrets, and a `refresh` job that takes its outcome (`--checks`) and merges the
+same commit of main (`--main`). `build-setup.yml` and `build-teardown.yml` run
+the factory from main. No workflow uses `cache: npm`, since an agent job on
+main could write the cache. `publish` regenerates the lockfile with
+`--ignore-scripts`. See ADR 0008, which also lists what is still not bounded.
+
 ### Previews and production a repository deploys itself
 
 A repository that already deploys a preview of every PR, and production on

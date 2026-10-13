@@ -98,11 +98,11 @@ describe('lockfileArgs', () => {
 
   it('resolves every workspace when there are workspaces', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['app', 'factory'] }))
-    expect(lockfileArgs(dir)).toEqual(['install', '--package-lock-only', '--workspaces', '--include-workspace-root'])
+    expect(lockfileArgs(dir)).toEqual(['install', '--package-lock-only', '--ignore-scripts', '--workspaces', '--include-workspace-root'])
   })
 
   it('resolves the root package alone when there are none', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'app' }))
-    expect(lockfileArgs(dir)).toEqual(['install', '--package-lock-only'])
+    expect(lockfileArgs(dir)).toEqual(['install', '--package-lock-only', '--ignore-scripts'])
   })
 })

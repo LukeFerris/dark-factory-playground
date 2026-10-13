@@ -1,6 +1,8 @@
 # 1. Factory architecture
 
-- **Status:** Accepted
+- **Status:** Accepted. The credential boundary is amended by
+  [0008](0008-code-the-agent-touched-never-shares-a-job-with-a-token.md): it is
+  the job, not the step.
 - **Date:** 2026-09-21
 - **Context:** Initial build of `dark-factory-playground`
 

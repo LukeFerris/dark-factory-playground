@@ -7,18 +7,19 @@ does and what it takes to turn them on.
 
 ## When the preview is raised
 
-Every backend is raised by the turn that produced the code, in a second job of
-the same workflow run:
+Every backend is raised by the turn that produced the code, in a job of the
+same workflow run (`turn.yml`, called by `build-start.yml` and
+`build-turn.yml`):
 
 | Where | Effect |
 | --- | --- |
-| `build-start.yml`, job `preview` | Raise the preview, post the kickoff comment, then report |
-| `build-turn.yml`, job `preview` | Re-raise it at the new commit, then report |
+| `turn.yml`, job `preview`, first build turn | Raise the preview; `report` then posts the kickoff comment and reports |
+| `turn.yml`, job `preview`, later build turns | Re-raise it at the new commit; `report` then reports |
 | `build-teardown.yml` on `pull_request: closed` | Tear it down |
 | `build-setup.yml` on `workflow_dispatch` | Manual retry, when a `preview` job failed |
 
-The ordering is the point. `report` is the last step of the `preview` job, so
-the card only reaches *In review* — which is an instruction to a human to go
+The ordering is the point. The `report` job waits for `preview`, so the card
+only reaches *In review* — which is an instruction to a human to go
 and look — once the preview serving that turn's code has answered. The Jira
 comment carries the link for the same reason: by the time it is written, there
 is a link to carry.
@@ -35,9 +36,9 @@ on its own. Run `build-setup.yml` for that. Both backends are idempotent for a
 given PR number, so a retry is safe.
 
 The credentials that deploy — `packages: write`, `deployments: write`, Azure
-OIDC — live on the `preview` job, never on the job that runs the agent. Jobs
-carry their own `permissions:` block, so that boundary is exactly as strong as
-the separate workflow it replaced. See `SECURITY.md`.
+OIDC — live on the `preview` job, never on a job that runs the agent or the card's
+code. Jobs carry their own `permissions:` block, so that boundary is exactly as
+strong as the separate workflow it replaced. See `SECURITY.md` and ADR 0008.
 
 ## Backend: `ghcr` (default)
 
@@ -239,7 +240,9 @@ The factory builds nothing. `preview-up` waits for the repository's workflow to
 finish on the commit the turn pushed, and hands back that preview's URL. If the
 deployed site still contains a marker that says it was built too early (for
 example, before its database branch existed), it runs the workflow again, up to
-three times. `preview-down` does nothing: the repository's workflow closes its
+three times a minute apart unless told otherwise. A Supabase preview branch
+takes about 13 minutes to come up, so a repository whose bundle waits on one
+wants something like 10 reruns two minutes apart. `preview-down` does nothing: the repository's workflow closes its
 own staging environment when the PR closes.
 
 | Variable | Example |
@@ -248,6 +251,8 @@ own staging environment when the PR closes.
 | `SWA_PREVIEW_WORKFLOW` | `azure-static-web-apps.yml` |
 | `SWA_PREVIEW_URL` | `https://gentle-forest-0cd2b7603-{pr}.westeurope.7.azurestaticapps.net` |
 | `SWA_PREVIEW_NOT_READY` (optional) | `preview-not-found` |
+| `SWA_PREVIEW_MAX_RERUNS` (optional, default 3) | `10` |
+| `SWA_PREVIEW_RERUN_DELAY_SECONDS` (optional, default 60) | `120` |
 
 The preview job needs `actions: write` to run the workflow again. The workflow
 runs because the factory pushes with the App's token; a push with the
