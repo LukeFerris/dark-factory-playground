@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ghRunner, setRunner, type Runner } from './github.ts'
 import {
   MAX_RETRIES,
-  VERIFY_LABEL,
   decide,
   failureReport,
   readChecks,
   readVerdict,
   requiredChecks,
   verify,
+  verifyWorkflows,
   writeVerdict,
   type Verdict,
 } from './verify.ts'
@@ -25,8 +25,8 @@ interface Repo {
   runs?: unknown[] | (() => unknown[])
   statuses?: unknown[]
   logs?: Record<number, string>
-  /** Labels the repository has. Adding one it lacks fails, as `gh` does. */
-  labels?: string[]
+  /** Workflows the repository has. Dispatching any other fails, as `gh` does. */
+  workflows?: string[]
 }
 
 let calls: string[][]
@@ -45,7 +45,7 @@ afterEach(() => {
 
 /** A stand-in for `gh`, answering the calls `verify` makes. */
 function stub(repo: Repo): void {
-  const labels = new Set(repo.labels ?? [VERIFY_LABEL])
+  const workflows = new Set(repo.workflows ?? ['e2e.yml'])
   const runner: Runner = (args, _input, env) => {
     calls.push(args)
     tokens.push(env?.['GH_TOKEN'])
@@ -54,16 +54,11 @@ function stub(repo: Repo): void {
       stdout: typeof out === 'string' ? out : JSON.stringify(out),
       stderr: '',
     })
-    if (args[0] === 'pr' && args[1] === 'edit') {
-      const label = args[args.length - 1] ?? ''
-      if (args.includes('--add-label') && !labels.has(label)) {
-        return { status: 1, stdout: '', stderr: `'${label}' not found` }
-      }
-      return ok('')
-    }
-    if (args[0] === 'label' && args[1] === 'create') {
-      labels.add(args[2] ?? '')
-      return ok('')
+    if (args[0] === 'pr' && args[1] === 'view') return ok({ headRefName: 'card/DF-1-thing' })
+    if (args[0] === 'workflow' && args[1] === 'run') {
+      return workflows.has(args[2] ?? '')
+        ? ok('')
+        : { status: 1, stdout: '', stderr: `could not find any workflows named ${args[2]}` }
     }
     const path = args[1] ?? ''
     if (path.endsWith('/rules/branches/main')) return ok(repo.rules ?? [])
@@ -110,7 +105,7 @@ describe('the checks main requires', () => {
 })
 
 describe('where each check stands', () => {
-  it('takes the newest run of a name, so a skipped draft run cannot stand for the one the label started', () => {
+  it('takes the newest run of a name, so a skipped draft run cannot stand for the one verify started', () => {
     stub({ runs: [run(1, 'e2e', 'completed', 'skipped'), run(2, 'e2e', 'in_progress', null)] })
     expect(readChecks(SHA, ['e2e'])[0]).toMatchObject({ state: 'pending' })
   })
@@ -180,40 +175,75 @@ describe('verify', () => {
     expect((await verify({ pr: 7, sha: SHA, ...FAST })).outcome).toBe('timeout')
   })
 
-  it('takes its label off and puts it back on, so `labeled` fires, and takes it off again at the end', async () => {
-    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'completed', 'success')] })
-    await verify({ pr: 7, sha: SHA, ...FAST })
-    const edits = calls.filter((c) => c[0] === 'pr' && c[1] === 'edit').map((c) => c.slice(-2))
-    expect(edits).toEqual([
-      ['--remove-label', VERIFY_LABEL],
-      ['--add-label', VERIFY_LABEL],
-      ['--remove-label', VERIFY_LABEL],
+  it("dispatches each workflow on the pull request's branch, with its number", async () => {
+    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'completed', 'success')], workflows: ['e2e.yml', 'slow.yml'] })
+    await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml', 'slow.yml'] })
+    expect(calls.filter((c) => c[0] === 'workflow')).toEqual([
+      ['workflow', 'run', 'e2e.yml', '--repo', 'o/r', '--ref', 'card/DF-1-thing', '-f', 'pr=7'],
+      ['workflow', 'run', 'slow.yml', '--repo', 'o/r', '--ref', 'card/DF-1-thing', '-f', 'pr=7'],
     ])
   })
 
-  it("reads the checks with GH_CHECKS_TOKEN, and leaves the label to the App's own token", async () => {
+  it('takes its workflows from FACTORY_VERIFY_WORKFLOWS', () => {
+    process.env['FACTORY_VERIFY_WORKFLOWS'] = ' e2e-tests.yml, ,slow.yml '
+    try {
+      expect(verifyWorkflows()).toEqual(['e2e-tests.yml', 'slow.yml'])
+    } finally {
+      delete process.env['FACTORY_VERIFY_WORKFLOWS']
+    }
+    expect(verifyWorkflows()).toEqual([])
+  })
+
+  it('does not take a run skipped before it asked as passing, and waits for the one it started', async () => {
+    let polls = 0
+    const before = { completed_at: '2026-01-01T00:00:00Z' }
+    stub({
+      rules: [rule('e2e')],
+      runs: () =>
+        ++polls < 3
+          ? [run(1, 'e2e', 'completed', 'skipped', before)]
+          : [run(1, 'e2e', 'completed', 'skipped', before), run(2, 'e2e', 'completed', 'failure', { completed_at: new Date().toISOString() })],
+    })
+    const verdict = await verify({ pr: 7, sha: SHA, ...FAST, budgetMs: 10_000, workflows: ['e2e.yml'] })
+    expect(verdict.outcome).toBe('red')
+    expect(polls).toBe(3)
+  })
+
+  it('takes a run skipped after it asked as passing, as when the change is nothing the suite looks at', async () => {
+    stub({ rules: [rule('e2e')], runs: () => [run(2, 'e2e', 'completed', 'skipped', { completed_at: new Date(Date.now() + 1000).toISOString() })] })
+    expect((await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })).outcome).toBe('green')
+  })
+
+  it('times out, calling the old skip stale, when what it started never reports', async () => {
+    stub({ rules: [rule('e2e')], runs: [run(1, 'e2e', 'completed', 'skipped', { completed_at: '2026-01-01T00:00:00Z' })] })
+    const verdict = await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })
+    expect(verdict.outcome).toBe('timeout')
+    expect(verdict.checks[0]?.state).toBe('stale')
+  })
+
+  it('carries on when a workflow cannot be started, and lets the wait say so', async () => {
+    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'completed', 'success')], workflows: [] })
+    expect((await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['gone.yml'] })).outcome).toBe('green')
+  })
+
+  it("reads the checks with GH_CHECKS_TOKEN, and leaves the dispatch to the App's own token", async () => {
     process.env['GH_CHECKS_TOKEN'] = 'read-only'
     try {
       stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'completed', 'success')] })
-      await verify({ pr: 7, sha: SHA, ...FAST })
+      await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })
     } finally {
       delete process.env['GH_CHECKS_TOKEN']
     }
+    expect(calls.some((c) => c[0] === 'workflow')).toBe(true)
     calls.forEach((args, i) => {
       expect(tokens[i]).toBe(args[0] === 'api' ? 'read-only' : undefined)
     })
   })
 
-  it('creates the label in a repository that has never had it', async () => {
-    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'completed', 'success')], labels: [] })
-    expect((await verify({ pr: 7, sha: SHA, ...FAST })).outcome).toBe('green')
-    expect(calls.some((c) => c[0] === 'label' && c[1] === 'create' && c[2] === VERIFY_LABEL)).toBe(true)
-  })
-
-  it('is green at once, and labels nothing, when main requires no checks', async () => {
+  it('is green at once, and starts nothing, when main requires no checks', async () => {
     stub({})
-    expect(await verify({ pr: 7, sha: SHA, ...FAST })).toEqual({ outcome: 'green', sha: SHA, checks: [] })
-    expect(calls.some((c) => c[0] === 'pr')).toBe(false)
+    expect(await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })).toEqual({ outcome: 'green', sha: SHA, checks: [] })
+    expect(calls.some((c) => c[0] === 'workflow' || c[0] === 'pr')).toBe(false)
   })
 })
 

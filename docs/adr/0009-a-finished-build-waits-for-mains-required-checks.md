@@ -30,10 +30,18 @@ keeps it a draft on every build turn. Expensive suites can skip drafts.
 
 **The turn asks for the full run when the agent says it is done.** A trusted
 `verify` job, beside the preview and the walkthrough, runs only for a build
-turn that validated and ended `ready_for_review`. It puts the `factory:verify`
-label on the PR, which a draft-skipping suite runs on, and waits for every check
-main requires (from its rulesets and classic protection) on the pushed commit.
-It writes a verdict: green, red or timeout.
+turn that validated and ended `ready_for_review`. It dispatches the workflows
+named in `FACTORY_VERIFY_WORKFLOWS` on the PR's branch, so a draft-skipping
+suite runs once, and waits for every check main requires (from its rulesets and
+classic protection) on the pushed commit. It writes a verdict: green, red or
+timeout. A run skipped before the dispatch does not count as passing until a
+newer run replaces it.
+
+**A dispatch, not a label.** The first version labelled the PR `factory:verify`
+for suites to run on `pull_request: labeled`. But such a workflow runs on every
+label anyone adds, skips on the ones that are not the factory's, and a skipped
+run newer than a failed one passes branch protection. Adding a label would have
+made a red PR mergeable.
 
 **`report` acts on the verdict.** Green marks the PR ready and moves the card to
 *In review*. Red starts another build turn, up to two in a row, and the next
@@ -62,9 +70,13 @@ permission.
   by a job that holds only the Anthropic key.
 - Nothing about a failure is posted on the PR, because `gather` counts the
   factory's PR comments as turns. The next turn reads the checks afresh instead.
-- A repository whose required suites skip drafts must also run them on
-  `pull_request: labeled` with `factory:verify`. One that does not will time
-  out every finished build. A suite that also runs on `ready_for_review` will
-  run a second time once the factory marks the PR ready.
+- A repository whose required suites skip drafts must name them in
+  `FACTORY_VERIFY_WORKFLOWS` and let them run on `workflow_dispatch`. One that
+  does not will time out every finished build. A suite that also runs on
+  `ready_for_review` runs a second time once the factory marks the PR ready,
+  unless it skips a commit it has already passed.
+- A dispatched run tests the branch's head, not the merge with main that a
+  `pull_request` run tests. Every turn merges main first, and `refresh` merges
+  it again whenever main moves, so the two differ only between those.
 - A design turn is unchanged: it still marks its PR ready when the design is
   done, and design PRs are not gated.

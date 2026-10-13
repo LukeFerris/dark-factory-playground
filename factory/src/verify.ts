@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { addLabel, gh, ghJson, removeLabel, repoSlug } from './github.ts'
+import { dispatchWorkflow, gh, ghJson, repoSlug } from './github.ts'
 import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
 
 /**
@@ -16,21 +16,30 @@ import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
  * Without it a card reaches In review whatever the checks say, and the first
  * person to learn that the suite is red is the reviewer.
  *
- * The label is for repositories whose expensive checks skip drafts, as
- * Workbench's end-to-end suite does. Adding it with the App token fires
- * `pull_request: labeled`, and a workflow that runs on that and on drafts
- * carrying the label gets the full suite once per finished turn, not on every
- * push the agent makes on the way there.
+ * `FACTORY_VERIFY_WORKFLOWS` is for repositories whose expensive checks skip
+ * drafts, as Workbench's end-to-end suite does. `verify` dispatches each one on
+ * the pull request's branch, with the App token, so the full suite runs once
+ * per finished turn rather than on every push the agent makes on the way
+ * there. A dispatch, not a label: a workflow that listened for
+ * `pull_request: labeled` would also run, and skip, on every other label
+ * anyone put on any pull request, and a skipped run newer than a failed one
+ * passes branch protection.
  */
 
-export const VERIFY_LABEL = 'factory:verify'
+/** The workflows `verify` dispatches, from `FACTORY_VERIFY_WORKFLOWS`. */
+export function verifyWorkflows(): string[] {
+  return (process.env['FACTORY_VERIFY_WORKFLOWS'] ?? '')
+    .split(',')
+    .map((w) => w.trim())
+    .filter((w) => w !== '')
+}
 
 /**
  * The token the checks are read with: `GH_CHECKS_TOKEN` when it is set, which
  * in the workflows is the job's own GITHUB_TOKEN granted `checks`, `statuses`
  * and `actions` read. The App is given none of those. It needs none of them
  * for anything else, and everything here is a read, which GITHUB_TOKEN does as
- * well as the App does. Writes, the label and the draft, stay with the App.
+ * well as the App does. Writes, the dispatch and the draft, stay with the App.
  */
 function reader(): Record<string, string> | undefined {
   const token = process.env['GH_CHECKS_TOKEN']
@@ -43,7 +52,11 @@ export const MAX_RETRIES = 2
 /** Where `verify` writes its verdict, and where `report` reads it. */
 export const VERIFY_PATH = resolve(AGENT_OUT, 'verify.json')
 
-export type CheckState = 'pass' | 'fail' | 'pending' | 'missing'
+/**
+ * `stale` is a run skipped before `verify` asked for the full suite: the
+ * draft's push skipping it, not an answer to the question asked.
+ */
+export type CheckState = 'pass' | 'fail' | 'pending' | 'missing' | 'stale'
 
 export interface CheckResult {
   name: string
@@ -70,6 +83,7 @@ interface CheckRun {
   status: string
   conclusion: string | null
   html_url: string | null
+  completed_at?: string | null
   app?: { slug?: string } | null
   output?: { title?: string | null; summary?: string | null } | null
 }
@@ -136,7 +150,7 @@ function commitStatuses(sha: string): CommitStatus[] {
 
 /**
  * The newest check run of a name, by id, not the first the API lists. A
- * draft's push can leave a skipped run of a check that the label then starts
+ * draft's push can leave a skipped run of a check that `verify` then starts
  * again on the same commit, and the skipped one must not stand for it.
  */
 function newestRun(runs: CheckRun[], name: string): CheckRun | null {
@@ -151,8 +165,13 @@ const PASSING = new Set(['success', 'neutral', 'skipped'])
 /**
  * Where each required check stands on `sha`: its newest check run, or failing
  * that its commit status, which is how some integrations still report.
+ *
+ * Given `askedAt`, when `verify` dispatched the full suite, a run that was
+ * skipped before then is `stale`, not passing, until a newer run replaces it.
+ * Otherwise the draft push's skipped run would pass the gate in the moments
+ * before the dispatched run's job exists.
  */
-export function readChecks(sha: string, required: string[]): CheckResult[] {
+export function readChecks(sha: string, required: string[], askedAt?: number): CheckResult[] {
   const runs = checkRuns(sha)
   const statuses = commitStatuses(sha)
 
@@ -163,6 +182,10 @@ export function readChecks(sha: string, required: string[]): CheckResult[] {
         return { name, state: 'pending', conclusion: null, url: run.html_url }
       }
       const conclusion = run.conclusion ?? 'unknown'
+      const finished = run.completed_at == null ? Number.NaN : Date.parse(run.completed_at)
+      if (askedAt !== undefined && conclusion === 'skipped' && !(finished >= askedAt)) {
+        return { name, state: 'stale', conclusion, url: run.html_url }
+      }
       return { name, state: PASSING.has(conclusion) ? 'pass' : 'fail', conclusion, url: run.html_url }
     }
 
@@ -178,43 +201,41 @@ export function readChecks(sha: string, required: string[]): CheckResult[] {
 }
 
 /**
- * Takes the label off if it is there, then puts it on, so that `labeled` fires
- * even when a run that died mid-wait left it behind. Creates the label the
- * first time, so a repository needs no setup for it.
+ * Starts each of `workflows` on the pull request's branch, with the pull
+ * request's number as `pr`. A workflow that cannot be started is a warning,
+ * not the end: its checks then go unanswered and the wait times out, which
+ * says so on the card.
  */
-function applyLabel(pr: number): void {
-  try {
-    removeLabel(pr, VERIFY_LABEL)
-  } catch {
-    // Not on the pull request, or not in the repository yet. Either is fine.
-  }
-  try {
-    addLabel(pr, VERIFY_LABEL)
-  } catch {
-    gh([
-      'label',
-      'create',
-      VERIFY_LABEL,
-      '--repo',
-      repoSlug(),
-      '--color',
-      'fbca04',
-      '--description',
-      "The factory is waiting on this PR's required checks",
-      '--force',
-    ])
-    addLabel(pr, VERIFY_LABEL)
+function dispatch(pr: number, workflows: string[]): void {
+  const branch = ghJson<{ headRefName: string }>([
+    'pr',
+    'view',
+    String(pr),
+    '--repo',
+    repoSlug(),
+    '--json',
+    'headRefName',
+  ]).headRefName
+  for (const workflow of workflows) {
+    try {
+      dispatchWorkflow(workflow, { pr: String(pr) }, branch)
+      console.log(`verify: started ${workflow} on ${branch}`)
+    } catch (error) {
+      console.error(`::warning::could not start ${workflow} on ${branch}: ${(error as Error).message}`)
+    }
   }
 }
 
 export interface VerifyOptions {
   pr: number
   sha: string
+  /** Workflows to dispatch first. `verifyWorkflows()` by default. */
+  workflows?: string[]
   /** How long to wait for every required check to finish. */
   budgetMs?: number
   /**
-   * How long to give GitHub to start the runs the label sets off, before
-   * anything already finished is believed.
+   * How long to give GitHub to start the runs the push and the dispatch set
+   * off, before anything already finished is believed.
    */
   settleMs?: number
   gapMs?: number
@@ -240,29 +261,27 @@ export async function verify(options: VerifyOptions): Promise<Verdict> {
   }
   console.log(`verify: main requires ${required.join(', ')}`)
 
-  applyLabel(options.pr)
-  try {
-    await sleep(settleMs)
-    const started = Date.now()
-    for (;;) {
-      const checks = readChecks(options.sha, required)
-      const waiting = checks.filter((c) => c.state === 'pending' || c.state === 'missing')
-      if (waiting.length === 0) {
-        const outcome = checks.some((c) => c.state === 'fail') ? 'red' : 'green'
-        return { outcome, sha: options.sha, checks }
-      }
-      if (Date.now() - started >= budgetMs) {
-        return { outcome: 'timeout', sha: options.sha, checks }
-      }
-      console.log(`verify: waiting on ${waiting.map((c) => c.name).join(', ')}`)
-      await sleep(gapMs)
+  const workflows = options.workflows ?? verifyWorkflows()
+  let askedAt: number | undefined
+  if (workflows.length > 0) {
+    askedAt = Date.now()
+    dispatch(options.pr, workflows)
+  }
+
+  await sleep(settleMs)
+  const started = Date.now()
+  for (;;) {
+    const checks = readChecks(options.sha, required, askedAt)
+    const waiting = checks.filter((c) => c.state === 'pending' || c.state === 'missing' || c.state === 'stale')
+    if (waiting.length === 0) {
+      const outcome = checks.some((c) => c.state === 'fail') ? 'red' : 'green'
+      return { outcome, sha: options.sha, checks }
     }
-  } finally {
-    try {
-      removeLabel(options.pr, VERIFY_LABEL)
-    } catch (error) {
-      console.error(`::warning::could not take ${VERIFY_LABEL} off PR #${options.pr}: ${(error as Error).message}`)
+    if (Date.now() - started >= budgetMs) {
+      return { outcome: 'timeout', sha: options.sha, checks }
     }
+    console.log(`verify: waiting on ${waiting.map((c) => c.name).join(', ')}`)
+    await sleep(gapMs)
   }
 }
 

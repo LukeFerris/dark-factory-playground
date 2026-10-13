@@ -250,7 +250,13 @@ function gateSection(gate: Gate): adf.AdfNode[] {
     adf.bulletList(
       notPassing.map((c) => {
         const said =
-          c.state === 'pending' ? 'still running' : c.state === 'missing' ? 'never reported' : (c.conclusion ?? 'failed')
+          c.state === 'pending'
+            ? 'still running'
+            : c.state === 'missing'
+              ? 'never reported'
+              : c.state === 'stale'
+                ? 'skipped on the push, and never run again when asked'
+                : (c.conclusion ?? 'failed')
         const inline: adf.AdfNode[] = [adf.strong(c.name), adf.text(` — ${said}`)]
         if (c.url !== null && c.url !== '') inline.push(adf.text(' ('), adf.link('details', c.url), adf.text(')'))
         return inline

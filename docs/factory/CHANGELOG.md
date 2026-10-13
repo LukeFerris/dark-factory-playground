@@ -16,8 +16,9 @@ card to *In review* straight after pushing, before any check had run on that
 push. A reviewer could find a red PR on a card that said it was ready.
 
 Build turns now keep the PR a draft. A new trusted job in `turn.yml`, `verify`,
-labels the PR `factory:verify` so draft-skipping suites run, and waits for
-main's required checks on the pushed commit (`factory verify`). `report` reads
+dispatches the workflows in `FACTORY_VERIFY_WORKFLOWS` so draft-skipping suites
+run, and waits for main's required checks on the pushed commit
+(`factory verify`). `report` reads
 the verdict: green marks the PR ready and moves the card to *In review*; red
 dispatches another build turn, up to two (`build-turn.yml`'s new `retry`
 input); anything else goes to *Blocked on engineer*. `gather` gives a

@@ -66,8 +66,8 @@ an hour, and is never minted in a job that runs card code.
 
 `verify` runs no card code and checks nothing out but main. It reads check runs,
 statuses and job logs with the job's own `GITHUB_TOKEN`, read-only, so the App
-needed no new permission; the App token only labels the PR and, in `report`,
-marks it ready or dispatches the next turn. What it decides is limited the same
+needed no new permission; the App token only dispatches the slow suites and,
+in `report`, marks the PR ready or dispatches the next turn. What it decides is limited the same
 way: a red verdict can buy at most two more build turns, counted by a workflow
 input that only `report` sets, and a human-granted turn is the only way past
 that. The agent cannot pass its own gate by editing the checks: the workflows

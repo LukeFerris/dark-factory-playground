@@ -373,8 +373,8 @@ PR in draft until main's required checks pass on its commit (see
 required checks*). The turn's `verify` job is the one waiting; its log prints
 each check as it stands.
 
-**The card is still in *Building* and the PR has the `factory:verify` label.**
-Checks are running. `verify` gives up after `FACTORY_VERIFY_TIMEOUT_MINUTES`
+**The card is still in *Building* with a draft PR, and the turn's run is still
+going.** Checks are running. `verify` gives up after `FACTORY_VERIFY_TIMEOUT_MINUTES`
 (a repository variable, 60 by default), minus five for the report. Raise it if
 the slowest required suite regularly takes longer.
 
@@ -389,13 +389,12 @@ Two automatic turns did not fix it, or the checks did not finish in time, or
 start another turn — a human-granted turn starts the retry count again — or fix
 the check by hand and comment once it is green.
 
-**The label is left on a PR.** `verify` takes it off in a `finally`, so this
-means the runner died. Remove it; nothing reads it except workflows that skip
-drafts.
-
-**A slow suite never runs.** A workflow that skips drafts has to list `labeled`
-in its `pull_request` types and run when the label is `factory:verify`, or
-`verify` waits for a check that never starts and times out.
+**A slow suite never runs, and the card says "skipped on the push, and never
+run again when asked".** A required workflow that skips drafts has to be named
+in `FACTORY_VERIFY_WORKFLOWS` (a repository variable, comma-separated file
+names), and has to accept `workflow_dispatch` with a `pr` input and run when
+dispatched. Otherwise `verify` waits for a run that never starts, and times
+out. The `verify` job's log says whether each dispatch was accepted.
 
 ---
 

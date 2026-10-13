@@ -683,9 +683,9 @@ jobs:
   # Trusted, and the lightest job here: API calls, and nothing of the card's
   # checked out at all. It reads the checks with its own token, granted read
   # on them below; the App is given no access to checks and needs none. The
-  # App token is for the label alone, factory:verify, which it puts on while
-  # it waits so that `labeled` fires, for a repository whose expensive checks
-  # skip drafts until asked.
+  # App token is for the dispatch alone: it starts FACTORY_VERIFY_WORKFLOWS on
+  # the card's branch, for a repository whose expensive checks skip drafts
+  # until asked.
   verify:
     needs: [publish]
     if: ${{ !cancelled() && inputs.stage == 'build' && needs.publish.outputs.validated == 'success' && needs.publish.outputs.pr != '' && needs.publish.outputs.status == 'ready_for_review' }}
@@ -700,6 +700,7 @@ jobs:
       PR: ${{ needs.publish.outputs.pr }}
       SHA: ${{ needs.publish.outputs.sha }}
       FACTORY_VERIFY_TIMEOUT_MINUTES: ${{ vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60' }}
+      FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:

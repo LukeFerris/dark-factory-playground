@@ -114,13 +114,14 @@ export function findPrForCard(key: string): (PullRequest & { headRefName: string
  * environment: a dispatch made with GITHUB_TOKEN is accepted and then quietly
  * does nothing, which is why every caller runs under the App token.
  */
-export function dispatchWorkflow(workflow: string, inputs: Record<string, string>): void {
+export function dispatchWorkflow(workflow: string, inputs: Record<string, string>, ref?: string): void {
   gh([
     'workflow',
     'run',
     workflow,
     '--repo',
     repoSlug(),
+    ...(ref === undefined ? [] : ['--ref', ref]),
     ...Object.entries(inputs).flatMap(([name, value]) => ['-f', `${name}=${value}`]),
   ])
 }
@@ -156,10 +157,6 @@ export function setPrTitle(number: number, title: string): void {
 
 export function addLabel(number: number, label: string): void {
   gh(['pr', 'edit', String(number), '--repo', repoSlug(), '--add-label', label])
-}
-
-export function removeLabel(number: number, label: string): void {
-  gh(['pr', 'edit', String(number), '--repo', repoSlug(), '--remove-label', label])
 }
 
 export function markReady(number: number): void {

@@ -90,7 +90,7 @@ for name in JIRA_BASE JIRA_BOT_EMAIL JIRA_PROJECT_KEY FACTORY_APP_ID FACTORY_BOT
 done
 
 have_labels="$(gh api "repos/$REPO_SLUG/labels" --jq '[.[].name]' 2>/dev/null || printf '[]')"
-for name in 'factory:active' 'factory:design' 'factory:build' 'factory:verify'; do
+for name in 'factory:active' 'factory:design' 'factory:build'; do
   if printf '%s' "$have_labels" | jq -e --arg n "$name" 'index($n)' >/dev/null; then
     ok "label $name"
   else

@@ -4,7 +4,7 @@ name: factory build turn
 # is off by design: the agent never grants itself the next turn, so a runaway
 # loop costs one turn, not a night.
 #
-# One way in: `workflow_dispatch`, with the card's key. Three things send it:
+# One way in: `workflow_dispatch`, with the card's key. Four things send it:
 #
 #   build-comment.yml  a person commented on the pull request. The guards on
 #                      who may grant a turn live there, along with the lookup

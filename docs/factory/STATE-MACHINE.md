@@ -383,16 +383,24 @@ preview and the walkthrough, and only on a build turn that validated and ended
 `ready_for_review`. It:
 
 1. reads the required checks from main's rulesets and classic protection, both;
-2. labels the PR `factory:verify` (removing it first, so `pull_request: labeled`
-   fires every time; the label is created if the repository lacks it). A
-   workflow that skips drafts runs on that label instead;
+2. dispatches each workflow named in `FACTORY_VERIFY_WORKFLOWS` on the PR's
+   branch, with the PR's number as `pr`. This is how a suite that skips drafts
+   gets its one full run;
 3. waits for every required check on the pushed commit — the newest run of each
    name, falling back to commit statuses — until all have finished or the budget
    (`FACTORY_VERIFY_TIMEOUT_MINUTES`, 60 by default) runs out;
-4. takes the label off, and writes a verdict: **green**, **red** or **timeout**.
+4. writes a verdict: **green**, **red** or **timeout**.
 
 `success`, `neutral` and `skipped` count as passing, as they do for branch
-protection. A check that never reported counts as not finished. When main
+protection, with one exception: once `verify` has dispatched something, a run
+that was skipped *before* it did is the draft push's skip, and counts as not
+finished until a newer run replaces it. A check that never reported counts as
+not finished too.
+
+It is a dispatch rather than a label on purpose. A workflow listening for
+`pull_request: labeled` runs on *every* label anyone adds to any PR, and on a
+label that is not the factory's it would skip — and a skipped run newer than a
+failed one passes branch protection. When main
 requires no checks at all, the verdict is green at once.
 
 **`report` acts on the verdict:**
