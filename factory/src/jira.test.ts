@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import * as jira from './jira.ts'
+import { STATUS_NAMES, configPath, resetStatusIds } from './statuses.ts'
 
 const BASE = 'https://example.atlassian.net'
 const cfg: jira.JiraConfig = { base: BASE, user: 'me@example.com', token: 'token' }
@@ -50,6 +51,38 @@ describe('transitionTo', () => {
 
     await jira.transitionTo(cfg, 'DF-1', 'design review')
     expect(posted).toEqual({ transition: { id: '31' } })
+  })
+
+  // A team-managed column renamed on the board renames its status. With the
+  // ids pinned, the move still finds it, and a status that has taken the old
+  // name does not catch the card.
+  it('goes by status id when enki.json pins one', async () => {
+    const ids = Object.fromEntries(STATUS_NAMES.map((name, i) => [name, String(10050 + i)]))
+    writeFileSync(configPath(), JSON.stringify({ jira: { statuses: ids } }))
+    resetStatusIds()
+    let posted: unknown = null
+    server.use(
+      http.get(`${BASE}/rest/api/3/issue/DF-1/transitions`, () =>
+        HttpResponse.json({
+          transitions: [
+            { id: '41', name: 'x', to: { id: '20000', name: 'Design review' } },
+            { id: '51', name: 'y', to: { id: '10053', name: 'Ready to look at' } },
+          ],
+        }),
+      ),
+      http.post(`${BASE}/rest/api/3/issue/DF-1/transitions`, async ({ request }) => {
+        posted = await request.json()
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    try {
+      await jira.transitionTo(cfg, 'DF-1', 'Design review')
+    } finally {
+      rmSync(configPath(), { force: true })
+      resetStatusIds()
+    }
+    expect(posted).toEqual({ transition: { id: '51' } })
   })
 
   it('throws JiraTransitionError when the status is not reachable', async () => {
@@ -407,7 +440,13 @@ describe('changelog', () => {
       ),
     )
     const [moved, labelled] = await jira.changelog(cfg, 'DF-3')
-    expect(moved?.items[0]).toEqual({ field: 'status', to: '400', toString: 'Building', fromString: 'In review' })
+    expect(moved?.items[0]).toEqual({
+      field: 'status',
+      to: '400',
+      toString: 'Building',
+      from: '10016',
+      fromString: 'In review',
+    })
     expect(labelled?.items[0]?.fromString).toBeNull()
   })
 })

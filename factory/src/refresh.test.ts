@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
@@ -14,6 +14,7 @@ import {
   refusedComment,
   type Trigger,
 } from './refresh.ts'
+import { STATUS_NAMES, configPath, resetStatusIds } from './statuses.ts'
 
 /**
  * The half of the fan-out that does not drive git.
@@ -129,6 +130,28 @@ describe('choosing which cards a merge invalidated', () => {
     prs([{ number: 60, headRefName: 'card/DF-41-something-else' }])
 
     expect(await refreshTargets(cfg, 'DF')).toEqual([])
+  })
+
+  // So that renaming "In review" on the board does not stop refreshes.
+  it('searches for In review by id when enki.json pins it', async () => {
+    const ids = Object.fromEntries(STATUS_NAMES.map((name, i) => [name, String(10050 + i)]))
+    writeFileSync(configPath(), JSON.stringify({ jira: { statuses: ids } }))
+    resetStatusIds()
+    let jql = ''
+    server.use(
+      http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
+        jql = ((await request.json()) as { jql: string }).jql
+        return HttpResponse.json({ issues: [] })
+      }),
+    )
+
+    try {
+      await refreshTargets(cfg, 'DF')
+    } finally {
+      rmSync(configPath(), { force: true })
+      resetStatusIds()
+    }
+    expect(jql).toBe('project = DF AND status = 10057 ORDER BY created ASC')
   })
 })
 

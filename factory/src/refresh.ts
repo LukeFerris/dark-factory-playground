@@ -5,6 +5,7 @@ import * as jira from './jira.ts'
 import { currentBranch, git } from './git.ts'
 import { dispatchWorkflow, findPrForCard } from './github.ts'
 import { abortMerge, attemptMerge, type MergeState } from './merge.ts'
+import { jqlStatus } from './statuses.ts'
 
 /**
  * Keeping the cards in review from going stale.
@@ -69,7 +70,7 @@ export async function refreshTargets(
 ): Promise<RefreshTarget[]> {
   const cards = await jira.search(
     cfg,
-    `project = ${projectKey} AND status = "In review" ORDER BY created ASC`,
+    `project = ${projectKey} AND status = ${jqlStatus('In review')} ORDER BY created ASC`,
     ['summary'],
   )
 
