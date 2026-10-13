@@ -45,11 +45,12 @@ Every turn starts by merging `origin/main` into the card's branch, because the
 manual the agent is about to read and the validator about to judge it are both
 files in that branch. Usually git does it and nothing else happens.
 
-When git cannot, `.github/actions/merge-main` runs a third agent on
-`.agent/merge.md`. It is the same boundary as the other two and then some: it may
-edit only the files git marked conflicted, it has read-only git and nothing else,
-and it cannot commit — `factory merge-finish` checks its work and writes the
-commit itself. A conflict inside `.agent/`, `.github/` or `factory/` never
+When git cannot, the turn's agent job runs a third agent on `.agent/merge.md`.
+It is the same boundary as the other two and then some: it may edit only the
+files git marked conflicted, and it has read-only git and nothing else. Its
+commit is never pushed. `factory accept` merges main again in a job of its own,
+takes only the conflicted files from the agent's merge, checks them and writes
+the commit itself. A conflict inside `.agent/`, `.github/` or `factory/` never
 reaches it at all, because the resolution it wrote would be the code running the
 next step.
 

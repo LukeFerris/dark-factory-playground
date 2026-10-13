@@ -19,53 +19,77 @@ talked into attempting anything, and makes the attempt fail.
 
 ### 1. The agent holds no credentials
 
-The Agent step's environment contains `ANTHROPIC_API_KEY`, and for build turns
-`PREVIEW_URL`. Nothing else. No GitHub token, no Jira token, no repository
-variables.
+The boundary is the **job** (see [ADR 0008](../adr/0008-code-the-agent-touched-never-shares-a-job-with-a-token.md)).
+A build agent runs its own tests, `npm ci` and the app, and every GitHub-hosted
+runner gives that code passwordless `sudo`. Code with root on a runner can read
+every later step's environment and leave behind something a later step runs. So
+a step is not a boundary, and the factory does not use one.
 
-Everything that can write to GitHub or Jira runs in a **different step**, with
-its own `env:` block. An agent that decides to exfiltrate credentials finds none
-to take.
+Every job is on one side or the other:
 
-Most of those steps run after the agent, because most of them report what it
-did. Two run before it: `gather`, which reads the card, and `announce`, which
-comments on the card to say the turn has started. The boundary is the step, not
-the ordering — a credential in a step the agent does not run in is out of its
-reach whether it comes before or after.
+- **Untrusted** jobs run code the agent wrote or touched. The agent job holds
+  `ANTHROPIC_API_KEY` and a read-only `GITHUB_TOKEN`, and, for build turns,
+  `PREVIEW_URL`. Every other untrusted job (the walkthrough, refresh's checks)
+  holds a read-only `GITHUB_TOKEN` and nothing else. No GitHub App token, no
+  Jira token, no Azure.
+- **Trusted** jobs hold those. They run the factory checked out from main, with
+  the card's branch checked out beside it in `card/`, and read the card as data.
+  They never run `npm ci` in it, its tests or its app. `factory publish`
+  regenerates the lockfile with `--ignore-scripts` for the same reason.
 
-The App token is minted per step by `actions/create-github-app-token`, lives for
-an hour, and is never in scope while the agent is running.
+A turn is `turn.yml`, called by `design.yml`, `build-start.yml` and
+`build-turn.yml`:
 
-The merge agent is the same arrangement, for a reason that is easier to see. It
-runs inside `.github/actions/merge-main`, between `merge-begin` — which holds the
-Jira credentials and leaves a conflicted merge in the index — and `merge-finish`,
-which holds none and writes the commit. The agent step in the middle carries
-`ANTHROPIC_API_KEY` and nothing else, not even `PREVIEW_URL`. That split is why
-the merge is three subcommands rather than one: the resolution needs a model, a
-model needs a credential, and a credential needs a step of its own.
+| Job | Side | Holds |
+| --- | --- | --- |
+| `prepare`: gather, announce, cut the branch, `merge-begin` | trusted | App token, `JIRA_BOT_TOKEN` |
+| `agent`: merge main, resolve conflicts, `npm ci`, the agent | untrusted | `ANTHROPIC_API_KEY` |
+| `publish`: `accept`, `validate`, `publish` | trusted | App token, `JIRA_BOT_TOKEN` |
+| `preview`: `preview-up` | trusted | Azure (OIDC), `packages`/`deployments: write` |
+| `walkthrough`: the card's e2e spec against the preview | untrusted | nothing |
+| `report`: kickoff and report | trusted | App token, `JIRA_BOT_TOKEN` |
 
-`refresh.yml` is the inverse case and worth stating plainly: it holds an App
-token and `JIRA_BOT_TOKEN`, and it runs **no agent at all**. It merges, runs the
-check scripts and either pushes or moves the card back to *Building*. Every
-judgement call it meets is one it declines to make, which is what lets it hold
-those credentials in the same job as a `git push`.
+Only data crosses from an untrusted job to a trusted one. The turn arrives as a
+git bundle, and `factory accept` does not take its history: it merges main
+itself, from the commit `prepare` recorded, takes only the conflicted files
+from the agent's merge, refuses a turn built on anything else, and applies the
+work as an uncommitted patch for `validate` to judge as it always has.
+`result.json`, `merge-result.json` and the transcripts are copied in by name if
+they are regular files, and parsed against the schema. Untrusted artifacts are
+downloaded outside the card's checkout, and trusted ones by the id a trusted
+job reported, so an untrusted job cannot stand in for a trusted one by
+uploading under its name.
 
-The same holds for the preview's Azure credential, and slightly more strongly.
-It is obtained by OIDC, so there is nothing long-lived to store in the
-repository at all, and it is obtained in a **job that never runs an agent** —
-the `preview` job of `build-start.yml` and `build-turn.yml`, or the whole of
-`build-teardown.yml`, `build-setup.yml` and `production.yml`. `packages: write`,
-`deployments: write` and `id-token: write` must not be in scope while the agent
-runs, and they are not.
+The App token is minted per job by `actions/create-github-app-token`, lives for
+an hour, and is never minted in a job that runs card code.
 
-The unit of that boundary is the job, not the workflow. A GitHub Actions job
-carries its own `permissions:` block and gets its own `GITHUB_TOKEN`, so two
-jobs in one file are as strongly separated as two files — the agent job's token
+The merge agent is the same arrangement. It runs in the agent job, with
+`ANTHROPIC_API_KEY` and nothing else, not even `PREVIEW_URL`. `merge-begin`, in
+`prepare`, works out whether main merges and describes a conflict. `accept`, in
+`publish`, takes the resolution and has `finishMerge` decide whether it is a
+commit or a question for the card.
+
+`refresh.yml` is split the same way. For each card it calls `refresh-card.yml`,
+whose `checks` job merges main and runs `npm ci` and the check scripts with no
+secrets, and whose `refresh` job merges the same commit of main again and
+pushes, or moves the card back to *Building*. It reads one value from the
+checks job, which command failed, and refuses anything not on a fixed list. No
+agent runs in either job.
+
+`build-setup.yml` and `build-teardown.yml` run the factory from main too, with
+the PR checked out in `card/`.
+
+**No workflow uses the Actions cache.** An agent job dispatched on main can
+write main's cache, which every later run on main, and every PR, restores. That
+includes `ci`, the check a merge waits on, so `cache: npm` is gone from it too.
+
+The preview's Azure credential is obtained by OIDC, so there is nothing
+long-lived to store in the repository at all, and only in trusted jobs: the
+`preview` job of `turn.yml`, `build-teardown.yml`, `build-setup.yml` and
+`production.yml`. `packages: write`, `deployments: write` and `id-token: write`
+are never in scope in an untrusted job. A GitHub Actions job carries its own
+`permissions:` block and gets its own `GITHUB_TOKEN`, so the agent job's token
 is minted with `contents: read` and cannot be widened from inside the job.
-Deployment used to live in a separate workflow for this reason; it moved into a
-second job so that reporting could wait on it (see
-[ADR 0003](../adr/0003-the-turn-raises-its-own-preview.md)), and the boundary
-came along unchanged.
 
 What that credential can do is also bounded, and deliberately: `Contributor` on
 one resource group, and `Managed Identity Operator` on one managed identity.
@@ -105,14 +129,14 @@ credential involved, the storage account key that uploads the page, exists only
 in the operator's local Terraform state and never reaches the repository or any
 workflow; what it can write is the public page itself.
 
-| Credential | Where it lives | In scope during an agent step |
+| Credential | Where it lives | On a runner that runs card code |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Repository secret | **Yes** — the only one |
-| `PREVIEW_URL` | Step output | Yes, but it is a URL, not a credential |
-| App installation token | Minted per step, 1 hour | No |
+| `ANTHROPIC_API_KEY` | Repository secret | **Yes**, in the agent job only |
+| `PREVIEW_URL` | A trusted job's output | Yes, but it is a URL, not a credential |
+| `GITHUB_TOKEN` | Minted per job | Yes, read-only (`contents: read`) |
+| App installation token | Minted per job, 1 hour | No |
 | `JIRA_BOT_TOKEN` | Repository secret | No |
-| `GITHUB_TOKEN` | Actions, read-only repository-wide | No |
-| Azure | OIDC, minted per run, no stored secret | No — different workflow entirely |
+| Azure | OIDC, minted per job, no stored secret | No |
 
 `JIRA_BOT_TOKEN` belongs to the factory's own Jira account, not to you. That
 account is a plain licensed user: it can browse, comment, transition, edit and
@@ -147,7 +171,7 @@ something unexpected is that one card goes to the wrong queue and gets a
 revision a human then reverts.
 
 What the key being in that job does mean is that a compromise of the poller job
-itself — not of the model — exposes it. That is the same exposure the Agent step
+itself — not of the model — exposes it. That is the same exposure the agent job
 already has, so it does not widen the surface; it adds a second place to rotate.
 
 The prompt-injection question is separate and is answered in
@@ -287,10 +311,13 @@ Stated plainly, because a threat model that claims to cover everything is not a
 threat model:
 
 - **A malicious dependency added to `app/package.json`.** The agent can propose
-  one. CI runs `npm ci` and the app's build, and those run arbitrary install
-  scripts. The control is the human reading the diff. On a real deployment, add
-  a dependency-review gate.
-- **Exfiltration via `Bash(curl:*)`** on a build turn. The step holds no
+  one. CI, the agent job, the walkthrough and refresh's checks run `npm ci` and
+  the app's build, and those run arbitrary install scripts. None of those jobs
+  holds a token beyond a read-only `GITHUB_TOKEN` and, in the agent job, the
+  Anthropic key, so what such a script can reach is the code and that key. The
+  control is the human reading the diff. On a real deployment, add a
+  dependency-review gate.
+- **Exfiltration via `Bash(curl:*)`** on a build turn. The job holds no
   credentials, but the repository contents are readable and could be posted
   outwards. If that matters, drop `curl` from the build allow-list and verify
   previews from CI instead.
@@ -304,19 +331,20 @@ threat model:
   agent run producing a diff on a draft PR that a human still has to approve.
   The control is the same as everywhere else here: nothing triage starts can
   reach `main`.
-- **The `preview` job builds the PR's code with `packages: write` and an Azure
-  credential in scope.** That is inherent to previewing a branch — you cannot
-  preview code without running it. Two things bound it. The workflow file
-  itself is read from the default branch on `workflow_dispatch` and
-  `issue_comment`, so the agent cannot change what runs even though it can
-  write to the branch being built; and `factory validate` rejects any turn
-  touching `.github/`, `factory/`, `bootstrap/` or `.agent/` before it reaches
-  the branch. Note the job checks out the *card branch*, not the merge commit,
-  and restores the turn's `.agent/` artifact — neither of which can alter the
-  steps, only what they build. What is
-  *not* bounded is `npm ci` and the Docker build running install scripts from
-  `app/package.json` — the same gap as the dependency point above, with a
-  narrower credential in the room. The control is the human reading the diff.
+- **The `ghcr` preview backend builds the PR's code in a trusted job.** The
+  `preview` job runs `docker build` with `packages: write` in scope, and a
+  Dockerfile `RUN` executes whatever the card's code asks. The `azure` backend
+  builds remotely with `az acr build`, and the `swa` backend builds nothing, so
+  this is the stub backend only. The workflow file itself is read from the
+  default branch, and `factory validate` rejects any turn touching `.github/`,
+  `factory/`, `bootstrap/` or `.agent/`, so the agent cannot change what runs,
+  only what it builds.
+- **An untrusted job can stop a turn.** It can fail, or upload junk where its
+  results should be. That costs one turn, reported on the card as failed.
+- **The repository's other workflows.** The factory's own workflows keep card
+  code away from tokens. A repository that adopts the factory may have
+  workflows of its own that run a PR's code with secrets, and a card branch is
+  a PR like any other.
 - **Whatever reaches `main` is deployed to the public internet.** `production.yml`
   builds the merge commit and serves it, so the last gate in front of production
   is the pull request review, not anything in this list. The blast radius is

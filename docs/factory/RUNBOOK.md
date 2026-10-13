@@ -53,7 +53,7 @@ rm -rf .agent/in && cp -R <artifact-dir>/in .agent/in
 ```
 
 Then run the same `claude -p` invocation as the workflow's Agent step. Copy it
-from `.github/workflows/design.yml` or `build-turn.yml` rather than from here,
+from the agent job in `.github/workflows/turn.yml` rather than from here,
 so the allow-list cannot drift out of sync with what actually ran.
 
 **Install the same CLI version, or it is not the same turn.** Agent steps pin
@@ -62,7 +62,7 @@ defaulting to the version in the workflow. Read the pin, do not guess it:
 
 ```bash
 gh variable get FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
-  || grep -m1 claude-code .github/workflows/design.yml
+  || grep -m1 FACTORY_AGENT_VERSION .github/workflows/turn.yml
 ```
 
 Bump it deliberately — the flag surface is version-coupled, and a CLI release
@@ -74,13 +74,13 @@ gh variable set FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" --body 2.1.230
 
 **The model is pinned too, and the two move together.** `FACTORY_AGENT_MODEL`
 sets the model for all four agents — design, both build turns, and the conflict
-resolver in `.github/actions/merge-main`. It defaults to `claude-opus-5-5`.
+resolver, all in the agent job of `.github/workflows/turn.yml`. It defaults to `claude-opus-5-5`.
 Triage is the exception and is deliberately not covered by it: see
 `FACTORY_TRIAGE_MODEL` below.
 
 ```bash
 gh variable get FACTORY_AGENT_MODEL --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
-  || grep -m1 -- --model .github/workflows/design.yml
+  || grep -m1 FACTORY_AGENT_MODEL .github/workflows/turn.yml
 ```
 
 The coupling runs one way and it is not obvious: the API rejects a model the
@@ -330,11 +330,13 @@ type error. The manual tells it to report `blocked` instead. If it keeps trying,
 the design is probably asking for something the allow-list does not permit —
 fix the design, not the allow-list.
 
-To genuinely widen a stage's scope, edit `ALLOWED_PATHS` in
-`factory/src/schema.ts`, run `npm run --silent factory -- emit-schema`, and
-update the corresponding section of the stage's manual. CI fails if the schema
-and the committed `.agent/result.schema.json` disagree. Never add anything under
-`.agent/`, `.github/`, `factory/` or `bootstrap/` — that is the boundary itself.
+To genuinely widen a stage's scope, edit `DEFAULT_PATHS` in
+`factory/src/paths.ts` (or the `paths` block of `enki.json`, in a repository
+that has one) and update the corresponding section of the stage's manual. The
+manuals test fails if a manual stops listing a path its stage is allowed. Never
+add anything under `.agent/`, `.github/`, `factory/` or `bootstrap/`, or
+`enki.json` itself — that is the boundary, and `CORE_DENIED` refuses it
+whatever the allow list says.
 
 ---
 
@@ -388,8 +390,8 @@ reads the reply on the next poll and starts a build turn, which merges again wit
 your answer in the conversation. Do not resolve it by hand unless you want to —
 answering is the shorter path and leaves the reasoning on the ticket.
 
-Either way the branch is untouched. `merge-begin` leaves a conflicted merge in
-the index, uncommitted, and `merge-finish` aborts it before writing the question.
+Either way the branch is untouched. The agent job's merge is never pushed, and
+`factory accept` aborts its own merge before writing the question.
 
 To see what the agent was given and what it said, download the run's artifact:
 `.agent/in/merge-task.md` is the brief, `.agent/in/merge.json` the state,

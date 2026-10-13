@@ -7,6 +7,67 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-13
+
+### Code the agent touched never shares a job with a token
+
+The agent ran in a step with only the Anthropic key, and the App and Jira
+tokens were in other steps of the same job. A build agent runs its own tests
+and `npm ci`, and a hosted runner gives that code passwordless `sudo`, so it
+could read the later steps' tokens. Refresh ran the card's checks beside the
+same tokens, and `build-setup.yml` ran the factory from the PR.
+
+A turn is now `turn.yml`, called by `design.yml`, `build-start.yml` and
+`build-turn.yml`, in six jobs. The trusted ones (`prepare`, `publish`,
+`preview`, `report`) hold the tokens, run the factory from main with the card
+in `card/` (`FACTORY_REPO_ROOT`), and run none of the card's code. The
+untrusted ones (`agent`, `walkthrough`) run it, and hold the Anthropic key or
+nothing. The agent job hands its turn over as a git bundle, and the new
+`factory accept` merges main again, takes only the conflicted files from the
+agent's merge, and applies the work for `validate` and `publish` to judge.
+`.github/actions/merge-main` is gone.
+
+Refresh is split the same way into `refresh-card.yml`: a `checks` job with no
+secrets, and a `refresh` job that takes its outcome (`--checks`) and merges the
+same commit of main (`--main`). `build-setup.yml` and `build-teardown.yml` run
+the factory from main. No workflow uses `cache: npm`, since an agent job on
+main could write the cache. `publish` regenerates the lockfile with
+`--ignore-scripts`. See ADR 0008, which also lists what is still not bounded.
+
+### Previews and production a repository deploys itself
+
+A repository that already deploys a preview of every PR, and production on
+every push to main, had no way to use them: the factory built and deployed its
+own, on Container Apps or the `ghcr` stub.
+
+A third preview backend, `swa`, waits for the repository's Azure Static Web
+Apps workflow to finish on the turn's commit and hands back the preview URL. It
+reruns the workflow when the site was built too early (`SWA_PREVIEW_NOT_READY`).
+Setting `FACTORY_PRODUCTION_URL` and `FACTORY_PRODUCTION_WORKFLOWS` puts
+`production-up` in a mode that waits for the repository's own deployment of the
+merge commit instead of making one. Both are for Workbench, whose previews move
+to Container Apps once its infrastructure is in place. The waiting is in
+`runs.ts`. The warm-up's failure message no longer assumes a Container App.
+
+### What a stage may write can be set per repository
+
+The allow and deny lists were constants in `schema.ts`, written for this
+repository's `app/` workspace. A repository with its app at the root, or with
+database migrations beside it, could not run the factory without editing them.
+
+They now live in `factory/src/paths.ts`, and `enki.json` can replace them with
+a `paths` block (`design`, `build`, `denied`). The factory's own deny list,
+`CORE_DENIED` (`.github/`, `.agent/`, `factory/`, `bootstrap/`, `enki.json`),
+is not part of it and always applies. A `paths` block missing a list, or with
+a key it does not know, is refused rather than mixed with the defaults.
+Without one, as in this repository, nothing changes.
+
+Two things that assumed the `app/` layout follow the lists: the kickoff
+comment now prints the build allow list instead of a hand-written summary of
+it (which had already fallen behind: it left out `app/e2e`), and `publish`
+only passes `--workspaces` to the lockfile's `npm install` when the root
+`package.json` has workspaces.
+
 ## 2026-10-12
 
 ### Statuses can be pinned by id

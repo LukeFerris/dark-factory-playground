@@ -1,32 +1,14 @@
 name: factory build start
 
 # Turn 1 of a build. Dispatched by the poller when a card reaches "Ready for
-# build". Cuts the build/* branch, runs the first turn against the approved
-# design, opens the draft PR, raises the preview, and only then tells Jira.
+# build". Cuts the card's branch, or carries on from its design, runs the first
+# turn against the approved design, opens the draft PR, raises the preview, and
+# only then tells Jira.
 #
-# Two jobs, and the split is the point:
-#
-#   turn      runs the agent. contents: read and nothing else. No App token
-#             beyond what `publish` needs, no registry, no Azure, no
-#             deployments. This is the job an agent's output can influence.
-#   preview   needs: turn. Holds packages:write, deployments:write,
-#             id-token:write and pull-requests:write — the credentials that
-#             must never be in scope while an agent is running. Jobs carry
-#             their own `permissions:` block, so a second job is as strong a
-#             boundary as a second workflow, and it gets `needs:` and artifact
-#             passing for free.
-#
-# The ordering is the reason this is two jobs rather than one. `report` moves
-# the card to "In review", which is an instruction to a human to go and look.
-# It therefore runs last, after the preview has answered, so the card never
-# invites a review of something that is not serving yet. Before this, `report`
-# ran inside the agent job and the preview was raised afterwards by a label
-# event — so turn 1's Jira comment could not carry a preview link at all, and
-# the card reached "In review" while the image was still building.
-#
-# Every later turn is granted by a human comment and runs in build-turn.yml,
-# which has the same two-job shape for the same reason. There is no
-# auto-continue.
+# Every later turn is granted by a person and runs in build-turn.yml. There is
+# no auto-continue. Both are turn.yml, whose header says how the agent is kept
+# apart from every token the factory holds (ADR 0008), and why the card only
+# reaches "In review" once the preview has answered (ADR 0003).
 
 run-name: ${{ inputs.key }} build turn 1
 
@@ -41,364 +23,27 @@ on:
 permissions:
   contents: read
 
+# The card's group, shared with design.yml, build-turn.yml and refresh's leg
+# for the card, so that two runs never work one card at once (ADR 0007).
 concurrency:
   group: factory-card-${{ inputs.key }}
   cancel-in-progress: false
 
 jobs:
   turn:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    outputs:
-      # Read off meta.json rather than passed from step to step: meta.json is
-      # the turn's identity and is already the thing every subcommand agrees
-      # on. `validated` decides whether the preview job has anything to deploy.
-      validated: ${{ steps.validate.outcome }}
-      branch: ${{ steps.describe.outputs.branch }}
-      pr: ${{ steps.describe.outputs.pr }}
-      artifact: build-${{ inputs.key }}-turn1-${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - run: npm ci
-
-      # The agent is told to run the walkthrough before it finishes a turn, and
-      # `npm run e2e` cannot do that without a browser. Installed here rather
-      # than left to the agent: `npx playwright install` is not on its
-      # allow-list, and a turn whose evidence step fails for want of a download
-      # would look like the app is broken.
-      - name: Install the browser
-        run: npx --workspace @factory/app playwright install --with-deps chromium
-
-      - name: Gather the card
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-        run: npm run --silent factory -- gather "${{ inputs.key }}" --stage build
-
-      # Straight after gather, which is the first step that knows which turn
-      # this is. The card is otherwise silent from the moment the poller claims
-      # it until `report` runs — a status change notifies nobody.
-      - name: Say the turn has started
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- announce
-
-      - name: Prepare the branch
-        env:
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: npm run --silent factory -- prepare-branch "${{ inputs.key }}"
-
-      # Turn one usually cuts the branch fresh from main, in which case this is a
-      # no-op. It is not skipped on that assumption: a card can reach build a
-      # second time, and by then the branch is however old the card is.
-      - name: Bring the branch up to main
-        uses: ./.github/actions/merge-main
-        with:
-          key: ${{ inputs.key }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          jira-base: ${{ vars.JIRA_BASE }}
-          jira-user: ${{ vars.JIRA_BOT_EMAIL }}
-          jira-token: ${{ secrets.JIRA_BOT_TOKEN }}
-          agent-version: ${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}
-          agent-model: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
-          budget-usd: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
-
-      # Pinned deliberately, and the version and the model are pinned together.
-      #
-      # The flag surface is version-coupled — see the CHANGELOG entry for
-      # --max-turns — so an unpinned install lets a CLI release change how a turn
-      # behaves with nobody watching. The model is coupled in the other
-      # direction: the API refuses a model the CLI is too old for, with
-      # "Claude Code 2.1.224 does not support this model; version 2.1.280 or
-      # newer is required". So raising FACTORY_AGENT_MODEL without raising
-      # FACTORY_AGENT_VERSION fails every turn at its first API call, and the
-      # two defaults have to move as a pair.
-      - name: Install the agent
-        run: npm i -g "@anthropic-ai/claude-code@${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}"
-
-      # ANTHROPIC_API_KEY is the only credential here. PREVIEW_URL is empty on
-      # turn 1 — there is nothing deployed until the preview job runs.
-      #
-      # The Bash allow-list is the four checks plus preview and curl. npm install
-      # is deliberately absent: to add a dependency the agent edits
-      # app/package.json and `factory publish` regenerates the lockfile.
-      - name: Agent
-        id: agent
-        continue-on-error: true
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          PREVIEW_URL: ''
-        run: |
-          set -euo pipefail
-          mkdir -p .agent/out
-          claude -p "$(cat .agent/build.md)" \
-            --model "${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}" \
-            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)" \
-            --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
-            --strict-mcp-config \
-            --max-budget-usd "${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}" \
-            --output-format json > .agent/out/transcript.json
-
-      - name: Validate
-        id: validate
-        continue-on-error: true
-        run: npm run --silent factory -- validate --stage build
-
-      - name: Mint App token
-        id: app-token
-        if: steps.validate.outcome == 'success'
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.FACTORY_APP_ID }}
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-
-      - name: Publish
-        if: steps.validate.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npm run --silent factory -- publish --stage build
-
-      # `if: always()` because a rejected turn still has a branch and still has
-      # to be reported on. An empty `pr` is the signal that publish never ran.
-      - name: Describe the turn
-        id: describe
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ ! -f .agent/in/meta.json ]; then
-            echo "::warning::no meta.json, so the preview job has nothing to go on"
-            exit 0
-          fi
-          {
-            echo "branch=$(jq -r '.branch // empty' .agent/in/meta.json)"
-            echo "pr=$(jq -r '.pr // empty' .agent/in/meta.json)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload the turn
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ inputs.key }}-turn1-${{ github.run_id }}
-          # Inputs as well as outputs. A turn is a pure function of .agent/in,
-          # so shipping both is what makes a failed turn replayable locally.
-          # It is also how the preview job gets meta.json and result.json,
-          # which live on this runner and are gitignored.
-          path: |
-            .agent/in/
-            .agent/out/
-          retention-days: 14
-          if-no-files-found: warn
-
-      - name: Fail the run if the turn was rejected
-        if: steps.validate.outcome != 'success'
-        run: |
-          echo "::error::The build turn was rejected by validation. See the Jira comment and the uploaded artifact."
-          exit 1
-
-  # Deploys what the turn produced, waits for it to answer, and only then tells
-  # Jira. `if: always()` because a rejected turn has no preview but still needs
-  # its card moved and its comment posted — skipping this job would leave the
-  # card stuck in "Building" with nothing said, which is worse than the state
-  # this whole change set out to fix.
-  preview:
-    needs: turn
-    # `!cancelled()` rather than `always()`: a failed turn still needs its card
-    # moved, but a cancelled run should stop cleanly rather than report on a
-    # turn nobody let finish. `needs.turn.result != 'skipped'` matches
-    # build-turn.yml, where the turn job can be skipped by its comment guards.
-    if: ${{ !cancelled() && needs.turn.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The most any job in turn.yml asks for. A called workflow can only narrow
+    # what its caller grants, and GitHub checks every job's request against
+    # this when the run starts, whether or not the job will run. Each job in
+    # turn.yml then asks for only what it needs: the agent's, contents: read.
     permissions:
       contents: read
       packages: write
       deployments: write
       id-token: write
       pull-requests: write
-    env:
-      # Whether there is anything to deploy. A rejected turn reaches this job
-      # with no PR, and every deployment step below is gated on it.
-      DEPLOYABLE: ${{ needs.turn.outputs.validated == 'success' && needs.turn.outputs.pr != '' }}
-      PR: ${{ needs.turn.outputs.pr }}
-    steps:
-      # The card branch as `publish` pushed it, because the image is built from
-      # this checkout. Falls back to the default branch when the turn never got
-      # far enough to make one — the report step below still needs the CLI.
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.turn.outputs.branch || github.ref }}
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - run: npm ci
-
-      # .agent/ is gitignored, so meta.json and result.json reach this job only
-      # here. `preview-up` then writes the URL back into the meta.json this
-      # restores, which is how `report` below ends up with a preview link —
-      # the thing turn 1 could never have before.
-      - name: Restore the turn
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.turn.outputs.artifact }}
-          path: .agent
-
-      # Federated credentials — no Azure secret is stored in this repository.
-      - name: Sign in to Azure
-        if: env.DEPLOYABLE == 'true' && vars.FACTORY_PREVIEW_BACKEND == 'azure'
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      # `az containerapp` ships as an extension. Adding it explicitly beats
-      # relying on dynamic install, which prompts by default and so hangs.
-      - name: Add the containerapp extension
-        if: env.DEPLOYABLE == 'true' && vars.FACTORY_PREVIEW_BACKEND == 'azure'
-        run: az extension add --name containerapp --upgrade --only-show-errors
-
-      - name: Mint App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.FACTORY_APP_ID }}
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-
-      # GITHUB_TOKEN carries the packages:write, deployments:write and
-      # pull-requests:write scopes granted above; the App token is what
-      # comments as the factory identity.
-      #
-      # This step waits for the preview to answer before it returns, so the
-      # cold start is spent here rather than in a reviewer's tab — and a
-      # container that never serves fails the job instead of being published
-      # as a working link. Budget is three minutes.
-      - name: Raise the preview
-        if: env.DEPLOYABLE == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
-          AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
-          AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
-          AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
-          AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
-          AZURE_PREVIEW_COOLDOWN_SECONDS: ${{ vars.AZURE_PREVIEW_COOLDOWN_SECONDS }}
-          # Wraps the Deployment's "View deployment" link, and nothing else
-          # here: the URL written into the PR's factory block and into
-          # meta.json stays raw, because that is the one the agent curls next
-          # turn.
-          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        run: npm run --silent factory -- preview-up "${PR}"
-
-      # Here, and not in the turn job, because this is the first moment a
-      # preview of *this* turn's code exists: the agent's PREVIEW_URL comes
-      # from `gather` and is the previous turn's, empty on turn 1. Evidence
-      # taken there would show the wrong app.
-      #
-      # continue-on-error throughout. A finished card has to reach a reviewer
-      # whether or not a browser could be installed, so the worst these three
-      # steps do is leave the comment without pictures.
-      - name: Install the browser and ffmpeg
-        id: evidence-tools
-        if: env.DEPLOYABLE == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          npx --workspace @factory/app playwright install --with-deps chromium
-          # Debian's build has drawtext, which the slide captions need and
-          # which is a build option rather than a given.
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-
-      - name: Walk the card in a browser
-        if: env.DEPLOYABLE == 'true' && steps.evidence-tools.outcome == 'success'
-        continue-on-error: true
-        env:
-          FACTORY_UAT_EVIDENCE: ${{ github.workspace }}/.agent/out/evidence
-        run: |
-          set -euo pipefail
-          # Whatever the artifact carried, the evidence on the card has to be
-          # this turn's.
-          rm -rf "$FACTORY_UAT_EVIDENCE"
-          # `preview-up` wrote the URL back into the meta.json restored above;
-          # it is not a step output.
-          FACTORY_E2E_BASE_URL="$(jq -r '.preview_url // empty' .agent/in/meta.json)"
-          if [ -z "$FACTORY_E2E_BASE_URL" ]; then
-            echo "::warning::No preview URL, so the walkthrough was not recorded."
-            exit 0
-          fi
-          export FACTORY_E2E_BASE_URL
-          npm run e2e --workspace @factory/app
-
-      - name: Build the walkthrough
-        if: env.DEPLOYABLE == 'true' && steps.evidence-tools.outcome == 'success'
-        continue-on-error: true
-        run: npm run --silent factory -- evidence-slides
-
-      # Once per PR. This is turn 1, so there is no "has it been posted
-      # already" question to ask — build-turn.yml never posts a kickoff.
-      - name: Post the kickoff comment
-        if: env.DEPLOYABLE == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        run: npm run --silent factory -- kickoff "${PR}"
-
-      # Last, and unconditional. By the time this runs the preview has either
-      # answered or failed the job above, so "In review" means there is
-      # something to review. A rejected turn arrives here with DEPLOYABLE
-      # false and still gets its comment and its move to Blocked on engineer.
-      # The card is where the evidence is meant to land. This is the copy that
-      # survives an attach that did not, and the one to look at when a
-      # screenshot shows something nobody expected.
-      - name: Upload the evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evidence-${{ env.PR }}-${{ github.run_id }}
-          path: .agent/out/evidence/
-          retention-days: 14
-          if-no-files-found: ignore
-
-      - name: Report
-        if: ${{ !cancelled() }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-          # The Jira comment's preview link is read by a person, possibly days
-          # later when the app has long since scaled to zero, so it goes
-          # through the launcher. meta.preview_url itself stays raw.
-          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        run: npm run --silent factory -- report --stage build
+      actions: write
+    uses: ./.github/workflows/turn.yml
+    with:
+      key: ${{ inputs.key }}
+      stage: build
+    secrets: inherit

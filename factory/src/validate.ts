@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { changedFiles } from './git.ts'
 import { RESULT_PATH, writeFileEnsuringDir } from './meta.ts'
-import { ALLOWED_PATHS, ALWAYS_DENIED, ResultSchema, type Result, type Stage } from './schema.ts'
+import { allowedPaths, deniedPaths } from './paths.ts'
+import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 /**
  * Minimal glob matcher for the allow/deny lists.
@@ -32,11 +33,12 @@ export interface ScopeViolation {
 }
 
 export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
-  const allowed = ALLOWED_PATHS[stage]
+  const allowed = allowedPaths(stage)
+  const denied = deniedPaths()
   const violations: ScopeViolation[] = []
 
   for (const file of files) {
-    if (ALWAYS_DENIED.some((p) => matchesGlob(file, p))) {
+    if (denied.some((p) => matchesGlob(file, p))) {
       violations.push({ path: file, reason: 'denied' })
       continue
     }
@@ -85,6 +87,42 @@ export function contractProblems(result: Result): string[] {
   }
 
   return problems
+}
+
+/**
+ * The `failed` result that replaces a rejected turn's own, so `report` still
+ * has something coherent to put on the card.
+ */
+export function failedResult(stage: Stage, result: Result | null, problems: string[]): Result {
+  return {
+    status: 'failed',
+    summary: `The ${stage} turn was rejected by validation.`,
+    context: result?.context ?? '',
+    // Carried through rather than dropped: if the agent wrote usable criteria
+    // and then strayed outside its paths, they are still the clearest
+    // statement of what it was trying to do.
+    acceptance_criteria: result?.acceptance_criteria ?? [],
+    out_of_scope: result?.out_of_scope ?? [],
+    // Kept for the same reason: somebody answered a question on the card, and a
+    // turn being rejected is no reason for their reply to go unacknowledged.
+    answers: result?.answers ?? [],
+    artifacts: result?.artifacts ?? [],
+    questions: result?.questions ?? [],
+    assumptions: result?.assumptions ?? [],
+    reason: problems.join('\n'),
+  }
+}
+
+/** `failedResult`, from whatever the agent wrote, which may not parse. */
+export function rejection(stage: Stage, raw: string | null, problems: string[]): Result {
+  let result: Result | null = null
+  try {
+    const parsed = raw === null ? null : ResultSchema.safeParse(JSON.parse(raw))
+    if (parsed?.success === true) result = parsed.data
+  } catch {
+    // Not JSON. The problems already say why the turn was refused.
+  }
+  return failedResult(stage, result, problems)
 }
 
 export interface ValidateOutcome {
@@ -141,23 +179,7 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
     return { ok: true, result, violations, problems }
   }
 
-  const synthetic: Result = {
-    status: 'failed',
-    summary: `The ${stage} turn was rejected by validation.`,
-    context: result?.context ?? '',
-    // Carried through rather than dropped: if the agent wrote usable criteria
-    // and then strayed outside its paths, they are still the clearest
-    // statement of what it was trying to do.
-    acceptance_criteria: result?.acceptance_criteria ?? [],
-    out_of_scope: result?.out_of_scope ?? [],
-    // Kept for the same reason: somebody answered a question on the card, and a
-    // turn being rejected is no reason for their reply to go unacknowledged.
-    answers: result?.answers ?? [],
-    artifacts: result?.artifacts ?? [],
-    questions: result?.questions ?? [],
-    assumptions: result?.assumptions ?? [],
-    reason: problems.join('\n'),
-  }
+  const synthetic = failedResult(stage, result, problems)
   writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(synthetic, null, 2)}\n`)
   return { ok: false, result: synthetic, violations, problems }
 }

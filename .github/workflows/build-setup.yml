@@ -22,12 +22,13 @@ name: factory build setup
 # redeploys on its own. Run this workflow for that, which is the same thing a
 # human would have to do anyway to check it worked.
 #
-# On `workflow_dispatch` the workflow file is read from the default branch and
-# the *code* built is the PR's. That is inherent to previewing a branch. The
-# boundary holding it is the same one the rest of the factory rests on:
-# `factory validate` rejects any turn touching .github/, factory/, bootstrap/
-# or .agent/ before it reaches the branch. No credential minted in this job is
-# ever handed to an agent step.
+# On `workflow_dispatch` the workflow file is read from the default branch, and
+# so is the factory this runs: the PR's code is checked out beside it, in card/,
+# and only ever sent to be built. Nothing of the PR's runs here, not even
+# `npm ci`, because this job holds the Azure and deployment credentials
+# (ADR 0008). The `azure` backend builds in the registry, not on this runner.
+# The `ghcr` backend builds with docker here, which runs the Dockerfile's steps
+# in a container that is handed none of them.
 
 on:
   workflow_dispatch:
@@ -64,21 +65,29 @@ jobs:
       pull-requests: write
     env:
       PR: ${{ inputs.pr }}
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
     steps:
       - uses: actions/checkout@v4
         with:
-          # The PR's head, not the merge commit Actions checks out by default.
-          # A preview of a merge commit is a preview of something that exists
-          # nowhere and that nobody asked to look at.
-          ref: refs/pull/${{ inputs.pr }}/head
           persist-credentials: false
 
+      # No `cache:`, here or anywhere a job holds a credential: a cache is
+      # shared across runs, and a job running card code can write one.
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
 
       - run: npm ci
+
+      # The PR's head, not the merge commit Actions checks out by default.
+      # A preview of a merge commit is a preview of something that exists
+      # nowhere and that nobody asked to look at.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ inputs.pr }}/head
+          path: card
+          persist-credentials: false
 
       # Federated credentials — no Azure secret is stored in this repository.
       # The id-token: write permission above lets Actions mint a short-lived

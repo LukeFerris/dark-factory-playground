@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
+          # No `cache:`. Agent jobs run on main and could write the cache this
+          # check would restore (ADR 0008).
 
       # `npm ci` fails on a lockfile that disagrees with package.json. That is
       # the intended guard on a build turn that adds a dependency.

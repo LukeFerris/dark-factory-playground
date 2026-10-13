@@ -21,6 +21,11 @@ name: factory production
 #
 # Holds no Anthropic key: there is no agent in here, only `az` and two API
 # calls.
+#
+# A repository that deploys production itself sets FACTORY_PRODUCTION_URL and
+# FACTORY_PRODUCTION_WORKFLOWS. Then nothing is built here: production-up waits
+# for those workflows to finish on the merge commit and for the URL to answer,
+# and the Azure steps are skipped.
 
 on:
   pull_request:
@@ -43,19 +48,23 @@ jobs:
   ship:
     # Merged, not merely closed: abandoning a pull request must not ship it or
     # mark its card Done. `card/` keeps this off the factory's own maintenance
-    # PRs. And production only exists on the Azure backend — the ghcr stub
-    # pushes an image nobody serves, so there would be no site to point a
-    # human at and nothing to justify closing the card.
+    # PRs. And production only exists on the Azure backend or where the
+    # repository deploys it — the ghcr stub pushes an image nobody serves, so
+    # there would be no site to point a human at and nothing to justify
+    # closing the card.
     if: >-
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'card/') &&
-      vars.FACTORY_PREVIEW_BACKEND == 'azure'
+      (vars.FACTORY_PREVIEW_BACKEND == 'azure' || vars.FACTORY_PRODUCTION_URL != '')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Long enough to wait out a repository's own build and deploy.
+    timeout-minutes: 45
     permissions:
       contents: read
       deployments: write
       id-token: write
+      # To read the runs of the repository's own deploy workflows.
+      actions: read
     env:
       PR: ${{ github.event.pull_request.number }}
       # The merge commit on main, not the PR head. Production serves the
@@ -71,7 +80,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
+          # No `cache:`. Agent jobs run on main too, and could write one (ADR 0008).
 
       - run: npm ci
 
@@ -80,6 +89,7 @@ jobs:
       # which infra/azure/identity.tf already provisions for build-teardown,
       # so this workflow needed no new credential.
       - name: Sign in to Azure
+        if: vars.FACTORY_PRODUCTION_URL == ''
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -87,6 +97,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Add the containerapp extension
+        if: vars.FACTORY_PRODUCTION_URL == ''
         run: az extension add --name containerapp --upgrade --only-show-errors
 
       # Builds the merge commit in ACR, deploys it, and blocks until the site
@@ -101,6 +112,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
+          FACTORY_PRODUCTION_URL: ${{ vars.FACTORY_PRODUCTION_URL }}
+          FACTORY_PRODUCTION_WORKFLOWS: ${{ vars.FACTORY_PRODUCTION_WORKFLOWS }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
           AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
