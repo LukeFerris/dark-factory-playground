@@ -9,6 +9,8 @@ import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
 import { handBackTarget, releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
+import { dispatchWorkflow, markReady } from './github.ts'
+import { MAX_RETRIES, decide, readVerdict, type Decision, type Verdict } from './verify.ts'
 
 export interface Evidence {
   /** The attachment id of the walkthrough video, when one was made. */
@@ -22,6 +24,21 @@ export interface Evidence {
    * an unmarked one.
    */
   proved: number[]
+}
+
+/**
+ * What became of a finished build turn at the gate: main's required checks on
+ * the commit it pushed, and what the factory does about them. Only a build turn
+ * that ends `ready_for_review` has one.
+ */
+export interface Gate {
+  decision: Decision
+  verdict: Verdict | null
+}
+
+/** Whether a turn has to clear the gate before it can be handed over. */
+export function gated(stage: Stage, result: Result): boolean {
+  return stage === 'build' && result.status === 'ready_for_review'
 }
 
 /**
@@ -44,6 +61,7 @@ export function buildComment(
   previewUrl: string | null,
   run: string | null,
   evidence: Evidence = { video: null, proved: [] },
+  gate: Gate | null = null,
 ): adf.AdfDoc {
   const blocks: adf.AdfNode[] = []
 
@@ -54,7 +72,12 @@ export function buildComment(
     question: `${stage} turn paused — needs an answer`,
     failed: `${stage} turn failed`,
   }
-  blocks.push(adf.heading(headline[result.status]))
+  const gateHeadline: Record<Decision['action'], string> = {
+    ready: headline.ready_for_review,
+    retry: `${stage} turn finished — required checks failed, trying again`,
+    blocked: `${stage} turn finished — required checks not passing`,
+  }
+  blocks.push(adf.heading(gate === null ? headline[result.status] : gateHeadline[gate.decision.action]))
 
   blocks.push(adf.heading('Summary', 4))
   blocks.push(adf.paragraph(adf.text(result.summary.trim())))
@@ -171,10 +194,12 @@ export function buildComment(
     blocks.push(adf.codeBlock(result.reason.trim()))
   }
 
+  if (gate !== null) blocks.push(...gateSection(gate))
+
   // A heading, like every other section. It first went in as a bold-led
   // paragraph, which is exactly the shape a criterion heading uses — so it read
   // as one more criterion at the bottom of the list.
-  const next = whatNext(stage, result)
+  const next = whatNext(stage, result, gate)
   if (next !== null) {
     blocks.push(adf.heading('What happens next', 4))
     blocks.push(adf.paragraph(adf.text(next)))
@@ -196,6 +221,46 @@ export function buildComment(
 }
 
 /**
+ * The required checks, as the gate found them. A green gate says so in a line;
+ * otherwise every check that did not pass is listed, linked to its run.
+ */
+function gateSection(gate: Gate): adf.AdfNode[] {
+  const blocks: adf.AdfNode[] = [adf.heading('Required checks', 4)]
+  const { verdict } = gate
+  if (verdict === null) {
+    blocks.push(adf.paragraph(adf.text('The factory could not read them.')))
+    return blocks
+  }
+  const commit = verdict.sha.slice(0, 7)
+  const notPassing = verdict.checks.filter((c) => c.state !== 'pass')
+  if (notPassing.length === 0) {
+    blocks.push(
+      adf.paragraph(
+        adf.text(
+          verdict.checks.length === 0
+            ? 'Main requires none.'
+            : `All ${verdict.checks.length} passed on commit ${commit}.`,
+        ),
+      ),
+    )
+    return blocks
+  }
+  blocks.push(adf.paragraph(adf.text(`On commit ${commit}:`)))
+  blocks.push(
+    adf.bulletList(
+      notPassing.map((c) => {
+        const said =
+          c.state === 'pending' ? 'still running' : c.state === 'missing' ? 'never reported' : (c.conclusion ?? 'failed')
+        const inline: adf.AdfNode[] = [adf.strong(c.name), adf.text(` — ${said}`)]
+        if (c.url !== null && c.url !== '') inline.push(adf.text(' ('), adf.link('details', c.url), adf.text(')'))
+        return inline
+      }),
+    ),
+  )
+  return blocks
+}
+
+/**
  * The one sentence telling the reader what to do with the card now.
  *
  * Generated rather than written by the agent, because it is the same sentence
@@ -213,10 +278,24 @@ export function buildComment(
  * design turn leaves the card in a status the comment poller does not watch, so
  * inviting a reply there would invite one into a void.
  */
-export function whatNext(stage: Stage, result: Result): string | null {
+export function whatNext(stage: Stage, result: Result, gate: Gate | null = null): string | null {
   const reply =
     'Reply on this card with the answer — a comment here is read on the next poll and ' +
     'starts the next turn from it.'
+
+  if (gate !== null && gate.decision.action === 'retry') {
+    return (
+      'The card stays in Building and the pull request stays a draft. Another build turn has ' +
+      `started to fix the failing checks (automatic turn ${gate.decision.next} of ${MAX_RETRIES}), ` +
+      'and its report will follow here.'
+    )
+  }
+  if (gate !== null && gate.decision.action === 'blocked') {
+    return (
+      `${gate.decision.why} The pull request stays a draft until they pass. Reply on this card ` +
+      'with how to go on — a comment here is read on the next poll and starts the next turn from it.'
+    )
+  }
 
   switch (result.status) {
     case 'ready_for_review':
@@ -242,6 +321,8 @@ export function whatNext(stage: Stage, result: Result): string | null {
 export interface ReportOptions {
   stage: Stage
   prUrl?: string | undefined
+  /** Which automatic turn this was, after a red gate. 0 for any other. */
+  retry?: number
   dryRun?: boolean
 }
 
@@ -356,6 +437,9 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
+  const gate = gated(options.stage, result) ? atTheGate(meta.pr, options) : null
+  const retrying = gate?.decision.action === 'retry'
+
   const { evidence, evidenceNote } = await attachEvidence(
     cfg,
     meta.key,
@@ -365,15 +449,16 @@ export async function report(options: ReportOptions): Promise<void> {
   // Through the launcher: the Jira comment is read by a person, who may open
   // it days later, long after the app has scaled back to zero. meta.preview_url
   // itself stays raw — that is the agent's copy.
-  const comment = addressedTo(
-    buildComment(options.stage, result, pr, launcherFor(meta.preview_url), runUrl(), evidence),
-    await handBackTarget(cfg, meta.key),
-  )
+  //
+  // Nobody is addressed on a retry: the card is not back with anyone yet.
+  const built = buildComment(options.stage, result, pr, launcherFor(meta.preview_url), runUrl(), evidence, gate)
+  const comment = retrying ? built : addressedTo(built, await handBackTarget(cfg, meta.key))
 
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))
     console.log(`report --dry-run: ${evidenceNote}`)
-    console.log(`report --dry-run: would move ${meta.key} to ${targetStatus(options.stage, result)}`)
+    console.log(`report --dry-run: would move ${meta.key} to ${targetStatus(options.stage, result, gate)}`)
+    if (gate !== null) console.log(`report --dry-run: the gate says ${JSON.stringify(gate.decision)}`)
     return
   }
 
@@ -409,12 +494,17 @@ export async function report(options: ReportOptions): Promise<void> {
   // `meta.preview_url` is set by now on a build turn; at `announce` time it was
   // usually still null, so this is the call that actually puts the preview on
   // the card. Posting the same globalId twice updates the row.
+  //
+  // Except on a retry, where the factory is still holding the card: another
+  // turn is about to start on it, and handing it back in between would tell
+  // somebody it was theirs for a minute.
   await syncLinks(cfg, meta.key, turnLinks(meta))
-  await releaseCard(cfg, meta.key)
+  if (!retrying) await releaseCard(cfg, meta.key)
 
-  const target = targetStatus(options.stage, result)
+  const target = targetStatus(options.stage, result, gate)
   if (target === null) {
     console.log(`report: ${meta.key} stays where it is (status "${result.status}").`)
+    if (gate !== null && gate.decision.action === 'retry') await retry(cfg, meta.key, gate.decision.next)
     return
   }
 
@@ -434,6 +524,65 @@ export async function report(options: ReportOptions): Promise<void> {
   }
 }
 
-export function targetStatus(stage: Stage, result: Result): string | null {
+export function targetStatus(stage: Stage, result: Result, gate: Gate | null = null): string | null {
+  if (gate !== null) {
+    if (gate.decision.action === 'retry') return null
+    if (gate.decision.action === 'blocked') return STATUS_TRANSITIONS[stage].blocked
+  }
   return STATUS_TRANSITIONS[stage][result.status]
+}
+
+/**
+ * Reads the verdict `verify` left and decides on it. A green one takes the
+ * pull request out of draft here, before the comment is written, so that a
+ * pull request that will not come out of draft sends the card to a person
+ * rather than to In review.
+ */
+function atTheGate(pr: number | null, options: ReportOptions): Gate {
+  const verdict = readVerdict()
+  let decision = decide(verdict, options.retry ?? 0)
+  if (decision.action === 'ready' && pr !== null && options.dryRun !== true) {
+    try {
+      markReady(pr)
+    } catch (error) {
+      decision = {
+        action: 'blocked',
+        why: `The required checks passed, but the pull request would not come out of draft: ${(error as Error).message}.`,
+      }
+    }
+  }
+  return { decision, verdict }
+}
+
+/**
+ * Starts the next automatic turn. The card waits in Building for it, so a
+ * dispatch that fails would leave it there with nothing running: it goes to a
+ * person instead.
+ */
+async function retry(cfg: jira.JiraConfig, key: string, next: number): Promise<void> {
+  try {
+    dispatchWorkflow('build-turn.yml', { key, retry: String(next) })
+    console.log(`report: ${key} stays in Building; automatic turn ${next} of ${MAX_RETRIES} started.`)
+  } catch (error) {
+    console.error(`::error::could not start the next turn on ${key}: ${(error as Error).message}`)
+    process.exitCode = 3
+    await jira
+      .addComment(
+        cfg,
+        key,
+        adf.doc(
+          adf.paragraph(
+            adf.text(
+              'The next turn could not be started after all, so this card is going to Blocked on ' +
+                'engineer instead. The pull request stays a draft. Reply here to start a turn.',
+            ),
+          ),
+        ),
+      )
+      .catch((second: Error) => console.error(`report: could not say so on ${key}: ${second.message}`))
+    await releaseCard(cfg, key)
+    await jira.transitionTo(cfg, key, 'Blocked on engineer').catch((second: Error) => {
+      console.error(`report: could not move ${key} to Blocked on engineer either: ${second.message}`)
+    })
+  }
 }

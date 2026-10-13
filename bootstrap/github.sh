@@ -12,7 +12,7 @@
 #   · variables JIRA_BASE, JIRA_BOT_EMAIL, JIRA_PROJECT_KEY, FACTORY_APP_ID,
 #               FACTORY_BOT_LOGIN
 #   · the `preview` environment
-#   · labels    factory:active, factory:design, factory:build
+#   · labels    factory:active, factory:design, factory:build, factory:verify
 #   · rulesets  card/* writable only by the App
 #               main requires a PR, one approval and the `ci` check, no bypass
 #
@@ -157,6 +157,9 @@ create_label 'factory:active' '0e8a16' 'Build turns may be granted on this PR'
 # that reaches the build carries both of these.
 create_label 'factory:design' '1d76db' 'The design stage has run on this PR'
 create_label 'factory:build'  '5319e7' 'The build stage has run on this PR'
+# `factory verify` creates this one itself if it is missing; made here so it
+# is there, with its colour, before the first finished build.
+create_label 'factory:verify' 'fbca04' "The factory is waiting on this PR's required checks"
 
 # ----------------------------------------------------------------- rulesets
 

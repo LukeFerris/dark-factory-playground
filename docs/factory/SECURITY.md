@@ -47,6 +47,7 @@ A turn is `turn.yml`, called by `design.yml`, `build-start.yml` and
 | `publish`: `accept`, `validate`, `publish` | trusted | App token, `JIRA_BOT_TOKEN` |
 | `preview`: `preview-up` | trusted | Azure (OIDC), `packages`/`deployments: write` |
 | `walkthrough`: the card's e2e spec against the preview | untrusted | nothing |
+| `verify`: wait for main's required checks on the pushed commit | trusted | App token, `GITHUB_TOKEN` with `checks`/`statuses`/`actions: read` |
 | `report`: kickoff and report | trusted | App token, `JIRA_BOT_TOKEN` |
 
 Only data crosses from an untrusted job to a trusted one. The turn arrives as a
@@ -62,6 +63,21 @@ uploading under its name.
 
 The App token is minted per job by `actions/create-github-app-token`, lives for
 an hour, and is never minted in a job that runs card code.
+
+`verify` runs no card code and checks nothing out but main. It reads check runs,
+statuses and job logs with the job's own `GITHUB_TOKEN`, read-only, so the App
+needed no new permission; the App token only labels the PR and, in `report`,
+marks it ready or dispatches the next turn. What it decides is limited the same
+way: a red verdict can buy at most two more build turns, counted by a workflow
+input that only `report` sets, and a human-granted turn is the only way past
+that. The agent cannot pass its own gate by editing the checks: the workflows
+are in `CORE_DENIED`, and which checks count is read from main's protection,
+not from the branch.
+
+The failing logs that `gather` gives the next turn are untrusted input in the
+same way the card text is. They are printed by the PR's code and its
+dependencies, so `task.md` labels them as output to read, not instructions to
+follow, and the agent that reads them holds only `ANTHROPIC_API_KEY`.
 
 The merge agent is the same arrangement. It runs in the agent job, with
 `ANTHROPIC_API_KEY` and nothing else, not even `PREVIEW_URL`. `merge-begin`, in

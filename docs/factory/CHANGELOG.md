@@ -9,6 +9,21 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-13
 
+### A finished build waits for main's required checks
+
+A build turn that ended `ready_for_review` marked its PR ready and moved the
+card to *In review* straight after pushing, before any check had run on that
+push. A reviewer could find a red PR on a card that said it was ready.
+
+Build turns now keep the PR a draft. A new trusted job in `turn.yml`, `verify`,
+labels the PR `factory:verify` so draft-skipping suites run, and waits for
+main's required checks on the pushed commit (`factory verify`). `report` reads
+the verdict: green marks the PR ready and moves the card to *In review*; red
+dispatches another build turn, up to two (`build-turn.yml`'s new `retry`
+input); anything else goes to *Blocked on engineer*. `gather` gives a
+continuing build turn the failing checks' log tails. Checks are read with the
+job's `GITHUB_TOKEN`, so the App's permissions are unchanged. See ADR 0009.
+
 ### Code the agent touched never shares a job with a token
 
 The agent ran in a step with only the Anthropic key, and the App and Jira
