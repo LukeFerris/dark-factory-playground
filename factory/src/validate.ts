@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { changedFiles } from './git.ts'
 import { RESULT_PATH, writeFileEnsuringDir } from './meta.ts'
-import { ALLOWED_PATHS, ALWAYS_DENIED, ResultSchema, type Result, type Stage } from './schema.ts'
+import { allowedPaths, deniedPaths } from './paths.ts'
+import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 /**
  * Minimal glob matcher for the allow/deny lists.
@@ -32,11 +33,12 @@ export interface ScopeViolation {
 }
 
 export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
-  const allowed = ALLOWED_PATHS[stage]
+  const allowed = allowedPaths(stage)
+  const denied = deniedPaths()
   const violations: ScopeViolation[] = []
 
   for (const file of files) {
-    if (ALWAYS_DENIED.some((p) => matchesGlob(file, p))) {
+    if (denied.some((p) => matchesGlob(file, p))) {
       violations.push({ path: file, reason: 'denied' })
       continue
     }

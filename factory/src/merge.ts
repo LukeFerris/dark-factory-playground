@@ -5,7 +5,8 @@ import { REPO_ROOT } from './env.ts'
 import { git, gitSucceeds, headSha, identifyAsBot } from './git.ts'
 import { AGENT_IN, AGENT_OUT, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import { matchesGlob } from './validate.ts'
-import { ALWAYS_DENIED, QuestionSchema, type Result } from './schema.ts'
+import { deniedPaths } from './paths.ts'
+import { QuestionSchema, type Result } from './schema.ts'
 
 /**
  * Merging main into a card branch, and letting an agent finish the job.
@@ -174,7 +175,7 @@ export function attemptMerge(branch: string): MergeState {
   // `.github/` means the branch has edited the machinery that is about to
   // judge it, and no agent gets to arbitrate that — not least because the
   // resolution it wrote would be the code running the next step.
-  const denied = conflicts.filter((p) => ALWAYS_DENIED.some((g) => matchesGlob(p, g)))
+  const denied = conflicts.filter((p) => deniedPaths().some((g) => matchesGlob(p, g)))
   if (denied.length > 0) {
     git(['merge', '--abort'], true)
     return { ...base, state: 'refused', conflicts, denied }

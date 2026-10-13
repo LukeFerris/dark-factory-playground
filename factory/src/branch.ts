@@ -20,7 +20,7 @@ export function slugify(value: string, maxLength = 48): string {
  * window in which the build turn can start against a design that has not
  * landed.
  *
- * The stage still decides what a turn may write — see ALLOWED_PATHS — so a
+ * The stage still decides what a turn may write — see paths.ts — so a
  * build turn sharing a branch with the design still cannot edit the design.
  */
 export function branchName(key: string, summary: string): string {

@@ -15,6 +15,7 @@ import {
 } from './github.ts'
 import { launcherFor } from './launcher.ts'
 import { updateMeta } from './meta.ts'
+import { allowedPaths } from './paths.ts'
 import {
   azureConfig,
   buildImage,
@@ -318,9 +319,9 @@ export function kickoffComment(key: string, previewUrl: string | null): string {
     '`go` to continue as planned, or any instruction you want the agent to follow',
     'on the next turn. Nothing happens until you do; auto-continue is off.',
     '',
-    'The agent may only write under `app/src`, `app/public`, `app/index.html`,',
-    '`app/package.json` and the build log. Anything else is rejected before it',
-    'reaches the branch.',
+    // From the list validation enforces, so the comment cannot drift from it.
+    `The agent may only write ${allowedPaths('build').map((p) => `\`${p}\``).join(', ')}.`,
+    'Anything else is rejected before it reaches the branch.',
   ].join('\n')
 }
 

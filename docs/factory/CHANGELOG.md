@@ -7,6 +7,27 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-13
+
+### What a stage may write can be set per repository
+
+The allow and deny lists were constants in `schema.ts`, written for this
+repository's `app/` workspace. A repository with its app at the root, or with
+database migrations beside it, could not run the factory without editing them.
+
+They now live in `factory/src/paths.ts`, and `enki.json` can replace them with
+a `paths` block (`design`, `build`, `denied`). The factory's own deny list,
+`CORE_DENIED` (`.github/`, `.agent/`, `factory/`, `bootstrap/`, `enki.json`),
+is not part of it and always applies. A `paths` block missing a list, or with
+a key it does not know, is refused rather than mixed with the defaults.
+Without one, as in this repository, nothing changes.
+
+Two things that assumed the `app/` layout follow the lists: the kickoff
+comment now prints the build allow list instead of a hand-written summary of
+it (which had already fallen behind: it left out `app/e2e`), and `publish`
+only passes `--workspaces` to the lockfile's `npm install` when the root
+`package.json` has workspaces.
+
 ## 2026-10-12
 
 ### Statuses can be pinned by id

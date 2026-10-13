@@ -330,11 +330,13 @@ type error. The manual tells it to report `blocked` instead. If it keeps trying,
 the design is probably asking for something the allow-list does not permit —
 fix the design, not the allow-list.
 
-To genuinely widen a stage's scope, edit `ALLOWED_PATHS` in
-`factory/src/schema.ts`, run `npm run --silent factory -- emit-schema`, and
-update the corresponding section of the stage's manual. CI fails if the schema
-and the committed `.agent/result.schema.json` disagree. Never add anything under
-`.agent/`, `.github/`, `factory/` or `bootstrap/` — that is the boundary itself.
+To genuinely widen a stage's scope, edit `DEFAULT_PATHS` in
+`factory/src/paths.ts` (or the `paths` block of `enki.json`, in a repository
+that has one) and update the corresponding section of the stage's manual. The
+manuals test fails if a manual stops listing a path its stage is allowed. Never
+add anything under `.agent/`, `.github/`, `factory/` or `bootstrap/`, or
+`enki.json` itself — that is the boundary, and `CORE_DENIED` refuses it
+whatever the allow list says.
 
 ---
 

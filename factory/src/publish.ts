@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { resolve } from 'node:path'
 import { REPO_ROOT } from './env.ts'
 import { git, identifyAsBot } from './git.ts'
 import {
@@ -13,7 +14,8 @@ import {
   type PullRequest,
 } from './github.ts'
 import { readMeta, updateMeta, RESULT_PATH } from './meta.ts'
-import { ALLOWED_PATHS, ResultSchema, type Result, type Stage } from './schema.ts'
+import { allowedPaths } from './paths.ts'
+import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 function readResult(): Result {
   return ResultSchema.parse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
@@ -82,12 +84,25 @@ export interface PublishOptions {
 }
 
 /**
+ * The `npm install` that regenerates the lockfile without installing anything.
+ *
+ * A repository with workspaces, like this one, keeps every workspace's
+ * dependencies in the root lockfile, so all of them are resolved. One without
+ * has a single package at the root, and `--workspaces` would fail there.
+ */
+export function lockfileArgs(root: string = REPO_ROOT): string[] {
+  const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { workspaces?: unknown }
+  const workspaces = Array.isArray(manifest.workspaces) ? manifest.workspaces.length > 0 : manifest.workspaces != null
+  return ['install', '--package-lock-only', ...(workspaces ? ['--workspaces', '--include-workspace-root'] : [])]
+}
+
+/**
  * Commits whatever the turn produced (within scope), pushes, and creates or
  * updates the draft PR.
  *
  * The commit is authored as the App's bot identity so the history shows plainly
  * that a machine wrote it. For a build turn we run `npm install` first: the
- * agent may have edited app/package.json to add a dependency, and the lockfile
+ * agent may have edited a package.json to add a dependency, and the lockfile
  * has to be regenerated here — CI's `npm ci` is what catches it if it is not.
  */
 export function publish(options: PublishOptions): PullRequest | null {
@@ -101,11 +116,7 @@ export function publish(options: PublishOptions): PullRequest | null {
   if (options.stage === 'build') {
     // Regenerate the lockfile in case the agent added a dependency. It cannot
     // run npm install itself — that is not in its tool allow-list.
-    const install = spawnSync(
-      'npm',
-      ['install', '--package-lock-only', '--workspaces', '--include-workspace-root'],
-      { cwd: REPO_ROOT, stdio: 'inherit' },
-    )
+    const install = spawnSync('npm', lockfileArgs(), { cwd: REPO_ROOT, stdio: 'inherit' })
     if (install.status !== 0) {
       throw new Error('npm install --package-lock-only failed; the lockfile is out of date.')
     }
@@ -113,7 +124,7 @@ export function publish(options: PublishOptions): PullRequest | null {
 
   identifyAsBot()
 
-  for (const pattern of ALLOWED_PATHS[options.stage]) {
+  for (const pattern of allowedPaths(options.stage)) {
     git(['add', '--', pattern], true)
   }
 
