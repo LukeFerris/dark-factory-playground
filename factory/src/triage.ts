@@ -4,6 +4,7 @@ import * as adf from './adf.ts'
 import * as jira from './jira.ts'
 import { dispatchWorkflow } from './github.ts'
 import { claimCard } from './progress.ts'
+import { jqlStatus, statusOfCard } from './statuses.ts'
 
 /**
  * Comment triage.
@@ -296,7 +297,7 @@ export async function triagePass(options: TriageOptions): Promise<TriageOutcome[
   const { cfg, projectKey } = options
   const classify = options.classify ?? askClaude
 
-  const statuses = TRIAGE_STATUSES.map((status) => `"${status}"`).join(', ')
+  const statuses = TRIAGE_STATUSES.map(jqlStatus).join(', ')
   const cards = await jira.search(
     cfg,
     `project = ${projectKey} AND status IN (${statuses}) ORDER BY created ASC`,
@@ -309,7 +310,7 @@ export async function triagePass(options: TriageOptions): Promise<TriageOutcome[
   const outcomes: TriageOutcome[] = []
 
   for (const card of cards) {
-    const status = ((card.fields['status'] as { name?: string } | undefined)?.name ?? '').trim()
+    const status = statusOfCard(card.fields)
     const summary = (card.fields['summary'] as string) ?? card.key
 
     const newest = await jira.latestComment(cfg, card.key)

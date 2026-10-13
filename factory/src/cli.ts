@@ -21,6 +21,7 @@ import {
 } from './merge.ts'
 import { claimCard, sentInBy } from './progress.ts'
 import { refresh, refreshTargets } from './refresh.ts'
+import { jqlStatus } from './statuses.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
@@ -129,12 +130,23 @@ program
 
 program
   .command('jira-transition')
-  .description('Move a card to a status, matched by destination status name.')
+  .description('Move a card to a status: by the id enki.json pins it to, or else by name.')
   .argument('<key>', 'Issue key, e.g. DF-1')
   .argument('<status>', 'Target status name, e.g. "Design review"')
   .action(async (key: string, status: string) => {
     await jira.transitionTo(jira.configFromEnv(), key, status)
     console.log(`${key} -> ${status}`)
+  })
+
+// For the poller's shell, which builds its own JQL. Asking here rather than
+// quoting the name in shell keeps one place that knows whether a space has
+// pinned its status ids.
+program
+  .command('jira-status-jql')
+  .description('Print the value for `status = …` in JQL: the pinned id, or else the quoted name.')
+  .argument('<status>', 'Status name, e.g. "Ready for build"')
+  .action((status: string) => {
+    console.log(jqlStatus(status))
   })
 
 // The other half of a claim. The status says the factory has the card; the
