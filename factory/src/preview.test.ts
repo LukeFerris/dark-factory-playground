@@ -136,7 +136,7 @@ describe('waitUntilAwake', () => {
         ...fast,
         fetchImpl: async () => new Response('', { status: 502 }),
       }),
-    ).rejects.toThrow(/answered HTTP 502[\s\S]*container failing to serve/)
+    ).rejects.toThrow(/answered HTTP 502[\s\S]*site failing to serve/)
   })
 })
 

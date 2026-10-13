@@ -258,9 +258,8 @@ export type StopOutcome = 'not-locked' | 'not-a-stop' | 'already-handled' | 'sto
  * newest comment addressed to the factory is a stop, and it has not been acted
  * on. The mark is triage's, so triage never reads the same comment later.
  *
- * The cancelled run usually cannot move the card itself — a build run's last
- * job is skipped on cancellation, and design.yml's report step does not run on
- * it either — so this does. If the run won the race and reported anyway, the
+ * The cancelled run usually cannot move the card itself — turn.yml's `report`
+ * job is skipped on cancellation — so this does. If the run won the race and reported anyway, the
  * card has left the locked statuses and is left alone.
  */
 export async function stop(options: StopOptions): Promise<StopOutcome> {

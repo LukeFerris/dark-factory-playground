@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ghRunner, setRunner } from './github.ts'
 import { adfToText } from './jira.ts'
-import { SHIPPED_STATUS, productionSupported, shippedComment } from './production.ts'
+import {
+  SHIPPED_STATUS,
+  externalProduction,
+  productionSupported,
+  shippedComment,
+  waitForExternalProduction,
+} from './production.ts'
+import type { WorkflowRun } from './runs.ts'
 
 describe('where production can exist', () => {
   const previous = process.env['FACTORY_PREVIEW_BACKEND']
@@ -15,7 +23,7 @@ describe('where production can exist', () => {
    * that would move a card to Done on the basis of a package page, so the
    * workflow skips instead and the card stays in review.
    */
-  it('is azure only, because the stub serves nothing', () => {
+  it('is azure only when the repository does not deploy it, because the stub serves nothing', () => {
     process.env['FACTORY_PREVIEW_BACKEND'] = 'azure'
     expect(productionSupported()).toBe(true)
     process.env['FACTORY_PREVIEW_BACKEND'] = 'ghcr'
@@ -57,5 +65,120 @@ describe('the shipped comment', () => {
     expect(bare).not.toContain('Pull request')
     expect(bare).not.toContain('Actions run')
     expect(bare).toContain(url)
+  })
+})
+
+describe('a production the repository deploys itself', () => {
+  const keys = ['FACTORY_PRODUCTION_URL', 'FACTORY_PRODUCTION_WORKFLOWS', 'FACTORY_PREVIEW_BACKEND', 'GITHUB_REPOSITORY']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  const SHA = 'b'.repeat(40)
+  const awake = (async () => new Response('ok')) as typeof fetch
+  const run = (name: string, over: Partial<WorkflowRun> = {}): WorkflowRun => ({
+    id: 1,
+    name,
+    status: 'completed',
+    conclusion: 'success',
+    run_attempt: 1,
+    html_url: `https://github.com/o/r/actions/runs/${name}`,
+    ...over,
+  })
+
+  beforeEach(() => {
+    process.env['GITHUB_REPOSITORY'] = 'o/r'
+  })
+  afterEach(() => {
+    setRunner(ghRunner)
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  /** Answers each workflow's run list from `runs`, by file name. */
+  function workflows(runs: Record<string, WorkflowRun[]>): string[] {
+    const asked: string[] = []
+    setRunner((args) => {
+      const file = /workflows\/([^/]+)\/runs/.exec(args[1] ?? '')?.[1] ?? ''
+      asked.push(file)
+      expect(args[1]).toContain(`head_sha=${SHA}&event=push`)
+      return { status: 0, stdout: JSON.stringify(runs[file] ?? []), stderr: '' }
+    })
+    return asked
+  }
+
+  it('is a production, whatever the preview backend', () => {
+    process.env['FACTORY_PREVIEW_BACKEND'] = 'swa'
+    process.env['FACTORY_PRODUCTION_URL'] = 'https://workbench.example.com/'
+    process.env['FACTORY_PRODUCTION_WORKFLOWS'] = 'swa.yml, migrate.yml?'
+    expect(productionSupported()).toBe(true)
+    expect(externalProduction()).toEqual({
+      url: 'https://workbench.example.com',
+      workflows: [
+        { file: 'swa.yml', ifRan: false },
+        { file: 'migrate.yml', ifRan: true },
+      ],
+    })
+    delete process.env['FACTORY_PRODUCTION_URL']
+    expect(productionSupported()).toBe(false)
+  })
+
+  // Otherwise the only workflow could be one that did not run, and nothing at
+  // all would stand between a merge and Done.
+  it('refuses a list where every workflow is optional', () => {
+    process.env['FACTORY_PRODUCTION_URL'] = 'https://workbench.example.com'
+    process.env['FACTORY_PRODUCTION_WORKFLOWS'] = 'migrate.yml?'
+    expect(() => externalProduction()).toThrow(/at least one workflow that always deploys/)
+  })
+
+  it('refuses a URL that is not https', () => {
+    process.env['FACTORY_PRODUCTION_URL'] = 'http://workbench.example.com'
+    process.env['FACTORY_PRODUCTION_WORKFLOWS'] = 'swa.yml'
+    expect(() => externalProduction()).toThrow(/https/)
+  })
+
+  it('waits for the deployments on the merge commit, then for the site', async () => {
+    const asked = workflows({ 'swa.yml': [run('swa')], 'migrate.yml': [run('migrate')] })
+    const url = await waitForExternalProduction(
+      SHA,
+      { url: 'https://workbench.example.com', workflows: [{ file: 'migrate.yml', ifRan: true }, { file: 'swa.yml', ifRan: false }] },
+      { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
+    )
+    expect(url).toBe('https://workbench.example.com')
+    // The one that must run is waited for first, so the optional one has had
+    // every chance to start before it is judged not to have.
+    expect(asked[0]).toBe('swa.yml')
+    expect(asked).toContain('migrate.yml')
+  })
+
+  it('skips an optional workflow that did not run', async () => {
+    const asked = workflows({ 'swa.yml': [run('swa')] })
+    await waitForExternalProduction(
+      SHA,
+      { url: 'https://workbench.example.com', workflows: [{ file: 'swa.yml', ifRan: false }, { file: 'migrate.yml', ifRan: true }] },
+      { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
+    )
+    expect(asked.filter((f) => f === 'migrate.yml')).toHaveLength(1)
+  })
+
+  it('does not ship when a deployment failed', async () => {
+    workflows({ 'swa.yml': [run('swa')], 'migrate.yml': [run('migrate', { conclusion: 'failure' })] })
+    await expect(
+      waitForExternalProduction(
+        SHA,
+        { url: 'https://workbench.example.com', workflows: [{ file: 'swa.yml', ifRan: false }, { file: 'migrate.yml', ifRan: true }] },
+        { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
+      ),
+    ).rejects.toThrow(/migrate finished "failure"/)
+  })
+
+  it('does not ship when the required deployment never ran', async () => {
+    workflows({})
+    await expect(
+      waitForExternalProduction(
+        SHA,
+        { url: 'https://workbench.example.com', workflows: [{ file: 'swa.yml', ifRan: false }] },
+        { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
+      ),
+    ).rejects.toThrow(/No run of swa.yml appeared/)
   })
 })

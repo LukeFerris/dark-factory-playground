@@ -129,7 +129,7 @@ export async function gather(options: GatherOptions): Promise<Meta> {
     stage: options.stage,
     turn,
     // The checked-out branch and HEAD, which are the turn's for the flows that
-    // come in on the card's branch already — build-turn.yml checks the PR
+    // come in on the card's branch already — a continuing turn checks the PR
     // branch out itself and never calls prepare-branch, and publish pushes
     // whatever this says. The flows that do call it overwrite both after their
     // checkout. Tolerant of a missing git because a turn is replayable locally.

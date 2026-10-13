@@ -139,8 +139,7 @@ rather than saying "merge conflict".
 | `app/` | The example React 19 + TypeScript app the factory writes features into |
 | `factory/` | `@factory/cli` — every step of a turn, as TypeScript subcommands |
 | `.agent/` | The agent boundary: the three manuals, and the in/out directories |
-| `.github/workflows/` | Ten workflows: the poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production |
-| `.github/actions/merge-main/` | Bringing a card branch up to main, with an agent for the conflicts |
+| `.github/workflows/` | The poller, design, build start/setup/turn/comment/teardown, refresh, stop, and production, plus `turn.yml` (one turn, split into trusted and untrusted jobs) and `refresh-card.yml` (one card's refresh), which the others call |
 | `bootstrap/` | Four scripts that configure GitHub and Jira from nothing |
 | `docs/design/<KEY>/` | One directory per card: the design, and the build log |
 
@@ -158,8 +157,9 @@ Three independent layers, each of which would have to fail:
    cannot push to `main`, approve a pull request, or merge.
 
 The merge agent gets a fourth. It may edit only the paths git itself marked
-conflicted, it holds read-only git and no other command, and it cannot commit —
-`factory merge-finish` checks its work and writes the commit. A conflict inside
+conflicted, and it holds read-only git and no other command. Its merge is never
+pushed: `factory accept` merges main again, takes only the conflicted files,
+checks them and writes the commit. A conflict inside
 `.agent/`, `.github/` or `factory/` never reaches it: the resolution it wrote
 would be the code running the next step.
 
