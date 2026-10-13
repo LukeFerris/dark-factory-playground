@@ -1,10 +1,10 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { uatStep } from './uat'
 
 /**
- * The walkthrough for DF-14: the app is called "Deal CRM!", with a briefcase
- * icon beside the name in the header. The reviewer asked for the "!" after
- * the first build, so it is in the heading and the tab title alike.
+ * The walkthrough for DF-17: every pipeline column shows how many deals it
+ * holds beside its name, and the number keeps up as deals are added, moved,
+ * dragged and passed on. An emptied column shows 0.
  *
  * Step numbers are the flattened `acceptance_criteria` steps a build turn
  * writes into `result.json`. A turn that changes those steps renumbers here in
@@ -12,98 +12,105 @@ import { uatStep } from './uat'
  *
  * It is one test rather than one per criterion because the reviewer follows
  * the steps in order on one page, so each step starts from whatever the one
- * before it left.
+ * before it left. Every column holds one seeded deal on a first visit.
  *
- * Steps 5 and 7 have no `uatStep`: one is looking at the browser tab, which a
- * page screenshot does not show, and the other is the browser's own find bar,
- * which a page cannot open. The steps after each assert what the reviewer sees.
- *
- * It replaced DF-11's drag-and-drop walkthrough. Dragging is still covered by
- * the unit tests; the card's walkthrough is this card's.
+ * It replaced DF-14's name-and-icon walkthrough, which the unit tests still
+ * cover; the card's walkthrough is this card's.
  */
 
-type Box = { x: number; y: number; width: number; height: number }
+const STAGES = ['Sourcing', 'Screening', 'Due diligence', 'Investment committee', 'Closed', 'Passed']
 
-function heading(page: Page) {
-  return page.getByRole('heading', { level: 1 })
+function column(page: Page, stage: string) {
+  return page.getByRole('region', { name: stage, exact: true })
 }
 
-function icon(page: Page) {
-  return heading(page).locator('svg')
+// A column's heading is its name followed by its count, e.g. "Sourcing1".
+function header(page: Page, stage: string) {
+  return column(page, stage).getByRole('heading', { level: 2 })
 }
 
-async function box(locator: Locator): Promise<Box> {
-  const found = await locator.boundingBox()
-  if (found === null) throw new Error('not on screen')
-  return found
+function stagePicker(page: Page, company: string) {
+  return page.getByRole('combobox', { name: `Stage for ${company}` })
 }
 
-// The box around the heading's words alone, without the icon beside them.
-function textBox(page: Page): Promise<Box> {
-  return heading(page).evaluate((element) => {
-    const range = document.createRange()
-    const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)
-    if (text === undefined) throw new Error('heading has no text')
-    range.selectNodeContents(text)
-    const { x, y, width, height } = range.getBoundingClientRect()
-    return { x, y, width, height }
-  })
-}
-
-// The icon sits wholly to the left of the words, and the two share a line.
-async function iconBesideName(page: Page) {
-  await expect(icon(page)).toBeVisible()
-  const glyph = await box(icon(page))
-  const words = await textBox(page)
-  expect(glyph.x + glyph.width).toBeLessThanOrEqual(words.x)
-  expect(glyph.y).toBeLessThan(words.y + words.height)
-  expect(words.y).toBeLessThan(glyph.y + glyph.height)
-}
-
-test('the app is called Deal CRM!, with a briefcase beside the name', async ({ page }) => {
-  await page.goto('/')
-
-  // The header shows the name "Deal CRM!" with a briefcase icon beside it.
+test('every column counts its deals, and the count keeps up', async ({ page }) => {
+  // Every pipeline column header shows the number of deals in that column.
   await uatStep(page, 1, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM!')
+    await page.goto('/')
+    await expect(column(page, 'Sourcing')).toBeVisible()
   })
 
   await uatStep(page, 2, async () => {
-    await expect(heading(page)).toHaveAccessibleName('Deal CRM!')
-    await iconBesideName(page)
+    for (const stage of STAGES) await expect(header(page, stage)).toBeVisible()
   })
-
-  // The summary line still sits beneath the name.
-  const summary = page.getByText(/active deals? · /)
 
   await uatStep(page, 3, async () => {
-    await expect(summary).toBeVisible()
-    const name = await box(heading(page))
-    expect((await box(summary)).y).toBeGreaterThanOrEqual(name.y + name.height)
+    for (const stage of STAGES) {
+      await expect(header(page, stage)).toHaveText(`${stage}1`)
+      await expect(column(page, stage).getByRole('article')).toHaveCount(1)
+    }
   })
 
+  // The count updates straight away when a deal is added.
   await uatStep(page, 4, async () => {
-    await expect(summary).toHaveText('4 active deals · £210m in pipeline')
+    await page.getByLabel('Company').fill('Acme Logistics')
+    await expect(page.getByLabel('Company')).toHaveValue('Acme Logistics')
   })
 
-  // The browser tab is titled "Deal CRM!".
+  await uatStep(page, 5, async () => {
+    await page.getByRole('button', { name: 'Add deal' }).click()
+    await expect(column(page, 'Sourcing').getByRole('article', { name: 'Acme Logistics' })).toBeVisible()
+  })
+
   await uatStep(page, 6, async () => {
-    await expect(page).toHaveTitle('Deal CRM!')
+    await expect(header(page, 'Sourcing')).toHaveText('Sourcing2')
   })
 
-  // The old name "Deal Pipeline" appears nowhere on the page.
+  // The count updates straight away when a deal is moved with its stage picker.
+  await uatStep(page, 7, async () => {
+    await stagePicker(page, 'Harbour Dental Group').selectOption('Due diligence')
+    await expect(column(page, 'Due diligence').getByRole('article', { name: 'Harbour Dental Group' })).toBeVisible()
+  })
+
   await uatStep(page, 8, async () => {
-    await expect(page.getByText('Deal Pipeline')).toHaveCount(0)
+    await expect(header(page, 'Screening')).toHaveText('Screening0')
+    await expect(header(page, 'Due diligence')).toHaveText('Due diligence2')
   })
 
-  // The name and icon stay together on one line in a narrow window.
+  // The count updates straight away when a deal is dragged to another column.
   await uatStep(page, 9, async () => {
-    await page.setViewportSize({ width: 375, height: 800 })
-    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(375)
+    await column(page, 'Due diligence')
+      .getByRole('article', { name: 'Brightline Packaging' })
+      .dragTo(column(page, 'Investment committee'))
+    await expect(
+      column(page, 'Investment committee').getByRole('article', { name: 'Brightline Packaging' }),
+    ).toBeVisible()
   })
 
   await uatStep(page, 10, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM!')
-    await iconBesideName(page)
+    await expect(header(page, 'Due diligence')).toHaveText('Due diligence1')
+    await expect(header(page, 'Investment committee')).toHaveText('Investment committee2')
+  })
+
+  // The count updates straight away when a deal is passed on.
+  await uatStep(page, 11, async () => {
+    await stagePicker(page, 'Kestrel Energy Services').selectOption('Passed')
+    await expect(column(page, 'Passed').getByRole('article', { name: 'Kestrel Energy Services' })).toBeVisible()
+  })
+
+  await uatStep(page, 12, async () => {
+    await expect(header(page, 'Investment committee')).toHaveText('Investment committee1')
+    await expect(header(page, 'Passed')).toHaveText('Passed2')
+  })
+
+  // An empty column shows 0.
+  await uatStep(page, 13, async () => {
+    await column(page, 'Screening').scrollIntoViewIfNeeded()
+    await expect(column(page, 'Screening').getByRole('article')).toHaveCount(0)
+  })
+
+  await uatStep(page, 14, async () => {
+    await expect(column(page, 'Screening').getByText('No deals')).toBeVisible()
+    await expect(header(page, 'Screening')).toHaveText('Screening0')
   })
 })

@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
+import { STAGES } from './crm/types'
 
 function column(stage: string) {
   return within(screen.getByRole('region', { name: stage }))
+}
+
+// A column's heading is its name followed by its count, e.g. "Sourcing1".
+function counts() {
+  return STAGES.map((stage) => column(stage).getByRole('heading', { level: 2 }).textContent)
 }
 
 describe('App', () => {
@@ -124,5 +130,85 @@ describe('App', () => {
 
     render(<App />)
     expect(column('Passed').getByRole('article', { name: 'Harbour Dental Group' })).toBeInTheDocument()
+  })
+
+  describe('column counts', () => {
+    it('shows one deal in every column on a first visit', () => {
+      render(<App />)
+      expect(counts()).toEqual([
+        'Sourcing1',
+        'Screening1',
+        'Due diligence1',
+        'Investment committee1',
+        'Closed1',
+        'Passed1',
+      ])
+    })
+
+    it('counts a deal added to Sourcing straight away, and nothing else', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.type(screen.getByLabelText('Company'), 'Acme Logistics')
+      await user.click(screen.getByRole('button', { name: 'Add deal' }))
+
+      expect(counts()).toEqual([
+        'Sourcing2',
+        'Screening1',
+        'Due diligence1',
+        'Investment committee1',
+        'Closed1',
+        'Passed1',
+      ])
+    })
+
+    it('moves the count with a deal moved by its stage picker, and shows 0 for the emptied column', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Stage for Harbour Dental Group' }), 'Due diligence')
+
+      expect(counts()).toEqual([
+        'Sourcing1',
+        'Screening0',
+        'Due diligence2',
+        'Investment committee1',
+        'Closed1',
+        'Passed1',
+      ])
+      expect(column('Screening').getByText('No deals')).toBeInTheDocument()
+    })
+
+    it('moves the count with a deal passed on', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Stage for Kestrel Energy Services' }), 'Passed')
+
+      expect(counts()).toEqual([
+        'Sourcing1',
+        'Screening1',
+        'Due diligence1',
+        'Investment committee0',
+        'Closed1',
+        'Passed2',
+      ])
+    })
+
+    it('moves the count with a deal dropped on another column', () => {
+      const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
+      render(<App />)
+      const passed = screen.getByRole('region', { name: 'Passed' })
+      fireEvent.dragStart(column('Screening').getByRole('article', { name: 'Harbour Dental Group' }), { dataTransfer })
+      fireEvent.dragOver(passed, { dataTransfer })
+      fireEvent.drop(passed, { dataTransfer })
+
+      expect(counts()).toEqual([
+        'Sourcing1',
+        'Screening0',
+        'Due diligence1',
+        'Investment committee1',
+        'Closed1',
+        'Passed2',
+      ])
+      expect(column('Screening').getByText('No deals')).toBeInTheDocument()
+    })
   })
 })
