@@ -90,6 +90,10 @@ export function decideSlot(key: string, slots: number | null, holders: string[])
   }
 }
 
+interface ListedPr extends OpenPr {
+  isCrossRepository: boolean
+}
+
 /**
  * The open PRs that can hold a preview: those into main from a branch of this
  * repository. A preview is built only for a PR into main, and a fork's PR gets
@@ -100,7 +104,7 @@ export function decideSlot(key: string, slots: number | null, holders: string[])
  * having on a repository that can have more open than that.
  */
 export function openPullRequests(): OpenPr[] {
-  const open = ghJson<Array<OpenPr & { isCrossRepository: boolean }>>([
+  const open = ghJson<ListedPr[]>([
     'pr',
     'list',
     '--repo',
