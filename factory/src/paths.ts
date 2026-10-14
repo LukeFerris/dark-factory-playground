@@ -75,7 +75,12 @@ export const DEFAULT_PATHS: Paths = {
   ],
 }
 
-const Globs = z.array(z.string().min(1).refine((g) => !g.startsWith('/'), 'a path is relative to the repo root'))
+const Globs = z.array(
+  z
+    .string()
+    .min(1)
+    .refine((g) => !g.startsWith('/'), 'a path is relative to the repo root'),
+)
 
 const ConfigSchema = z
   .object({
@@ -101,7 +106,9 @@ export function readPaths(file: string = configPath()): Paths {
   if (!existsSync(file)) return DEFAULT_PATHS
   const parsed = ConfigSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
   if (!parsed.success) {
-    throw new Error(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+    throw new Error(
+      `${file}: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+    )
   }
   return parsed.data.paths ?? DEFAULT_PATHS
 }

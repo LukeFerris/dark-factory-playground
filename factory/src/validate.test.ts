@@ -10,7 +10,10 @@ function result(over: Partial<Result> = {}): Result {
     summary: 'Did the thing.',
     context: '',
     acceptance_criteria: [
-      { criterion: 'The heading greets the name you typed.', steps: ['Type "Ada". It reads "Hello, Ada".'] },
+      {
+        criterion: 'The heading greets the name you typed.',
+        steps: ['Type "Ada". It reads "Hello, Ada".'],
+      },
     ],
     out_of_scope: [],
     answers: [],
@@ -78,7 +81,9 @@ describe('matchesGlob', () => {
 
   it('does not let a single * cross a path separator', () => {
     expect(matchesGlob('docs/design/DF-1/build-log.md', 'docs/design/*/build-log.md')).toBe(true)
-    expect(matchesGlob('docs/design/DF-1/sub/build-log.md', 'docs/design/*/build-log.md')).toBe(false)
+    expect(matchesGlob('docs/design/DF-1/sub/build-log.md', 'docs/design/*/build-log.md')).toBe(
+      false,
+    )
   })
 
   it('matches exact paths', () => {

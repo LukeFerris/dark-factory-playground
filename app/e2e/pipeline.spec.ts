@@ -50,6 +50,11 @@ function textBox(page: Page): Promise<Box> {
   })
 }
 
+// What the page itself measures, once the browser has applied a resize.
+function viewportWidth(page: Page): Promise<number> {
+  return page.evaluate(() => window.innerWidth)
+}
+
 // The icon sits wholly to the left of the words, and the two share a line.
 async function iconBesideName(page: Page) {
   await expect(icon(page)).toBeVisible()
@@ -99,7 +104,7 @@ test('the app is called Deal CRM!, with a briefcase beside the name', async ({ p
   // The name and icon stay together on one line in a narrow window.
   await uatStep(page, 9, async () => {
     await page.setViewportSize({ width: 375, height: 800 })
-    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(375)
+    await expect.poll(() => viewportWidth(page)).toBe(375)
   })
 
   await uatStep(page, 10, async () => {

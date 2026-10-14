@@ -114,7 +114,11 @@ export function findPrForCard(key: string): (PullRequest & { headRefName: string
  * environment: a dispatch made with GITHUB_TOKEN is accepted and then quietly
  * does nothing, which is why every caller runs under the App token.
  */
-export function dispatchWorkflow(workflow: string, inputs: Record<string, string>, ref?: string): void {
+export function dispatchWorkflow(
+  workflow: string,
+  inputs: Record<string, string>,
+  ref?: string,
+): void {
   gh([
     'workflow',
     'run',
@@ -127,21 +131,24 @@ export function dispatchWorkflow(workflow: string, inputs: Record<string, string
 }
 
 export function createDraftPr(branch: string, title: string, body: string): PullRequest {
-  gh([
-    'pr',
-    'create',
-    '--repo',
-    repoSlug(),
-    '--head',
-    branch,
-    '--base',
-    'main',
-    '--title',
-    title,
-    '--body-file',
-    '-',
-    '--draft',
-  ], body)
+  gh(
+    [
+      'pr',
+      'create',
+      '--repo',
+      repoSlug(),
+      '--head',
+      branch,
+      '--base',
+      'main',
+      '--title',
+      title,
+      '--body-file',
+      '-',
+      '--draft',
+    ],
+    body,
+  )
   const pr = findPrForBranch(branch)
   if (pr === null) throw new Error(`Created a PR for ${branch} but could not read it back.`)
   return pr
@@ -191,15 +198,9 @@ export interface PrComment {
 }
 
 export function prComments(number: number): PrComment[] {
-  const out = ghJson<{ comments?: Array<{ author?: { login?: string }; createdAt?: string; body?: string }> }>([
-    'pr',
-    'view',
-    String(number),
-    '--repo',
-    repoSlug(),
-    '--json',
-    'comments',
-  ])
+  const out = ghJson<{
+    comments?: Array<{ author?: { login?: string }; createdAt?: string; body?: string }>
+  }>(['pr', 'view', String(number), '--repo', repoSlug(), '--json', 'comments'])
   return (out?.comments ?? []).map((c) => ({
     author: c.author?.login ?? 'unknown',
     createdAt: c.createdAt ?? '',
@@ -245,9 +246,7 @@ export function renderFactoryBlock(block: FactoryBlock): string {
  */
 const FACTORY_BLOCK_RE = /^<!-- factory[ \t]*\r?\n([\s\S]*?)\r?\n^factory -->[ \t]*$/gm
 
-function locateFactoryBlock(
-  body: string,
-): { start: number; end: number; json: string } | null {
+function locateFactoryBlock(body: string): { start: number; end: number; json: string } | null {
   let found: { start: number; end: number; json: string } | null = null
   for (const match of body.matchAll(FACTORY_BLOCK_RE)) {
     found = {

@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CORE_DENIED, DEFAULT_PATHS, allowedPaths, deniedPaths, readPaths, resetPaths } from './paths.ts'
+import {
+  CORE_DENIED,
+  DEFAULT_PATHS,
+  allowedPaths,
+  deniedPaths,
+  readPaths,
+  resetPaths,
+} from './paths.ts'
 import { kickoffComment } from './preview.ts'
 import { lockfileArgs } from './publish.ts'
 import { configPath } from './statuses.ts'
@@ -43,9 +50,15 @@ describe('with paths in enki.json', () => {
 
   it('judges a turn by them', () => {
     configure({ paths: ROOT_APP })
-    expect(checkScope('build', ['src/App.tsx', 'supabase/migrations/20261013_x.sql', 'package.json'])).toEqual([])
-    expect(checkScope('build', ['app/src/App.tsx'])).toEqual([{ path: 'app/src/App.tsx', reason: 'not-allowed' }])
-    expect(checkScope('build', ['vite.config.ts'])).toEqual([{ path: 'vite.config.ts', reason: 'denied' }])
+    expect(
+      checkScope('build', ['src/App.tsx', 'supabase/migrations/20261013_x.sql', 'package.json']),
+    ).toEqual([])
+    expect(checkScope('build', ['app/src/App.tsx'])).toEqual([
+      { path: 'app/src/App.tsx', reason: 'not-allowed' },
+    ])
+    expect(checkScope('build', ['vite.config.ts'])).toEqual([
+      { path: 'vite.config.ts', reason: 'denied' },
+    ])
   })
 
   it('keeps the factory’s own deny list, whatever the allow list says', () => {
@@ -58,7 +71,13 @@ describe('with paths in enki.json', () => {
       'enki.json',
       'src/App.tsx',
     ])
-    expect(violations.map((v) => v.reason)).toEqual(['denied', 'denied', 'denied', 'denied', 'denied'])
+    expect(violations.map((v) => v.reason)).toEqual([
+      'denied',
+      'denied',
+      'denied',
+      'denied',
+      'denied',
+    ])
   })
 
   it('lists them in the kickoff comment', () => {
@@ -98,7 +117,13 @@ describe('lockfileArgs', () => {
 
   it('resolves every workspace when there are workspaces', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['app', 'factory'] }))
-    expect(lockfileArgs(dir)).toEqual(['install', '--package-lock-only', '--ignore-scripts', '--workspaces', '--include-workspace-root'])
+    expect(lockfileArgs(dir)).toEqual([
+      'install',
+      '--package-lock-only',
+      '--ignore-scripts',
+      '--workspaces',
+      '--include-workspace-root',
+    ])
   })
 
   it('resolves the root package alone when there are none', () => {

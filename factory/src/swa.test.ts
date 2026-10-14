@@ -31,9 +31,12 @@ function site(bundles: string[]): { fetchImpl: typeof fetch; deployed: () => num
   const fetchImpl = (async (input: string | URL | Request) => {
     const href = String(input)
     if (href.endsWith('/')) {
-      return new Response('<html><script type="module" crossorigin src="/assets/index-AbC.js"></script></html>')
+      return new Response(
+        '<html><script type="module" crossorigin src="/assets/index-AbC.js"></script></html>',
+      )
     }
-    if (href.endsWith('/assets/index-AbC.js')) return new Response(bundles[Math.min(deployed, bundles.length - 1)])
+    if (href.endsWith('/assets/index-AbC.js'))
+      return new Response(bundles[Math.min(deployed, bundles.length - 1)])
     return new Response('', { status: 404 })
   }) as typeof fetch
   return { fetchImpl, deployed: () => deployed++ }
@@ -140,12 +143,18 @@ describe('raiseSwa', () => {
     stub((args) => {
       if (args[1]?.includes('/workflows/')) {
         polls++
-        return polls < 3 ? (polls === 1 ? [] : [run({ status: 'in_progress', conclusion: null })]) : [run()]
+        return polls < 3
+          ? polls === 1
+            ? []
+            : [run({ status: 'in_progress', conclusion: null })]
+          : [run()]
       }
       return undefined
     })
     const { fetchImpl } = site(['ok'])
-    expect(await raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl, runBudgetMs: 5_000 })).toBe(URL_183)
+    expect(await raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl, runBudgetMs: 5_000 })).toBe(
+      URL_183,
+    )
     expect(polls).toBe(3)
     expect(calls[0]?.[1]).toBe(
       `repos/o/r/actions/workflows/azure-static-web-apps.yml/runs?head_sha=${SHA}&event=pull_request&per_page=10`,
@@ -155,15 +164,21 @@ describe('raiseSwa', () => {
   it('fails when the workflow failed, rather than publishing a broken preview', async () => {
     stub(() => [run({ conclusion: 'failure' })])
     const { fetchImpl } = site(['ok'])
-    await expect(raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl })).rejects.toThrow(/finished "failure"/)
+    await expect(raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl })).rejects.toThrow(
+      /finished "failure"/,
+    )
   })
 
   it('says so when no run ever appears', async () => {
     stub(() => [])
     const { fetchImpl } = site(['ok'])
-    await expect(raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl })).rejects.toThrow(/No run of azure-static-web-apps.yml appeared/)
+    await expect(raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl })).rejects.toThrow(
+      /No run of azure-static-web-apps.yml appeared/,
+    )
   })
+})
 
+describe('raiseSwa, while the bundle is not ready', () => {
   it('runs the workflow again while the bundle is not ready, and waits for the new attempt', async () => {
     const { fetchImpl, deployed } = site(['preview-not-found', 'https://abcd.supabase.co'])
     let attempt = 1
@@ -178,10 +193,16 @@ describe('raiseSwa', () => {
       }
       // The first poll after a rerun still sees the old, completed attempt.
       pollsSinceRerun++
-      return pollsSinceRerun === 1 ? run({ run_attempt: attempt - 1 }) : run({ run_attempt: attempt })
+      return pollsSinceRerun === 1
+        ? run({ run_attempt: attempt - 1 })
+        : run({ run_attempt: attempt })
     })
-    expect(await raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl, runBudgetMs: 5_000 })).toBe(URL_183)
-    expect(calls.filter((a) => a.includes('POST')).map((a) => a.at(-1))).toEqual(['repos/o/r/actions/runs/77/rerun'])
+    expect(await raiseSwa(183, SHA, CONFIG, { ...FAST, fetchImpl, runBudgetMs: 5_000 })).toBe(
+      URL_183,
+    )
+    expect(calls.filter((a) => a.includes('POST')).map((a) => a.at(-1))).toEqual([
+      'repos/o/r/actions/runs/77/rerun',
+    ])
     expect(pollsSinceRerun).toBe(2)
   })
 

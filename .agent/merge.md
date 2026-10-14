@@ -16,10 +16,10 @@ should say.
 
 ## Your inputs
 
-| File | What it holds |
-| --- | --- |
+| File                      | What it holds                                                   |
+| ------------------------- | --------------------------------------------------------------- |
 | `.agent/in/merge-task.md` | The branch, what main changed, and the list of conflicted files |
-| `.agent/in/merge.json` | The same, as data, including the two commit shas |
+| `.agent/in/merge.json`    | The same, as data, including the two commit shas                |
 
 Every conflicted file is in your working tree right now with git's `<<<<<<<`,
 `=======` and `>>>>>>>` markers in it. `<<<<<<< HEAD` is this card's branch;
@@ -47,9 +47,7 @@ It is the only thing the pipeline reads.
 {
   "status": "resolved",
   "summary": "Both sides added a rule to app/src/index.css. Kept main's background colour and this branch's font stack, which do not overlap.",
-  "notes": [
-    "app/src/index.css — kept both rules; they set different properties."
-  ],
+  "notes": ["app/src/index.css — kept both rules; they set different properties."],
   "questions": []
 }
 ```
@@ -80,10 +78,10 @@ commit — the pipeline does that, after it has checked your work.
 
 ## Choosing a status
 
-| Status | Use it when |
-| --- | --- |
-| `resolved` | Every conflicted file is now correct and marker-free, and you are confident the combination is what both authors would have wanted |
-| `unresolved` | The right answer is a decision somebody has to make, not something you can read off the code |
+| Status       | Use it when                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `resolved`   | Every conflicted file is now correct and marker-free, and you are confident the combination is what both authors would have wanted |
+| `unresolved` | The right answer is a decision somebody has to make, not something you can read off the code                                       |
 
 ### When to say `unresolved`
 
@@ -92,15 +90,15 @@ than about how to write it. You cannot resolve a disagreement about intent by
 reading the diff, and guessing produces a merge commit that silently discards
 somebody's card.
 
-| | Example |
-|---|---|
-| `resolved` | Both sides added a CSS rule to the same block, setting different properties. Keep both. |
-| `resolved` | Both sides added an import. Keep both, in the file's existing order. |
-| `resolved` | Main renamed a function this branch calls. Use the new name. |
-| `resolved` | Both sides reformatted the same lines to the same effect. Take either. |
+|              | Example                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| `resolved`   | Both sides added a CSS rule to the same block, setting different properties. Keep both.       |
+| `resolved`   | Both sides added an import. Keep both, in the file's existing order.                          |
+| `resolved`   | Main renamed a function this branch calls. Use the new name.                                  |
+| `resolved`   | Both sides reformatted the same lines to the same effect. Take either.                        |
 | `unresolved` | Main sets the background blue; this branch sets it pink. Only a person knows which card wins. |
-| `unresolved` | Both sides changed the same validation rule to different thresholds. |
-| `unresolved` | Main deleted a component this branch has been extending. |
+| `unresolved` | Both sides changed the same validation rule to different thresholds.                          |
+| `unresolved` | Main deleted a component this branch has been extending.                                      |
 
 **Being wrong towards `unresolved` costs one comment on a card.** Being wrong
 the other way puts a decision nobody made into main's history. When you are not
@@ -115,11 +113,11 @@ onto a Jira card for a person who is not looking at the conflict. So:
 - **Say what each side wants**, in terms of behaviour, not lines.
 - **Offer the options** you can see, in `options[]`, so the reply can be a word.
 
-| | Example |
-|---|---|
-| ✅ | `question`: `app/src/index.css — this card sets the page background pink, and main now sets it light blue. Which should the merged branch use?` `options`: `["pink", "light blue", "something else"]` |
-| ❌ | `Merge conflict in app/src/index.css.` — says nothing the card could not already see |
-| ❌ | `Which hunk should I take?` — the reader has no hunks in front of them |
+|     | Example                                                                                                                                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅  | `question`: `app/src/index.css — this card sets the page background pink, and main now sets it light blue. Which should the merged branch use?` `options`: `["pink", "light blue", "something else"]` |
+| ❌  | `Merge conflict in app/src/index.css.` — says nothing the card could not already see                                                                                                                  |
+| ❌  | `Which hunk should I take?` — the reader has no hunks in front of them                                                                                                                                |
 
 Leave `questions[]` empty when you are `resolved`.
 

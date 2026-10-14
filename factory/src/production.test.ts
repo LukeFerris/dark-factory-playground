@@ -68,44 +68,50 @@ describe('the shipped comment', () => {
   })
 })
 
-describe('a production the repository deploys itself', () => {
-  const keys = ['FACTORY_PRODUCTION_URL', 'FACTORY_PRODUCTION_WORKFLOWS', 'FACTORY_PREVIEW_BACKEND', 'GITHUB_REPOSITORY']
-  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
-  const SHA = 'b'.repeat(40)
-  const awake = (async () => new Response('ok')) as typeof fetch
-  const run = (name: string, over: Partial<WorkflowRun> = {}): WorkflowRun => ({
-    id: 1,
-    name,
-    status: 'completed',
-    conclusion: 'success',
-    run_attempt: 1,
-    html_url: `https://github.com/o/r/actions/runs/${name}`,
-    ...over,
-  })
+const keys = [
+  'FACTORY_PRODUCTION_URL',
+  'FACTORY_PRODUCTION_WORKFLOWS',
+  'FACTORY_PREVIEW_BACKEND',
+  'GITHUB_REPOSITORY',
+]
+const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+const SHA = 'b'.repeat(40)
+const awake = (async () => new Response('ok')) as typeof fetch
+const run = (name: string, over: Partial<WorkflowRun> = {}): WorkflowRun => ({
+  id: 1,
+  name,
+  status: 'completed',
+  conclusion: 'success',
+  run_attempt: 1,
+  html_url: `https://github.com/o/r/actions/runs/${name}`,
+  ...over,
+})
 
-  beforeEach(() => {
-    process.env['GITHUB_REPOSITORY'] = 'o/r'
-  })
-  afterEach(() => {
-    setRunner(ghRunner)
-    for (const k of keys) {
-      if (saved[k] === undefined) delete process.env[k]
-      else process.env[k] = saved[k]
-    }
-  })
-
-  /** Answers each workflow's run list from `runs`, by file name. */
-  function workflows(runs: Record<string, WorkflowRun[]>): string[] {
-    const asked: string[] = []
-    setRunner((args) => {
-      const file = /workflows\/([^/]+)\/runs/.exec(args[1] ?? '')?.[1] ?? ''
-      asked.push(file)
-      expect(args[1]).toContain(`head_sha=${SHA}&event=push`)
-      return { status: 0, stdout: JSON.stringify(runs[file] ?? []), stderr: '' }
-    })
-    return asked
+// For both describes below: the environment each test sets is put back.
+beforeEach(() => {
+  process.env['GITHUB_REPOSITORY'] = 'o/r'
+})
+afterEach(() => {
+  setRunner(ghRunner)
+  for (const k of keys) {
+    if (saved[k] === undefined) delete process.env[k]
+    else process.env[k] = saved[k]
   }
+})
 
+/** Answers each workflow's run list from `runs`, by file name. */
+function workflows(runs: Record<string, WorkflowRun[]>): string[] {
+  const asked: string[] = []
+  setRunner((args) => {
+    const file = /workflows\/([^/]+)\/runs/.exec(args[1] ?? '')?.[1] ?? ''
+    asked.push(file)
+    expect(args[1]).toContain(`head_sha=${SHA}&event=push`)
+    return { status: 0, stdout: JSON.stringify(runs[file] ?? []), stderr: '' }
+  })
+  return asked
+}
+
+describe('a production the repository deploys itself', () => {
   it('is a production, whatever the preview backend', () => {
     process.env['FACTORY_PREVIEW_BACKEND'] = 'swa'
     process.env['FACTORY_PRODUCTION_URL'] = 'https://workbench.example.com/'
@@ -135,12 +141,20 @@ describe('a production the repository deploys itself', () => {
     process.env['FACTORY_PRODUCTION_WORKFLOWS'] = 'swa.yml'
     expect(() => externalProduction()).toThrow(/https/)
   })
+})
 
+describe('waiting for a production the repository deploys', () => {
   it('waits for the deployments on the merge commit, then for the site', async () => {
     const asked = workflows({ 'swa.yml': [run('swa')], 'migrate.yml': [run('migrate')] })
     const url = await waitForExternalProduction(
       SHA,
-      { url: 'https://workbench.example.com', workflows: [{ file: 'migrate.yml', ifRan: true }, { file: 'swa.yml', ifRan: false }] },
+      {
+        url: 'https://workbench.example.com',
+        workflows: [
+          { file: 'migrate.yml', ifRan: true },
+          { file: 'swa.yml', ifRan: false },
+        ],
+      },
       { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
     )
     expect(url).toBe('https://workbench.example.com')
@@ -154,18 +168,35 @@ describe('a production the repository deploys itself', () => {
     const asked = workflows({ 'swa.yml': [run('swa')] })
     await waitForExternalProduction(
       SHA,
-      { url: 'https://workbench.example.com', workflows: [{ file: 'swa.yml', ifRan: false }, { file: 'migrate.yml', ifRan: true }] },
+      {
+        url: 'https://workbench.example.com',
+        workflows: [
+          { file: 'swa.yml', ifRan: false },
+          { file: 'migrate.yml', ifRan: true },
+        ],
+      },
       { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
     )
     expect(asked.filter((f) => f === 'migrate.yml')).toHaveLength(1)
   })
+})
 
+describe('not shipping a production the repository deploys', () => {
   it('does not ship when a deployment failed', async () => {
-    workflows({ 'swa.yml': [run('swa')], 'migrate.yml': [run('migrate', { conclusion: 'failure' })] })
+    workflows({
+      'swa.yml': [run('swa')],
+      'migrate.yml': [run('migrate', { conclusion: 'failure' })],
+    })
     await expect(
       waitForExternalProduction(
         SHA,
-        { url: 'https://workbench.example.com', workflows: [{ file: 'swa.yml', ifRan: false }, { file: 'migrate.yml', ifRan: true }] },
+        {
+          url: 'https://workbench.example.com',
+          workflows: [
+            { file: 'swa.yml', ifRan: false },
+            { file: 'migrate.yml', ifRan: true },
+          ],
+        },
         { gapMs: 0, runBudgetMs: 50, fetchImpl: awake },
       ),
     ).rejects.toThrow(/migrate finished "failure"/)

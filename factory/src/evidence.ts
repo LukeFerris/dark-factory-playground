@@ -119,7 +119,10 @@ export function capturedSteps(dir: string): number[] {
  * so a reviewer can see that there was more and go and read the card.
  */
 export function wrap(text: string, max: number, lines: number): string[] {
-  const words = text.trim().split(/\s+/).filter((w) => w !== '')
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== '')
   if (words.length === 0) return []
 
   const out: string[] = []
@@ -136,7 +139,10 @@ export function wrap(text: string, max: number, lines: number): string[] {
   }
   if (out.length < lines && current !== '') out.push(current)
 
-  const used = out.join(' ').split(/\s+/).filter((w) => w !== '').length
+  const used = out
+    .join(' ')
+    .split(/\s+/)
+    .filter((w) => w !== '').length
   if (used < words.length) {
     const last = out[lines - 1] ?? ''
     out[lines - 1] = `${last.slice(0, Math.max(0, max - 1)).trimEnd()}…`
@@ -156,7 +162,10 @@ export interface Slide {
 
 /** About two and a half words a second, between four and twelve. */
 export function holdSeconds(lines: string[]): number {
-  const words = lines.join(' ').split(/\s+/).filter((w) => w !== '').length
+  const words = lines
+    .join(' ')
+    .split(/\s+/)
+    .filter((w) => w !== '').length
   return Math.min(12, Math.max(4, Math.ceil(words / 2.5)))
 }
 
@@ -219,6 +228,16 @@ function hasDrawtext(): boolean {
   return filters.status === 0 && /\bdrawtext\b/.test(filters.stdout ?? '')
 }
 
+/** One line of the caption band: what it says, and how it is drawn. */
+interface Caption {
+  /** The file holding the text — see drawtext for why it is a file. */
+  file: string
+  font: string
+  size: number
+  colour: string
+  y: number
+}
+
 /**
  * One drawtext clause.
  *
@@ -228,7 +247,7 @@ function hasDrawtext(): boolean {
  * disabled they mean nothing at all, which is the only way to be sure the
  * video says what the card says.
  */
-function drawtext(file: string, font: string, size: number, colour: string, y: number): string {
+function drawtext({ file, font, size, colour, y }: Caption): string {
   return [
     'drawtext=',
     `textfile=${file}`,
@@ -240,6 +259,11 @@ function drawtext(file: string, font: string, size: number, colour: string, y: n
     `:y=${y}`,
     `:line_spacing=${Math.round(size * 0.35)}`,
   ].join('')
+}
+
+/** The last few lines of what ffmpeg said, which is where it says what went wrong. */
+function ffmpegTail(stderr: string | null | undefined): string {
+  return (stderr ?? '').trim().split('\n').slice(-3).join(' ')
 }
 
 export interface SlidesOutcome {
@@ -262,6 +286,130 @@ export interface SlidesOptions {
 }
 
 /**
+ * The font to draw with, or why there is nothing to draw — checked in the
+ * order a reviewer would want to be told: nothing to show, then no ffmpeg, then
+ * an ffmpeg that cannot do the job, then nothing to write with.
+ */
+function readiness(plan: Plan): { font: string } | { reason: string } {
+  if (plan.slides.length === 0) return { reason: 'no step screenshots were captured' }
+  if (!have('ffmpeg')) return { reason: 'ffmpeg is not installed' }
+  if (!hasDrawtext()) return { reason: 'this ffmpeg was built without drawtext' }
+  const font = firstFont()
+  if (font === null) return { reason: 'no usable font was found' }
+  return { font }
+}
+
+/**
+ * The filter graph for one slide, with its three caption files written beside
+ * `stem`: the screenshot scaled to fit, letterboxed onto a light ground, padded
+ * with the caption band and drawn into.
+ */
+function slideFilters(slide: Slide, stem: string, font: string): string {
+  const labelFile = `${stem}.label.txt`
+  const criterionFile = `${stem}.criterion.txt`
+  const actionFile = `${stem}.action.txt`
+  writeFileSync(labelFile, slide.label)
+  writeFileSync(criterionFile, slide.criterion.join('\n'))
+  writeFileSync(actionFile, slide.action.join('\n'))
+
+  return [
+    `scale=${WIDTH}:${SHOT_HEIGHT}:force_original_aspect_ratio=decrease`,
+    `pad=${WIDTH}:${SHOT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=${LETTERBOX_BG}`,
+    `pad=${WIDTH}:${HEIGHT}:0:0:color=${BAND_BG}`,
+    drawtext({ file: labelFile, font, size: LABEL_SIZE, colour: LABEL_FG, y: SHOT_HEIGHT + 24 }),
+    drawtext({
+      file: criterionFile,
+      font,
+      size: CRITERION_SIZE,
+      colour: CRITERION_FG,
+      y: SHOT_HEIGHT + 60,
+    }),
+    drawtext({
+      file: actionFile,
+      font,
+      size: ACTION_SIZE,
+      colour: ACTION_FG,
+      y: SHOT_HEIGHT + 136,
+    }),
+  ].join(',')
+}
+
+/** Renders one slide to its own clip in `stem`'s directory. Throws if ffmpeg will not. */
+function renderSlide(slide: Slide, stem: string, font: string): string {
+  const clip = `${stem}.mp4`
+  const rendered = spawnSync(
+    'ffmpeg',
+    [
+      '-y',
+      '-loop',
+      '1',
+      '-t',
+      String(slide.seconds),
+      '-i',
+      slide.shot,
+      '-vf',
+      slideFilters(slide, stem, font),
+      '-r',
+      '30',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:v',
+      'libx264',
+      clip,
+    ],
+    { encoding: 'utf8' },
+  )
+  if (rendered.status !== 0) {
+    throw new Error(`ffmpeg could not render step ${slide.step.n}: ${ffmpegTail(rendered.stderr)}`)
+  }
+  return clip
+}
+
+/** Joins the clips into `out`. Returns why it could not, or null when it did. */
+function joinClips(parts: string[], work: string, out: string): string | null {
+  // Single quotes around each path, which the concat demuxer requires; the
+  // paths are ours and hold none.
+  const list = join(work, 'slides.txt')
+  writeFileSync(list, `${parts.map((p) => `file '${p}'`).join('\n')}\n`)
+
+  const joined = spawnSync(
+    'ffmpeg',
+    ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out],
+    { encoding: 'utf8' },
+  )
+  return joined.status === 0
+    ? null
+    : `ffmpeg could not join the slides: ${ffmpegTail(joined.stderr)}`
+}
+
+/** Removes a video over the cap. Returns why it went, or null when it stays. */
+function enforceCap(out: string, maxKb: number): string | null {
+  const kb = Math.ceil(statSync(out).size / 1024)
+  if (kb <= maxKb) return null
+  rmSync(out, { force: true })
+  return `the video is ${kb} KB, over the ${maxKb} KB cap`
+}
+
+/**
+ * Renders every slide, joins them and checks the size, in a work directory
+ * that is gone afterwards whatever happened. Returns why there is no video, or
+ * null when there is one — so even an error thrown with no message is a failure.
+ */
+function renderVideo(plan: Plan, font: string, out: string, maxKb: number): string | null {
+  const work = mkdtempSync(join(tmpdir(), 'factory-slides-'))
+  try {
+    const parts = plan.slides.map((slide, index) =>
+      renderSlide(slide, join(work, `slide-${String(index).padStart(3, '0')}`), font),
+    )
+    return joinClips(parts, work, out) ?? enforceCap(out, maxKb)
+  } catch (error) {
+    return (error as Error).message
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
+/**
  * Renders the slides. Returns a reason instead of throwing, always.
  *
  * ffmpeg does the layout as well as the encoding: each screenshot is scaled to
@@ -281,83 +429,9 @@ export function buildSlides(options: SlidesOptions): SlidesOutcome {
     orphans: plan.orphans,
   }
 
-  if (plan.slides.length === 0) {
-    return { ...base, ok: false, video: null, reason: 'no step screenshots were captured' }
-  }
-  if (!have('ffmpeg')) {
-    return { ...base, ok: false, video: null, reason: 'ffmpeg is not installed' }
-  }
-  if (!hasDrawtext()) {
-    return { ...base, ok: false, video: null, reason: 'this ffmpeg was built without drawtext' }
-  }
-  const font = firstFont()
-  if (font === null) {
-    return { ...base, ok: false, video: null, reason: 'no usable font was found' }
-  }
-
-  const work = mkdtempSync(join(tmpdir(), 'factory-slides-'))
-  try {
-    const parts: string[] = []
-    plan.slides.forEach((slide, index) => {
-      const stem = join(work, `slide-${String(index).padStart(3, '0')}`)
-      const labelFile = `${stem}.label.txt`
-      const criterionFile = `${stem}.criterion.txt`
-      const actionFile = `${stem}.action.txt`
-      writeFileSync(labelFile, slide.label)
-      writeFileSync(criterionFile, slide.criterion.join('\n'))
-      writeFileSync(actionFile, slide.action.join('\n'))
-
-      const filters = [
-        `scale=${WIDTH}:${SHOT_HEIGHT}:force_original_aspect_ratio=decrease`,
-        `pad=${WIDTH}:${SHOT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=${LETTERBOX_BG}`,
-        `pad=${WIDTH}:${HEIGHT}:0:0:color=${BAND_BG}`,
-        drawtext(labelFile, font, LABEL_SIZE, LABEL_FG, SHOT_HEIGHT + 24),
-        drawtext(criterionFile, font, CRITERION_SIZE, CRITERION_FG, SHOT_HEIGHT + 60),
-        drawtext(actionFile, font, ACTION_SIZE, ACTION_FG, SHOT_HEIGHT + 136),
-      ].join(',')
-
-      const clip = `${stem}.mp4`
-      const rendered = spawnSync(
-        'ffmpeg',
-        ['-y', '-loop', '1', '-t', String(slide.seconds), '-i', slide.shot,
-         '-vf', filters, '-r', '30', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', clip],
-        { encoding: 'utf8' },
-      )
-      if (rendered.status !== 0) {
-        throw new Error(`ffmpeg could not render step ${slide.step.n}: ${(rendered.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`)
-      }
-      parts.push(clip)
-    })
-
-    // Single quotes around each path, which the concat demuxer requires; the
-    // paths are ours and hold none.
-    const list = join(work, 'slides.txt')
-    writeFileSync(list, `${parts.map((p) => `file '${p}'`).join('\n')}\n`)
-
-    const joined = spawnSync(
-      'ffmpeg',
-      ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out],
-      { encoding: 'utf8' },
-    )
-    if (joined.status !== 0) {
-      return {
-        ...base,
-        ok: false,
-        video: null,
-        reason: `ffmpeg could not join the slides: ${(joined.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`,
-      }
-    }
-
-    const kb = Math.ceil(statSync(out).size / 1024)
-    if (kb > maxKb) {
-      rmSync(out, { force: true })
-      return { ...base, ok: false, video: null, reason: `the video is ${kb} KB, over the ${maxKb} KB cap` }
-    }
-
-    return { ...base, ok: true, video: out, reason: '' }
-  } catch (error) {
-    return { ...base, ok: false, video: null, reason: (error as Error).message }
-  } finally {
-    rmSync(work, { recursive: true, force: true })
-  }
+  const ready = readiness(plan)
+  const reason = 'reason' in ready ? ready.reason : renderVideo(plan, ready.font, out, maxKb)
+  return reason === null
+    ? { ...base, ok: true, video: out, reason: '' }
+    : { ...base, ok: false, video: null, reason }
 }

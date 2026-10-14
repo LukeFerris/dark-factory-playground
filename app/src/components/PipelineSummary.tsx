@@ -10,7 +10,8 @@ export function PipelineSummary({ deals }: PipelineSummaryProps) {
   const total = active.reduce((sum, deal) => sum + (deal.size ?? 0), 0)
   return (
     <p className="summary">
-      {active.length} active {active.length === 1 ? 'deal' : 'deals'} · {formatSize(total)} in pipeline
+      {active.length} active {active.length === 1 ? 'deal' : 'deals'} · {formatSize(total)} in
+      pipeline
     </p>
   )
 }

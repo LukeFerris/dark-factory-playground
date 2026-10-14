@@ -1,6 +1,15 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
-import { STATUS_NAMES, configPath, jqlStatus, nameOf, pinnedId, readStatusIds, resetStatusIds, statusOfCard } from './statuses.ts'
+import {
+  STATUS_NAMES,
+  configPath,
+  jqlStatus,
+  nameOf,
+  pinnedId,
+  readStatusIds,
+  resetStatusIds,
+  statusOfCard,
+} from './statuses.ts'
 
 /** Ids 10050 to 10059, in the order of STATUS_NAMES. */
 const IDS = Object.fromEntries(STATUS_NAMES.map((name, i) => [name, String(10050 + i)]))
@@ -52,7 +61,11 @@ describe('with the ids pinned', () => {
 
 describe('a config it refuses', () => {
   it('refuses some ids but not all ten', () => {
-    pin({ jira: { statuses: Object.fromEntries(Object.entries(IDS).filter(([name]) => name !== 'Done')) } })
+    pin({
+      jira: {
+        statuses: Object.fromEntries(Object.entries(IDS).filter(([name]) => name !== 'Done')),
+      },
+    })
     expect(() => readStatusIds()).toThrow(/no id for "Done". Pin all ten, or none/)
   })
 

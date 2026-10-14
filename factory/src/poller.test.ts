@@ -57,7 +57,9 @@ describe('how the poller claims a card', () => {
  */
 describe('which cards the poller takes', () => {
   const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/poller.yml'), 'utf8')
-  const search = yaml.split('\n').find((line) => line.includes('jql="project = ${JIRA_PROJECT_KEY}'))
+  const search = yaml
+    .split('\n')
+    .find((line) => line.includes('jql="project = ${JIRA_PROJECT_KEY}'))
 
   it('takes only cards assigned to the factory', () => {
     expect(search).toBeDefined()
@@ -101,7 +103,8 @@ describe('how the poller is started', () => {
 describe('the comment rules in JIRA-TRIGGERS.md', () => {
   const doc = readFileSync(resolve(REPO_ROOT, 'docs/factory/JIRA-TRIGGERS.md'), 'utf8')
   const rows = doc.split('\n').filter((line) => line.includes('Issue fields condition'))
-  const named = (row: string | undefined) => [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
+  const named = (row: string | undefined) =>
+    [...(row ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1])
 
   it('has one status condition per comment rule', () => {
     expect(rows).toHaveLength(2)
@@ -127,7 +130,9 @@ describe('the comment rules in bootstrap/jira-triggers.sh', () => {
   const script = readFileSync(resolve(REPO_ROOT, 'bootstrap/jira-triggers.sh'), 'utf8')
   const list = (name: string) => {
     const line = script.split('\n').find((candidate) => candidate.startsWith(`${name}=(`))
-    return line === undefined ? undefined : [...line.matchAll(/"([^"]+)"/g)].map((match) => match[1])
+    return line === undefined
+      ? undefined
+      : [...line.matchAll(/"([^"]+)"/g)].map((match) => match[1])
   }
 
   it('names exactly the question statuses', () => {
@@ -150,6 +155,8 @@ describe('the lock in bootstrap/jira.sh', () => {
   const line = script.split('\n').find((candidate) => candidate.startsWith('LOCKED_STATUSES=('))
 
   it('locks exactly the statuses lock.ts treats as held', () => {
-    expect([...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])).toEqual([...LOCKED_STATUSES])
+    expect([...(line ?? '').matchAll(/"([^"]+)"/g)].map((match) => match[1])).toEqual([
+      ...LOCKED_STATUSES,
+    ])
   })
 })

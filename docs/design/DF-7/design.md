@@ -32,7 +32,7 @@ test files.
 - `app/src/main.tsx` mounts `<App />` into that div inside `<StrictMode>`, and
   throws if `#root` is missing. It imports nothing else.
 - `app/src/App.tsx` renders `<main>` containing an `<h1>` and `<Hello
-  name="world" />`; `Hello` renders a `<p>` with the string from `useGreeting`.
+name="world" />`; `Hello` renders a `<p>` with the string from `useGreeting`.
   So the only visible text is "Dark Factory Playground" and "Hello, world".
 - No dark-mode handling exists: there is no `color-scheme` declaration and no
   `prefers-color-scheme` media query, so in a browser set to dark mode the page
@@ -98,15 +98,15 @@ file at build time, and injects them during `vite dev`.
 
 ## Components affected
 
-| File | What happens to it |
-| --- | --- |
-| `app/src/index.css` | **New.** One `body` rule setting `background-color: #93c5fd` and `color: #000000`, with a short comment saying the two are pinned together as one contrast decision. Nothing else — no reset, no font rules, no selectors for `#root`, `main`, `h1` or `p`. |
-| `app/src/main.tsx` | One line added: `import './index.css'` above the existing imports. No other change; the `#root` guard and the `createRoot` call stay exactly as they are. |
-| `app/src/index.css.test.ts` | **New.** Guards that the stylesheet still pins both colours. See "Test strategy". |
-| `app/index.html` | Unchanged. The stylesheet is imported through the module graph, not linked from the HTML. |
-| `app/src/App.tsx`, `app/src/components/Hello.tsx`, `app/src/hooks/useGreeting.ts` | Unchanged. No component gains a `className` or a `style` prop. |
-| `app/vite.config.ts`, `app/tsconfig.json`, `app/package.json` | Unchanged. No new dependency, and `test.css: false` stays as it is — see the risk note below. |
-| `app/Dockerfile`, `app/nginx.conf` | Unchanged. The emitted stylesheet is a hashed asset under `/assets/`, already covered. |
+| File                                                                              | What happens to it                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/src/index.css`                                                               | **New.** One `body` rule setting `background-color: #93c5fd` and `color: #000000`, with a short comment saying the two are pinned together as one contrast decision. Nothing else — no reset, no font rules, no selectors for `#root`, `main`, `h1` or `p`. |
+| `app/src/main.tsx`                                                                | One line added: `import './index.css'` above the existing imports. No other change; the `#root` guard and the `createRoot` call stay exactly as they are.                                                                                                   |
+| `app/src/index.css.test.ts`                                                       | **New.** Guards that the stylesheet still pins both colours. See "Test strategy".                                                                                                                                                                           |
+| `app/index.html`                                                                  | Unchanged. The stylesheet is imported through the module graph, not linked from the HTML.                                                                                                                                                                   |
+| `app/src/App.tsx`, `app/src/components/Hello.tsx`, `app/src/hooks/useGreeting.ts` | Unchanged. No component gains a `className` or a `style` prop.                                                                                                                                                                                              |
+| `app/vite.config.ts`, `app/tsconfig.json`, `app/package.json`                     | Unchanged. No new dependency, and `test.css: false` stays as it is — see the risk note below.                                                                                                                                                               |
+| `app/Dockerfile`, `app/nginx.conf`                                                | Unchanged. The emitted stylesheet is a hashed asset under `/assets/`, already covered.                                                                                                                                                                      |
 
 ## State and data flow
 
@@ -234,7 +234,7 @@ a token layer for a single colour is structure invented ahead of a need.
 The visible outcome of this card cannot be asserted in this project's test setup:
 `app/vite.config.ts` sets `test.css: false`, and jsdom does not apply an external
 stylesheet's cascade to `getComputedStyle`. Every test below therefore guards
-against a *code* regression, and the acceptance criteria above are what confirm
+against a _code_ regression, and the acceptance criteria above are what confirm
 the page actually looks right. No test here should claim to check the rendered
 colour.
 

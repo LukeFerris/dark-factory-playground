@@ -6,8 +6,22 @@ import { SEED_DEALS } from '../crm/seed'
 import { STAGES, type Deal } from '../crm/types'
 
 const deals: Deal[] = [
-  { id: 'a', company: 'Acme Logistics', sector: 'Industrials', stage: 'Sourcing', size: 45, owner: 'Sam Patel' },
-  { id: 'b', company: 'Beta Health', sector: 'Healthcare', stage: 'Sourcing', size: 12.5, owner: 'Jo Lee' },
+  {
+    id: 'a',
+    company: 'Acme Logistics',
+    sector: 'Industrials',
+    stage: 'Sourcing',
+    size: 45,
+    owner: 'Sam Patel',
+  },
+  {
+    id: 'b',
+    company: 'Beta Health',
+    sector: 'Healthcare',
+    stage: 'Sourcing',
+    size: 12.5,
+    owner: 'Jo Lee',
+  },
   { id: 'c', company: 'Gamma Retail', sector: '', stage: 'Closed', owner: '' },
 ]
 
@@ -26,14 +40,25 @@ function column(stage: string) {
   return screen.getByRole('region', { name: stage })
 }
 
-function highlighted() {
-  return screen.getAllByRole('region').filter((section) => section.classList.contains('column--drop-target'))
+// Picks a card up, as the first event of every drag does.
+function startDragging(company: string) {
+  fireEvent.dragStart(screen.getByRole('article', { name: company }), {
+    dataTransfer: dataTransfer(),
+  })
 }
 
-describe('PipelineBoard', () => {
+function highlighted() {
+  return screen
+    .getAllByRole('region')
+    .filter((section) => section.classList.contains('column--drop-target'))
+}
+
+describe('PipelineBoard columns', () => {
   it('renders the six stages in order with their counts', () => {
     render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual([
       'Sourcing2',
       'Screening0',
       'Due diligence0',
@@ -59,14 +84,24 @@ describe('PipelineBoard', () => {
 
   it('says an empty stage has no deals', () => {
     render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-    expect(within(screen.getByRole('region', { name: 'Screening' })).getByText('No deals')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Sourcing' })).queryByText('No deals')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Screening' })).getByText('No deals'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Sourcing' })).queryByText('No deals'),
+    ).not.toBeInTheDocument()
   })
+})
 
-  it('offers every stage in each card\'s stage picker', () => {
+describe('PipelineBoard stage picker', () => {
+  it("offers every stage in each card's stage picker", () => {
     render(<PipelineBoard deals={SEED_DEALS} onMove={vi.fn()} onUpdate={vi.fn()} />)
     const select = screen.getByRole('combobox', { name: 'Stage for Northwind Analytics' })
-    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([...STAGES])
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([...STAGES])
     expect(select).toHaveValue('Sourcing')
   })
 
@@ -74,17 +109,20 @@ describe('PipelineBoard', () => {
     const onMove = vi.fn()
     const user = userEvent.setup()
     render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Stage for Beta Health' }), 'Due diligence')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Stage for Beta Health' }),
+      'Due diligence',
+    )
     expect(onMove).toHaveBeenCalledWith('b', 'Due diligence')
   })
+})
 
+describe('PipelineBoard editing', () => {
   it('gives each card an Edit button named for its deal', () => {
     render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-    expect(screen.getAllByRole('button', { name: /^Edit / }).map((button) => button.textContent)).toEqual([
-      'Edit Acme Logistics',
-      'Edit Beta Health',
-      'Edit Gamma Retail',
-    ])
+    expect(
+      screen.getAllByRole('button', { name: /^Edit / }).map((button) => button.textContent),
+    ).toEqual(['Edit Acme Logistics', 'Edit Beta Health', 'Edit Gamma Retail'])
   })
 
   it('opens the form on that card only', async () => {
@@ -108,7 +146,12 @@ describe('PipelineBoard', () => {
     await user.type(form.getByLabelText('Owner'), 'Ann Wu')
     await user.click(form.getByRole('button', { name: 'Save' }))
 
-    expect(onUpdate).toHaveBeenCalledWith('b', { company: 'Beta Health', sector: 'Healthcare', size: 12.5, owner: 'Ann Wu' })
+    expect(onUpdate).toHaveBeenCalledWith('b', {
+      company: 'Beta Health',
+      sector: 'Healthcare',
+      size: 12.5,
+      owner: 'Ann Wu',
+    })
     expect(screen.queryByRole('form')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit Beta Health' })).toHaveFocus()
   })
@@ -124,117 +167,134 @@ describe('PipelineBoard', () => {
     expect(screen.queryByRole('form')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit Acme Logistics' })).toHaveFocus()
   })
+})
 
-  describe('drag and drop', () => {
-    it('makes every card draggable except one whose edit form is open', async () => {
-      const user = userEvent.setup()
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      await user.click(screen.getByRole('button', { name: 'Edit Beta Health' }))
-      expect(screen.getByRole('article', { name: 'Acme Logistics' })).toHaveAttribute('draggable', 'true')
-      expect(screen.getByRole('article', { name: 'Gamma Retail' })).toHaveAttribute('draggable', 'true')
-      expect(screen.getByRole('article', { name: 'Beta Health' })).not.toHaveAttribute('draggable', 'true')
-    })
+describe('PipelineBoard drag start', () => {
+  it('makes every card draggable except one whose edit form is open', async () => {
+    const user = userEvent.setup()
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Edit Beta Health' }))
+    expect(screen.getByRole('article', { name: 'Acme Logistics' })).toHaveAttribute(
+      'draggable',
+      'true',
+    )
+    expect(screen.getByRole('article', { name: 'Gamma Retail' })).toHaveAttribute(
+      'draggable',
+      'true',
+    )
+    expect(screen.getByRole('article', { name: 'Beta Health' })).not.toHaveAttribute(
+      'draggable',
+      'true',
+    )
+  })
 
-    it('marks the drag as a move and gives it data, so every browser starts it', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      const transfer = dataTransfer()
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: transfer })
-      expect(transfer.setData).toHaveBeenCalledWith('text/plain', 'b')
-      expect(transfer.effectAllowed).toBe('move')
+  it('marks the drag as a move and gives it data, so every browser starts it', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    const transfer = dataTransfer()
+    fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), {
+      dataTransfer: transfer,
     })
+    expect(transfer.setData).toHaveBeenCalledWith('text/plain', 'b')
+    expect(transfer.effectAllowed).toBe('move')
+  })
+})
 
-    it('moves a card dropped on another column', () => {
-      const onMove = vi.fn()
-      render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      const transfer = dataTransfer()
-      expect(fireEvent.dragOver(column('Screening'), { dataTransfer: transfer })).toBe(false)
-      expect(transfer.dropEffect).toBe('move')
-      fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
-      expect(onMove).toHaveBeenCalledTimes(1)
-      expect(onMove).toHaveBeenCalledWith('b', 'Screening')
-    })
+describe('PipelineBoard drop', () => {
+  it('moves a card dropped on another column', () => {
+    const onMove = vi.fn()
+    render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    const transfer = dataTransfer()
+    expect(fireEvent.dragOver(column('Screening'), { dataTransfer: transfer })).toBe(false)
+    expect(transfer.dropEffect).toBe('move')
+    fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith('b', 'Screening')
+  })
 
-    it('does nothing when a card is dropped on its own column', () => {
-      const onMove = vi.fn()
-      render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      expect(fireEvent.dragOver(column('Sourcing'), { dataTransfer: dataTransfer() })).toBe(true)
-      expect(highlighted()).toEqual([])
-      fireEvent.drop(column('Sourcing'), { dataTransfer: dataTransfer() })
-      expect(onMove).not.toHaveBeenCalled()
-    })
+  it('does nothing when a card is dropped on its own column', () => {
+    const onMove = vi.fn()
+    render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    expect(fireEvent.dragOver(column('Sourcing'), { dataTransfer: dataTransfer() })).toBe(true)
+    expect(highlighted()).toEqual([])
+    fireEvent.drop(column('Sourcing'), { dataTransfer: dataTransfer() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
 
-    it('ignores drags that did not start on a card', () => {
-      const onMove = vi.fn()
-      render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
-      expect(fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })).toBe(true)
-      expect(highlighted()).toEqual([])
-      fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
-      expect(onMove).not.toHaveBeenCalled()
-    })
+  it('ignores drags that did not start on a card', () => {
+    const onMove = vi.fn()
+    render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
+    expect(fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })).toBe(true)
+    expect(highlighted()).toEqual([])
+    fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
 
-    it('moves nothing when a drag ends without a drop', () => {
-      const onMove = vi.fn()
-      render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
-      const card = screen.getByRole('article', { name: 'Beta Health' })
-      fireEvent.dragStart(card, { dataTransfer: dataTransfer() })
-      fireEvent.dragEnd(card, { dataTransfer: dataTransfer() })
-      fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
-      expect(onMove).not.toHaveBeenCalled()
-    })
+  it('moves nothing when a drag ends without a drop', () => {
+    const onMove = vi.fn()
+    render(<PipelineBoard deals={deals} onMove={onMove} onUpdate={vi.fn()} />)
+    const card = screen.getByRole('article', { name: 'Beta Health' })
+    fireEvent.dragStart(card, { dataTransfer: dataTransfer() })
+    fireEvent.dragEnd(card, { dataTransfer: dataTransfer() })
+    fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
+})
 
-    it('highlights only the column under the card', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
-      expect(highlighted()).toEqual([column('Screening')])
-      fireEvent.dragOver(column('Closed'), { dataTransfer: dataTransfer() })
-      expect(highlighted()).toEqual([column('Closed')])
-    })
+describe('PipelineBoard drop highlight', () => {
+  it('highlights only the column under the card', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
+    expect(highlighted()).toEqual([column('Screening')])
+    fireEvent.dragOver(column('Closed'), { dataTransfer: dataTransfer() })
+    expect(highlighted()).toEqual([column('Closed')])
+  })
 
-    it('keeps the highlight while moving over a card inside the column', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Closed'), { dataTransfer: dataTransfer() })
-      dragLeave(column('Closed'), screen.getByRole('article', { name: 'Gamma Retail' }))
-      expect(highlighted()).toEqual([column('Closed')])
-    })
+  it('keeps the highlight while moving over a card inside the column', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    fireEvent.dragOver(column('Closed'), { dataTransfer: dataTransfer() })
+    dragLeave(column('Closed'), screen.getByRole('article', { name: 'Gamma Retail' }))
+    expect(highlighted()).toEqual([column('Closed')])
+  })
 
-    it('clears the highlight when the card leaves the column', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
-      dragLeave(column('Screening'), document.body)
-      expect(highlighted()).toEqual([])
-    })
+  it('clears the highlight when the card leaves the column', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
+    dragLeave(column('Screening'), document.body)
+    expect(highlighted()).toEqual([])
+  })
 
-    it('clears the highlight after a drop', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
-      fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
-      expect(highlighted()).toEqual([])
-    })
+  it('clears the highlight after a drop', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
+    fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
+    expect(highlighted()).toEqual([])
+  })
 
-    it('clears the highlight when the drag ends', () => {
-      render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      const card = screen.getByRole('article', { name: 'Beta Health' })
-      fireEvent.dragStart(card, { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
-      fireEvent.dragEnd(card, { dataTransfer: dataTransfer() })
-      expect(highlighted()).toEqual([])
-    })
+  it('clears the highlight when the drag ends', () => {
+    render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    const card = screen.getByRole('article', { name: 'Beta Health' })
+    fireEvent.dragStart(card, { dataTransfer: dataTransfer() })
+    fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
+    fireEvent.dragEnd(card, { dataTransfer: dataTransfer() })
+    expect(highlighted()).toEqual([])
+  })
 
-    it('does not move focus to the moved card after a drop', () => {
-      const moved = deals.map((deal) => (deal.id === 'b' ? { ...deal, stage: 'Screening' as const } : deal))
-      const { rerender } = render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      fireEvent.dragStart(screen.getByRole('article', { name: 'Beta Health' }), { dataTransfer: dataTransfer() })
-      fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
-      fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
-      rerender(<PipelineBoard deals={moved} onMove={vi.fn()} onUpdate={vi.fn()} />)
-      expect(screen.getByRole('combobox', { name: 'Stage for Beta Health' })).not.toHaveFocus()
-      expect(document.body).toHaveFocus()
-    })
+  it('does not move focus to the moved card after a drop', () => {
+    const moved = deals.map((deal) =>
+      deal.id === 'b' ? { ...deal, stage: 'Screening' as const } : deal,
+    )
+    const { rerender } = render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    startDragging('Beta Health')
+    fireEvent.dragOver(column('Screening'), { dataTransfer: dataTransfer() })
+    fireEvent.drop(column('Screening'), { dataTransfer: dataTransfer() })
+    rerender(<PipelineBoard deals={moved} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    expect(screen.getByRole('combobox', { name: 'Stage for Beta Health' })).not.toHaveFocus()
+    expect(document.body).toHaveFocus()
   })
 })

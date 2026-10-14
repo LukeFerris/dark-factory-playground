@@ -1,0 +1,35 @@
+# The golden path's pre-commit pipeline (cvc-golden-path README), unchanged in
+# substance. The one difference is that this repository has two workspaces, so
+# the coverage run is the root `vitest.config.ts`, which covers both.
+
+# 0. Tooling preflight (HARD GATE). Fails closed if the pinned harness tools
+#    (gitleaks, osv-scanner, git-ai) are missing or the wrong version, with
+#    guidance to run install-harness-tools.sh. Every gate below trusts them.
+bash scripts/check-tools.sh || exit 1
+
+# 1. File-hygiene gate.
+if ! git --no-pager diff --check --cached; then
+  echo "" >&2
+  echo "✗ Whitespace errors or merge markers in staged files (see above)." >&2
+  echo "  Most common fix:  npx prettier --write <file>  &&  git add <file>" >&2
+  exit 1
+fi
+
+# 2. Broad secret scanning across ALL staged files.
+gitleaks protect --staged --no-banner --verbose
+
+# 3. Dependency vulnerability scan (lockfile-agnostic).
+osv-scanner -r --config=.osv-scanner.toml .
+
+# 4. Lint + formatting.
+npx lint-staged
+
+# 5. Coverage gate — only if .ts/.tsx files outside test/spec are staged.
+if git diff --cached --name-only | grep -qE '^.*\.(ts|tsx)$' \
+   && ! git diff --cached --name-only | grep -qE '^.*\.(test|spec)\.(ts|tsx)$'; then
+  npm run test:coverage --silent || true
+  node scripts/check-staged-coverage.mjs
+fi
+
+# 6. Pattern audit gate — hash-bound to staged diff after lint-staged.
+bash scripts/check-patterns.sh

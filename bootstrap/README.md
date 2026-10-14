@@ -14,13 +14,13 @@ bootstrap/jira-triggers.sh --dry-run
 bootstrap/jira-triggers.sh       # the Automation flows that start the poller
 ```
 
-| Script | What it does | Changes remote state |
-| --- | --- | --- |
-| `preflight.sh` | Checks the toolchain, `.env`, `gh` identity and scopes, and that the Jira token authenticates | No |
-| `github.sh` | Actions permissions, secrets, variables, the `preview` environment, labels, rulesets | Yes |
-| `jira.sh` | Project, the ten statuses, the Factory workflow and scheme, the lock on *Designing* and *Building* (needs `JIRA_BOT_EMAIL`), custom fields, filter and board | Yes |
-| `smoke.sh` | Asserts every one of the above is present and correct | No, unless `--card` |
-| `jira-triggers.sh` | The six Jira Automation flows that dispatch `poller.yml`, or `stop.yml` for "@Enki stop"; re-running updates them in place. Needs `FACTORY_DISPATCH_PAT`; see `docs/factory/JIRA-TRIGGERS.md` | Yes |
+| Script             | What it does                                                                                                                                                                                  | Changes remote state |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `preflight.sh`     | Checks the toolchain, `.env`, `gh` identity and scopes, and that the Jira token authenticates                                                                                                 | No                   |
+| `github.sh`        | Actions permissions, secrets, variables, the `preview` environment, labels, rulesets                                                                                                          | Yes                  |
+| `jira.sh`          | Project, the ten statuses, the Factory workflow and scheme, the lock on _Designing_ and _Building_ (needs `JIRA_BOT_EMAIL`), custom fields, filter and board                                  | Yes                  |
+| `smoke.sh`         | Asserts every one of the above is present and correct                                                                                                                                         | No, unless `--card`  |
+| `jira-triggers.sh` | The six Jira Automation flows that dispatch `poller.yml`, or `stop.yml` for "@Enki stop"; re-running updates them in place. Needs `FACTORY_DISPATCH_PAT`; see `docs/factory/JIRA-TRIGGERS.md` | Yes                  |
 
 ## Rules these scripts follow
 

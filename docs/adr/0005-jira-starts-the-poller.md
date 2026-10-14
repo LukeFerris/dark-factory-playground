@@ -34,11 +34,11 @@ of it. Every variation lands on the same line.
 The decisive observation is that the factory was never state-driven. Its three
 sources are all events:
 
-| Source | Event |
-| --- | --- |
+| Source           | Event              |
+| ---------------- | ------------------ |
 | Ready for design | issue transitioned |
-| Ready for build | issue transitioned |
-| Comment triage | issue commented |
+| Ready for build  | issue transitioned |
+| Comment triage   | issue commented    |
 
 It polled because nothing was telling it, not because the design needed a poll.
 
@@ -46,13 +46,13 @@ It polled because nothing was telling it, not because the design needed a poll.
 
 **Jira starts the poller. The cron is disabled and a run is a single pass.**
 
-Two Jira Automation rules on the project — one on *issue transitioned*, one on
-*issue commented* — POST to `poller.yml`'s `workflows/{id}/dispatches` endpoint.
+Two Jira Automation rules on the project — one on _issue transitioned_, one on
+_issue commented_ — POST to `poller.yml`'s `workflows/{id}/dispatches` endpoint.
 `FACTORY_POLL_WINDOW_SECONDS` defaults to `0`, so a run does one sweep and exits.
 The `schedule:` block is commented out. Setup is in
 [JIRA-TRIGGERS.md](../factory/JIRA-TRIGGERS.md).
 
-The poller's logic is unchanged. It still sweeps both *Ready for …* columns and
+The poller's logic is unchanged. It still sweeps both _Ready for …_ columns and
 the four `TRIAGE_STATUSES`, and still moves a card before dispatching, which
 remains the only gate stopping a card reaching two agents. (Which cards it takes
 was narrowed later, by [0006](0006-the-factory-takes-only-cards-assigned-to-it.md).)
@@ -81,7 +81,7 @@ merge anything.
 
 That is sufficient because **the PAT does not give the run its power.** It only
 starts the run; the poller then mints its own App token. A dispatch executes the
-workflow file as it exists on the ref, so changing what a run *does* requires
+workflow file as it exists on the ref, so changing what a run _does_ requires
 `Contents: write` to push a different one. This is also why the decision is
 `workflows/{id}/dispatches` rather than `repository_dispatch`, which needs
 `Contents: write` — push access, and a different argument entirely.
@@ -97,7 +97,7 @@ The cost is a credential held outside the system, with an expiry, and no alarm.
 When the PAT expires the factory goes silent with nothing failing anywhere in
 GitHub, because a dispatch that never arrives files no run; the only evidence is
 in the Jira rule audit log. A third Automation rule on a 30-minute schedule,
-with a JQL matching only the two *Ready for …* columns, reduces a silent factory
+with a JQL matching only the two _Ready for …_ columns, reduces a silent factory
 to a half-hour delay and — because a JQL that matches nothing runs no action —
 files no GitHub run when the board is quiet. It is a backstop, not independent
 cover: it fails at the same moment and for the same reason as the other two

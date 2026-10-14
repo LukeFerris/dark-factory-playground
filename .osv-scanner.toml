@@ -1,0 +1,9 @@
+# Project configuration for osv-scanner, used by the dep-vulns pre-commit gate.
+# The hook runs `osv-scanner -r .`, which auto-detects all lockfile formats —
+# no lockfile path needs to be declared here (the old [[PackageLockfileConfig]]
+# key was invalid in every osv-scanner version and aborted the gate).
+#
+# Add false-positive vulnerability IDs to ignore here, each with a reason:
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# reason = "Not applicable: affected codepath is server-only and we run client-only"

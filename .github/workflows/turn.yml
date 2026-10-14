@@ -353,7 +353,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$STAGE" = build ]; then
-            allowed="Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)"
+            allowed="Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run test:coverage:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)"
             denied="WebFetch,WebSearch,Task,NotebookEdit"
             budget="$BUILD_BUDGET"
           else

@@ -3,7 +3,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { REPO_ROOT } from './env.ts'
 import { git, gitSucceeds, headSha, identifyAsBot } from './git.ts'
-import { abortMerge, finishMerge, mergeQuestionResult, readMergeResult, readMergeState } from './merge.ts'
+import {
+  abortMerge,
+  finishMerge,
+  mergeQuestionResult,
+  readMergeResult,
+  readMergeState,
+  type MergeState,
+} from './merge.ts'
 import { RESULT_PATH, readMeta, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import type { Stage } from './schema.ts'
 import { rejection } from './validate.ts'
@@ -59,7 +66,8 @@ function binaryDiff(from: string, to: string): Buffer {
     cwd: REPO_ROOT,
     maxBuffer: 512 * 1024 * 1024,
   })
-  if (result.status !== 0) throw new Error(`git diff ${from} ${to} failed: ${result.stderr.toString().trim()}`)
+  if (result.status !== 0)
+    throw new Error(`git diff ${from} ${to} failed: ${result.stderr.toString().trim()}`)
   return result.stdout
 }
 
@@ -77,7 +85,15 @@ export function readTurn(
 ): { merge: string; work: string } | { problem: string } {
   if (!existsSync(bundle)) return { problem: 'The agent job left no turn to take.' }
   git(['update-ref', '-d', `refs/enki/${TURN_REF}`], true)
-  if (!gitSucceeds(['fetch', '--quiet', '--no-tags', bundle, `+refs/heads/${TURN_REF}:refs/enki/${TURN_REF}`])) {
+  if (
+    !gitSucceeds([
+      'fetch',
+      '--quiet',
+      '--no-tags',
+      bundle,
+      `+refs/heads/${TURN_REF}:refs/enki/${TURN_REF}`,
+    ])
+  ) {
     return { problem: 'The turn the agent job left is not a git bundle this branch can take.' }
   }
   const work = revParse(`refs/enki/${TURN_REF}`) as string
@@ -91,7 +107,11 @@ export function readTurn(
       : { problem: 'The turn does not start from the commit it was given.' }
   }
   const mergeParents = parents(merge)
-  if (mergeParents.length !== 2 || mergeParents[0] !== expected.before || mergeParents[1] !== expected.main) {
+  if (
+    mergeParents.length !== 2 ||
+    mergeParents[0] !== expected.before ||
+    mergeParents[1] !== expected.main
+  ) {
     return { problem: 'The turn does not start from a merge of main into the commit it was given.' }
   }
   return { merge, work }
@@ -112,7 +132,10 @@ export function acceptTurn(stage: Stage, bundle: string): AcceptOutcome {
 
   const reject = (problems: string[]): AcceptOutcome => {
     const existing = existsSync(RESULT_PATH) ? readFileSync(RESULT_PATH, 'utf8') : null
-    writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(rejection(stage, existing, problems), null, 2)}\n`)
+    writeFileEnsuringDir(
+      RESULT_PATH,
+      `${JSON.stringify(rejection(stage, existing, problems), null, 2)}\n`,
+    )
     return { state: 'rejected', problems }
   }
 
@@ -133,52 +156,73 @@ export function acceptTurn(stage: Stage, bundle: string): AcceptOutcome {
   }
   if ('problem' in turn) return reject([turn.problem])
 
-  if (merged) {
-    identifyAsBot()
-    const message = `Merge main (${state.main.slice(0, 12)}) into ${meta.branch}`
-    const clean = gitSucceeds(['merge', '--no-ff', '--no-edit', '-m', message, state.main])
-
-    if (state.state === 'merged' && !clean) {
-      abortMerge()
-      return reject(['Main merged cleanly into this branch once, and then did not. Nothing was taken.'])
-    }
-    if (state.state === 'conflicted') {
-      if (clean) return reject(['Main was expected to conflict with this branch, and did not. Nothing was taken.'])
-      for (const path of state.conflicts) takeFrom(turn.merge, path)
-      const outcome = finishMerge(state, readMergeResult())
-      if (!outcome.ok) return unresolved(state, outcome.problems)
-    }
-
-    // Everything outside the conflicts is main's, merged here. If the agent's
-    // merge says otherwise, the agent built its turn on a tree main never had.
-    const strayed = git(['diff', '--name-only', 'HEAD', turn.merge])
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l !== '')
-    if (strayed.length > 0) {
-      return reject([
-        `The merge the agent worked on is not the merge of main: it differs in ${strayed.join(', ')}.`,
-      ])
-    }
-  }
+  const refused = merged ? mergeMain(state, meta.branch, turn.merge) : null
+  if (refused !== null && 'unresolved' in refused) return unresolved(state, refused.unresolved)
+  if (refused !== null) return reject([refused.reject])
 
   const base = headSha()
   updateMeta({ base_sha: base })
 
-  const patch = binaryDiff(turn.merge, turn.work)
-  if (patch.length > 0) {
-    const file = resolve(REPO_ROOT, '.git', 'enki-turn.patch')
-    writeFileSync(file, patch)
-    // Into the working tree only, not the index: `publish` stages what the
-    // stage may write and nothing else, and `validate` sees the rest.
-    if (!gitSucceeds(['apply', '--binary', file])) {
-      return reject(['The turn’s changes do not apply to the branch.'])
-    }
-  }
-  return { state: 'accepted', base }
+  const problem = applyWork(turn.merge, turn.work)
+  return problem === null ? { state: 'accepted', base } : reject([problem])
 }
 
-function unresolved(state: ReturnType<typeof readMergeState>, problems: string[]): AcceptOutcome {
+/** Why merging main here refused the turn, or `null` when it did not. */
+type MergeRefusal = { reject: string } | { unresolved: string[] } | null
+
+/**
+ * Merges main here, from the commit the agent was given, taking from the
+ * agent's merge only the files that conflicted.
+ */
+function mergeMain(state: MergeState, branch: string, agentMerge: string): MergeRefusal {
+  identifyAsBot()
+  const message = `Merge main (${state.main.slice(0, 12)}) into ${branch}`
+  const clean = gitSucceeds(['merge', '--no-ff', '--no-edit', '-m', message, state.main])
+
+  if (state.state === 'merged' && !clean) {
+    abortMerge()
+    return {
+      reject: 'Main merged cleanly into this branch once, and then did not. Nothing was taken.',
+    }
+  }
+  if (state.state === 'conflicted') {
+    if (clean)
+      return {
+        reject: 'Main was expected to conflict with this branch, and did not. Nothing was taken.',
+      }
+    for (const path of state.conflicts) takeFrom(agentMerge, path)
+    const outcome = finishMerge(state, readMergeResult())
+    if (!outcome.ok) return { unresolved: outcome.problems }
+  }
+
+  // Everything outside the conflicts is main's, merged here. If the agent's
+  // merge says otherwise, the agent built its turn on a tree main never had.
+  const strayed = git(['diff', '--name-only', 'HEAD', agentMerge])
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+  if (strayed.length > 0) {
+    return {
+      reject: `The merge the agent worked on is not the merge of main: it differs in ${strayed.join(', ')}.`,
+    }
+  }
+  return null
+}
+
+/** Lays the turn's work on the branch, uncommitted. Says why when it will not go. */
+function applyWork(merge: string, work: string): string | null {
+  const patch = binaryDiff(merge, work)
+  if (patch.length === 0) return null
+  const file = resolve(REPO_ROOT, '.git', 'enki-turn.patch')
+  writeFileSync(file, patch)
+  // Into the working tree only, not the index: `publish` stages what the
+  // stage may write and nothing else, and `validate` sees the rest.
+  return gitSucceeds(['apply', '--binary', file])
+    ? null
+    : 'The turn’s changes do not apply to the branch.'
+}
+
+function unresolved(state: MergeState, problems: string[]): AcceptOutcome {
   abortMerge()
   const result = readMergeResult()
   writeFileEnsuringDir(

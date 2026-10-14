@@ -140,6 +140,26 @@ describe('waitUntilAwake', () => {
   })
 })
 
+const block: FactoryBlock = {
+  key: 'DF-4',
+  stage: 'build',
+  turn: 1,
+  preview_url: 'https://df-preview-pr-16.example/',
+}
+
+/** Answers `pr view` with one PR and records everything else. */
+function stub(pr: { body: string; headRefName: string }) {
+  const calls: Array<{ args: string[]; input?: string }> = []
+  setRunner((args, input) => {
+    calls.push(input === undefined ? { args } : { args, input })
+    if (args[0] === 'pr' && args[1] === 'view') {
+      return { status: 0, stdout: JSON.stringify(pr), stderr: '' }
+    }
+    return { status: 0, stdout: '', stderr: '' }
+  })
+  return calls
+}
+
 /**
  * The regression these guard is that `kickoff` used to open with `readMeta()`.
  * meta.json is written by `factory gather` on the agent's runner, where
@@ -152,13 +172,6 @@ describe('kickoff', () => {
   withoutLauncher()
   const previous = process.env['GITHUB_REPOSITORY']
 
-  const block: FactoryBlock = {
-    key: 'DF-4',
-    stage: 'build',
-    turn: 1,
-    preview_url: 'https://df-preview-pr-16.example/',
-  }
-
   beforeEach(() => {
     process.env['GITHUB_REPOSITORY'] = 'acme/dark-factory-playground'
   })
@@ -168,19 +181,6 @@ describe('kickoff', () => {
     else process.env['GITHUB_REPOSITORY'] = previous
     setRunner(ghRunner)
   })
-
-  /** Answers `pr view` with one PR and records everything else. */
-  function stub(pr: { body: string; headRefName: string }) {
-    const calls: Array<{ args: string[]; input?: string }> = []
-    setRunner((args, input) => {
-      calls.push(input === undefined ? { args } : { args, input })
-      if (args[0] === 'pr' && args[1] === 'view') {
-        return { status: 0, stdout: JSON.stringify(pr), stderr: '' }
-      }
-      return { status: 0, stdout: '', stderr: '' }
-    })
-    return calls
-  }
 
   it('takes the key and the preview URL from the factory block', () => {
     const calls = stub({
@@ -197,7 +197,10 @@ describe('kickoff', () => {
   })
 
   it('falls back to the branch name when the body has no block', () => {
-    const calls = stub({ body: 'Someone rewrote this.', headRefName: 'card/DF-4-greet-the-visitor' })
+    const calls = stub({
+      body: 'Someone rewrote this.',
+      headRefName: 'card/DF-4-greet-the-visitor',
+    })
 
     kickoff(16)
 

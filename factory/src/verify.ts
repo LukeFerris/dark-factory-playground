@@ -104,47 +104,56 @@ interface CommitStatus {
  */
 export function requiredChecks(branch = 'main'): string[] {
   const slug = repoSlug()
-  const names = new Set<string>()
+  return [...new Set([...rulesetChecks(slug, branch), ...classicChecks(slug, branch)])].sort()
+}
 
+function rulesetChecks(slug: string, branch: string): string[] {
   const rules =
-    ghJson<Array<{ type: string; parameters?: { required_status_checks?: Array<{ context: string }> } }>>([
-      'api',
-      `repos/${slug}/rules/branches/${branch}`,
-    ], undefined, reader()) ?? []
-  for (const rule of rules) {
-    if (rule.type !== 'required_status_checks') continue
-    for (const check of rule.parameters?.required_status_checks ?? []) names.add(check.context)
-  }
+    ghJson<
+      Array<{ type: string; parameters?: { required_status_checks?: Array<{ context: string }> } }>
+    >(['api', `repos/${slug}/rules/branches/${branch}`], undefined, reader()) ?? []
+  return rules
+    .filter((rule) => rule.type === 'required_status_checks')
+    .flatMap((rule) =>
+      (rule.parameters?.required_status_checks ?? []).map((check) => check.context),
+    )
+}
 
+function classicChecks(slug: string, branch: string): string[] {
   const classic = ghJson<{
-    protection?: { required_status_checks?: { contexts?: string[]; checks?: Array<{ context: string }> } }
+    protection?: {
+      required_status_checks?: { contexts?: string[]; checks?: Array<{ context: string }> }
+    }
   }>(['api', `repos/${slug}/branches/${branch}`], undefined, reader())
   const protection = classic?.protection?.required_status_checks
-  for (const context of protection?.contexts ?? []) names.add(context)
-  for (const check of protection?.checks ?? []) names.add(check.context)
-
-  return [...names].sort()
+  return [
+    ...(protection?.contexts ?? []),
+    ...(protection?.checks ?? []).map((check) => check.context),
+  ]
 }
 
 function checkRuns(sha: string): CheckRun[] {
   return (
-    ghJson<CheckRun[]>([
-      'api',
-      `repos/${repoSlug()}/commits/${sha}/check-runs?filter=all&per_page=100`,
-      '--jq',
-      '.check_runs',
-    ], undefined, reader()) ?? []
+    ghJson<CheckRun[]>(
+      [
+        'api',
+        `repos/${repoSlug()}/commits/${sha}/check-runs?filter=all&per_page=100`,
+        '--jq',
+        '.check_runs',
+      ],
+      undefined,
+      reader(),
+    ) ?? []
   )
 }
 
 function commitStatuses(sha: string): CommitStatus[] {
   return (
-    ghJson<CommitStatus[]>([
-      'api',
-      `repos/${repoSlug()}/commits/${sha}/status?per_page=100`,
-      '--jq',
-      '.statuses',
-    ], undefined, reader()) ?? []
+    ghJson<CommitStatus[]>(
+      ['api', `repos/${repoSlug()}/commits/${sha}/status?per_page=100`, '--jq', '.statuses'],
+      undefined,
+      reader(),
+    ) ?? []
   )
 }
 
@@ -156,7 +165,10 @@ function commitStatuses(sha: string): CommitStatus[] {
 function newestRun(runs: CheckRun[], name: string): CheckRun | null {
   return runs
     .filter((r) => r.name === name)
-    .reduce<CheckRun | null>((newest, r) => (newest === null || r.id > newest.id ? r : newest), null)
+    .reduce<CheckRun | null>(
+      (newest, r) => (newest === null || r.id > newest.id ? r : newest),
+      null,
+    )
 }
 
 // What branch protection itself accepts as passing.
@@ -177,27 +189,29 @@ export function readChecks(sha: string, required: string[], askedAt?: number): C
 
   return required.map((name): CheckResult => {
     const run = newestRun(runs, name)
-    if (run !== null) {
-      if (run.status !== 'completed') {
-        return { name, state: 'pending', conclusion: null, url: run.html_url }
-      }
-      const conclusion = run.conclusion ?? 'unknown'
-      const finished = run.completed_at == null ? Number.NaN : Date.parse(run.completed_at)
-      if (askedAt !== undefined && conclusion === 'skipped' && !(finished >= askedAt)) {
-        return { name, state: 'stale', conclusion, url: run.html_url }
-      }
-      return { name, state: PASSING.has(conclusion) ? 'pass' : 'fail', conclusion, url: run.html_url }
-    }
-
+    if (run !== null) return fromRun(name, run, askedAt)
     const status = statuses.find((s) => s.context === name)
-    if (status !== undefined) {
-      const state: CheckState =
-        status.state === 'success' ? 'pass' : status.state === 'pending' ? 'pending' : 'fail'
-      return { name, state, conclusion: status.state, url: status.target_url }
-    }
-
+    if (status !== undefined) return fromStatus(name, status)
     return { name, state: 'missing', conclusion: null, url: null }
   })
+}
+
+function fromRun(name: string, run: CheckRun, askedAt?: number): CheckResult {
+  if (run.status !== 'completed') {
+    return { name, state: 'pending', conclusion: null, url: run.html_url }
+  }
+  const conclusion = run.conclusion ?? 'unknown'
+  const finished = run.completed_at == null ? Number.NaN : Date.parse(run.completed_at)
+  if (askedAt !== undefined && conclusion === 'skipped' && !(finished >= askedAt)) {
+    return { name, state: 'stale', conclusion, url: run.html_url }
+  }
+  return { name, state: PASSING.has(conclusion) ? 'pass' : 'fail', conclusion, url: run.html_url }
+}
+
+function fromStatus(name: string, status: CommitStatus): CheckResult {
+  const state: CheckState =
+    status.state === 'success' ? 'pass' : status.state === 'pending' ? 'pending' : 'fail'
+  return { name, state, conclusion: status.state, url: status.target_url }
 }
 
 /**
@@ -221,7 +235,9 @@ function dispatch(pr: number, workflows: string[]): void {
       dispatchWorkflow(workflow, { pr: String(pr) }, branch)
       console.log(`verify: started ${workflow} on ${branch}`)
     } catch (error) {
-      console.error(`::warning::could not start ${workflow} on ${branch}: ${(error as Error).message}`)
+      console.error(
+        `::warning::could not start ${workflow} on ${branch}: ${(error as Error).message}`,
+      )
     }
   }
 }
@@ -272,7 +288,9 @@ export async function verify(options: VerifyOptions): Promise<Verdict> {
   const started = Date.now()
   for (;;) {
     const checks = readChecks(options.sha, required, askedAt)
-    const waiting = checks.filter((c) => c.state === 'pending' || c.state === 'missing' || c.state === 'stale')
+    const waiting = checks.filter(
+      (c) => c.state === 'pending' || c.state === 'missing' || c.state === 'stale',
+    )
     if (waiting.length === 0) {
       const outcome = checks.some((c) => c.state === 'fail') ? 'red' : 'green'
       return { outcome, sha: options.sha, checks }
@@ -310,9 +328,7 @@ export function readVerdict(path = VERIFY_PATH): Verdict | null {
  *   blocked  card to Blocked on engineer, pull request stays a draft
  */
 export type Decision =
-  | { action: 'ready' }
-  | { action: 'retry'; next: number }
-  | { action: 'blocked'; why: string }
+  { action: 'ready' } | { action: 'retry'; next: number } | { action: 'blocked'; why: string }
 
 export function decide(verdict: Verdict | null, retry: number): Decision {
   if (verdict === null) {
@@ -374,17 +390,19 @@ export function failureReport(sha: string): string[] {
   if (failing.length === 0) return []
 
   const runs = checkRuns(sha)
-  const lines: string[] = []
-  for (const check of failing) {
-    lines.push(`### ${check.name} — ${check.conclusion ?? 'failed'}`, '')
-    const run = newestRun(runs, check.name)
-    const tail = run === null ? null : logTail(run)
-    if (tail !== null && tail !== '') {
-      lines.push('The end of its log:', '', '~~~~', tail, '~~~~', '')
-      continue
-    }
-    const said = [run?.output?.title, run?.output?.summary].filter((s): s is string => (s ?? '') !== '')
-    lines.push(said.length > 0 ? said.join('\n\n').slice(0, 4000) : '_(it gave no detail)_', '')
-  }
-  return lines
+  return failing.flatMap((check) => [
+    `### ${check.name} — ${check.conclusion ?? 'failed'}`,
+    '',
+    ...whatItSaid(newestRun(runs, check.name)),
+  ])
+}
+
+/** The end of a failing run's log, or failing that what it said of itself. */
+function whatItSaid(run: CheckRun | null): string[] {
+  const tail = run === null ? null : logTail(run)
+  if (tail !== null && tail !== '') return ['The end of its log:', '', '~~~~', tail, '~~~~', '']
+  const said = [run?.output?.title, run?.output?.summary].filter(
+    (s): s is string => (s ?? '') !== '',
+  )
+  return [said.length > 0 ? said.join('\n\n').slice(0, 4000) : '_(it gave no detail)_', '']
 }
