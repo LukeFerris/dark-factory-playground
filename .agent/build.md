@@ -93,10 +93,10 @@ order. Report what you ran and what it said. Do not claim a turn is
 
 ## The commit gates
 
-The pipeline commits your work through the same pre-commit gates a person's
-commit goes through, and a commit they refuse fails the turn. Nothing you write
-reaches the PR unless it passes them, so check for them yourself before you
-finish:
+The pipeline commits your work without running the pre-commit hook, and the
+`Commit gates` check then runs the same gates a person's commit goes through
+over the whole PR. A PR that fails them is not ready for review, so check for
+them yourself before you finish:
 
 - **Complexity**, which `npm run lint` reports. No file over 300 lines and no
   function over 60, not counting blank lines and comments. Cyclomatic complexity
@@ -111,8 +111,8 @@ finish:
   refused.
 - **Secrets.** Anything that looks like a credential is refused.
 
-The gates also audit an agent's diff for two things, and the pipeline cannot do
-that for you, so do it yourself before you finish. Look for code that duplicates
+The hook also audits an agent's diff for two things, and neither the pipeline
+nor the check can do that for you, so do it yourself before you finish. Look for code that duplicates
 something the app already has, where it should use the existing thing. And look
 for fallbacks that paper over a mistake in our own code, where the fix belongs
 at the source. Fix what you find, rather than reporting it.

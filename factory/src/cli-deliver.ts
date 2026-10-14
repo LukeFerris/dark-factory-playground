@@ -7,16 +7,18 @@ import type { Command } from 'commander'
 import { REPO_ROOT } from './env.ts'
 import { announce } from './announce.ts'
 import { report } from './report.ts'
+import { VERIFY_PATH, verify, writeVerdict } from './verify.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
 import { EVIDENCE_DIR, SLIDES_PATH, buildSlides } from './evidence.ts'
 import { RESULT_PATH, readMeta, writeFileEnsuringDir } from './meta.ts'
 import { ResultSchema, toJsonSchema } from './schema.ts'
-import { parseNumber, parseStage } from './cli-shared.ts'
+import { parseNumber, parseRetry, parseStage } from './cli-shared.ts'
 
 export function registerDeliverCommands(program: Command): void {
   evidenceSlidesCommand(program)
   bookends(program)
+  verifyCommand(program)
   previews(program)
   production(program)
   kickoffCommand(program)
@@ -80,9 +82,40 @@ function bookends(program: Command): void {
     .description('Post the Jira comment and apply the status transition for this turn.')
     .requiredOption('--stage <stage>', 'design | build')
     .option('--pr-url <url>', 'Pull request URL to link')
+    .option(
+      '--retry <n>',
+      'Which automatic turn this was, after required checks failed',
+      parseRetry,
+      0,
+    )
     .option('--dry-run', 'Print the comment without posting', false)
-    .action(async (opts: { stage: string; prUrl?: string; dryRun: boolean }) => {
-      await report({ stage: parseStage(opts.stage), prUrl: opts.prUrl, dryRun: opts.dryRun })
+    .action(async (opts: { stage: string; prUrl?: string; retry: number; dryRun: boolean }) => {
+      await report({
+        stage: parseStage(opts.stage),
+        prUrl: opts.prUrl,
+        retry: opts.retry,
+        dryRun: opts.dryRun,
+      })
+    })
+}
+
+// The gate between a finished build turn and In review. Waits for the checks
+// main requires on the commit the turn pushed, and writes what it found for
+// `report` to act on. Red is not an error here: it exits 0 with a verdict.
+function verifyCommand(program: Command): void {
+  program
+    .command('verify')
+    .description(
+      "Wait for main's required checks on a pull request's commit, and write the verdict.",
+    )
+    .argument('<pr>', 'Pull request number', parseNumber)
+    .requiredOption('--sha <sha>', 'The commit the turn pushed')
+    .option('--out <path>', 'Where the verdict goes', VERIFY_PATH)
+    .action(async (pr: number, opts: { sha: string; out: string }) => {
+      const verdict = await verify({ pr, sha: opts.sha })
+      writeVerdict(verdict, opts.out)
+      console.log(`verify: ${verdict.outcome} on ${opts.sha}`)
+      for (const c of verdict.checks) console.log(`  ${c.state.padEnd(7)} ${c.name}`)
     })
 }
 

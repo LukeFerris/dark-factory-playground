@@ -11,6 +11,7 @@ import {
 import { createDeployment, parseFactoryBlock, prBodyAndBranch, repoSlug } from './github.ts'
 import { cardKeyFromBranch, previewBackend, waitUntilAwake } from './preview.ts'
 import { LINK_IDS, dropLink, syncLinks } from './progress.ts'
+import { findRun, waitForRun, type RunWaitOptions } from './runs.ts'
 
 /**
  * Production — the other half of the loop.
@@ -33,15 +34,89 @@ import { LINK_IDS, dropLink, syncLinks } from './progress.ts'
 export const SHIPPED_STATUS = 'Done'
 
 /**
- * Production only exists on the Azure backend.
+ * A production the repository deploys itself, from `FACTORY_PRODUCTION_URL`
+ * and `FACTORY_PRODUCTION_WORKFLOWS`, or null when the factory deploys it.
  *
- * The `ghcr` stub pushes an image nobody serves, so there is no URL to prove
- * and nothing a human could visit — "shipped" would be a claim about a package
- * page. Rather than move the card to Done on the strength of that, the
- * workflow skips, the card stays in review, and the log says why.
+ * A repository that already ships main on every push has workflows that do
+ * it, and a second deployment from the factory would be a rival production.
+ * So the factory waits for those workflows to finish on the merge commit,
+ * checks the site answers, and only then moves the card.
+ *
+ * The workflows are a comma-separated list of files. One ending in `?` is
+ * waited for only if it ran: a workflow filtered by path, such as one that
+ * applies database migrations, has no run for a merge that did not touch them.
+ */
+export interface ExternalProduction {
+  url: string
+  workflows: Array<{ file: string; ifRan: boolean }>
+}
+
+export function externalProduction(): ExternalProduction | null {
+  const url = optional('FACTORY_PRODUCTION_URL').replace(/\/+$/, '')
+  if (url === '') return null
+  if (!url.startsWith('https://')) {
+    throw new Error(`FACTORY_PRODUCTION_URL must be an https:// URL, not "${url}".`)
+  }
+  const workflows = optional('FACTORY_PRODUCTION_WORKFLOWS')
+    .split(',')
+    .map((w) => w.trim())
+    .filter((w) => w !== '')
+    .map((w) => ({ file: w.replace(/\?$/, ''), ifRan: w.endsWith('?') }))
+  if (!workflows.some((w) => !w.ifRan)) {
+    throw new Error(
+      'FACTORY_PRODUCTION_WORKFLOWS must name at least one workflow that always deploys main, ' +
+        'or a card could be marked Done on the strength of nothing having run.',
+    )
+  }
+  return { url, workflows }
+}
+
+/**
+ * Whether there is a production to ship to.
+ *
+ * Either the repository deploys it (`FACTORY_PRODUCTION_URL`), or the factory
+ * does, which needs the Azure backend. The `ghcr` stub pushes an image nobody
+ * serves, so there is no URL to prove and nothing a human could visit —
+ * "shipped" would be a claim about a package page. Rather than move the card
+ * to Done on the strength of that, the workflow skips, the card stays in
+ * review, and the log says why.
  */
 export function productionSupported(): boolean {
-  return previewBackend() === 'azure'
+  return externalProduction() !== null || previewBackend() === 'azure'
+}
+
+/**
+ * Waits for the repository's own deployment of `sha`, and for the site to
+ * answer.
+ *
+ * The workflows are waited for in the order given, the ones that must run
+ * first: by the time they have finished, every workflow the push started has
+ * a run, so one with none really did not run.
+ */
+export async function waitForExternalProduction(
+  sha: string,
+  production: ExternalProduction,
+  options: RunWaitOptions & { fetchImpl?: typeof fetch } = {},
+): Promise<string> {
+  const ordered = [
+    ...production.workflows.filter((w) => !w.ifRan),
+    ...production.workflows.filter((w) => w.ifRan),
+  ]
+  for (const { file, ifRan } of ordered) {
+    if (ifRan && findRun(file, sha, 'push') === null) {
+      console.log(`production-up: ${file} did not run for ${sha.slice(0, 7)}; nothing to wait for.`)
+      continue
+    }
+    const run = await waitForRun(file, () => findRun(file, sha, 'push'), 1, options)
+    console.log(`production-up: ${file} deployed ${sha.slice(0, 7)} (${run.html_url})`)
+  }
+
+  const elapsed = await waitUntilAwake(
+    production.url,
+    options.fetchImpl ? { fetchImpl: options.fetchImpl } : {},
+  )
+  console.log(`production-up: ${production.url} answered after ${(elapsed / 1000).toFixed(1)}s.`)
+  return production.url
 }
 
 /**
@@ -59,12 +134,29 @@ export function productionSupported(): boolean {
 export async function productionUp(sha: string, dryRun = false): Promise<string> {
   if (!productionSupported()) {
     throw new Error(
-      `production-up needs FACTORY_PREVIEW_BACKEND=azure; the ghcr stub serves nothing, ` +
-        `so there would be no production site to point anyone at.`,
+      `production-up needs FACTORY_PRODUCTION_URL or FACTORY_PREVIEW_BACKEND=azure; the ghcr ` +
+        `stub serves nothing, so there would be no production site to point anyone at.`,
     )
   }
 
   assertCommitSha(sha)
+
+  // The repository deploys production itself. No Deployment is recorded here:
+  // the workflows that deployed it record their own.
+  const external = externalProduction()
+  if (external !== null) {
+    if (dryRun) {
+      const files = external.workflows
+        .map((w) => `${w.file}${w.ifRan ? ' (if it ran)' : ''}`)
+        .join(', ')
+      console.log(
+        `production-up --dry-run: would wait for ${files} on ${sha}, then for ${external.url}`,
+      )
+      return external.url
+    }
+    return waitForExternalProduction(sha, external)
+  }
+
   const prefix = optional('AZURE_PREVIEW_PREFIX', 'df')
 
   // Before azureConfig(), so a dry run works on a laptop that has none of the

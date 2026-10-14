@@ -1,4 +1,6 @@
+import { rmSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import type * as jira from './jira.ts'
 import {
   ORPHAN_GRACE_MS,
   holdFrom,
@@ -9,6 +11,7 @@ import {
 } from './lock.ts'
 import { ANA, FACTORY, LUKE, comment, move, stub, type Card } from './lock.stub.ts'
 import { cfg, useFakes } from './jira.stub.ts'
+import { STATUS_NAMES, configPath, resetStatusIds } from './statuses.ts'
 
 useFakes()
 
@@ -44,6 +47,37 @@ describe('where a card goes when it is let go', () => {
       move('2026-10-05T10:00:00.000+0000', 'In review', 'Building'),
     ])
     expect(hold).toEqual({ since: '2026-10-05T10:00:00.000+0000', from: 'In review' })
+  })
+
+  // History keeps the names statuses had at the time. With the ids pinned,
+  // a move into "Building" before the column was renamed and a move into
+  // "Enki is coding" after are the same move.
+  it('reads moves by status id when enki.json pins them', () => {
+    const ids = Object.fromEntries(STATUS_NAMES.map((name, i) => [name, String(10050 + i)]))
+    writeFileSync(configPath(), JSON.stringify({ jira: { statuses: ids } }))
+    resetStatusIds()
+    try {
+      const renamed: jira.ChangeEntry = {
+        authorId: FACTORY,
+        created: '2026-10-05T10:00:00.000+0000',
+        items: [
+          {
+            field: 'status',
+            to: '10056',
+            toString: 'Enki is coding',
+            from: '10057',
+            fromString: 'Needs a look',
+          },
+        ],
+      }
+      expect(holdFrom([renamed])).toEqual({
+        since: '2026-10-05T10:00:00.000+0000',
+        from: 'In review',
+      })
+    } finally {
+      rmSync(configPath(), { force: true })
+      resetStatusIds()
+    }
   })
 
   it('goes back where it came from', () => {

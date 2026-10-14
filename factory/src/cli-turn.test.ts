@@ -13,7 +13,8 @@ import {
   readMergeState,
   recordMerge,
 } from './merge.ts'
-import { refresh, refreshTargets } from './refresh.ts'
+import { refresh, refreshTargets, reportedChecks } from './refresh.ts'
+import { acceptTurn } from './accept.ts'
 import { validate } from './validate.ts'
 import { publish } from './publish.ts'
 import type * as Meta from './meta.ts'
@@ -39,7 +40,12 @@ vi.mock('./merge.ts', () => ({
   readMergeState: vi.fn(),
   recordMerge: vi.fn(),
 }))
-vi.mock('./refresh.ts', () => ({ refresh: vi.fn(), refreshTargets: vi.fn() }))
+vi.mock('./refresh.ts', () => ({
+  refresh: vi.fn(),
+  refreshTargets: vi.fn(),
+  reportedChecks: vi.fn(() => 'checks'),
+}))
+vi.mock('./accept.ts', () => ({ acceptTurn: vi.fn() }))
 vi.mock('./validate.ts', () => ({ validate: vi.fn() }))
 vi.mock('./publish.ts', () => ({ publish: vi.fn() }))
 vi.mock('./meta.ts', async (importOriginal) => ({
@@ -97,8 +103,14 @@ describe('gather and prepare-branch', () => {
   it('gather parses the stage and the PR number', async () => {
     vi.mocked(gather).mockResolvedValue({ key: 'DF-1', stage: 'build', turn: 3 } as never)
     await run('gather', 'DF-1', '--stage', 'build', '--pr', '42')
-    expect(gather).toHaveBeenCalledWith({ key: 'DF-1', stage: 'build', pr: 42 })
+    expect(gather).toHaveBeenCalledWith({ key: 'DF-1', stage: 'build', pr: 42, retry: 0 })
     expect(lines(log)).toEqual(['gather: DF-1 stage=build turn=3'])
+  })
+
+  it('gather passes which automatic turn this is', async () => {
+    vi.mocked(gather).mockResolvedValue({ key: 'DF-1', stage: 'build', turn: 4 } as never)
+    await run('gather', 'DF-1', '--stage', 'build', '--retry', '2')
+    expect(gather).toHaveBeenCalledWith({ key: 'DF-1', stage: 'build', pr: undefined, retry: 2 })
   })
 
   it('gather refuses a stage that is not design or build', async () => {
@@ -216,6 +228,52 @@ describe('refresh-plan and refresh', () => {
       dryRun: true,
     })
     expect(lines(log)).toEqual(['refresh: merged — clean'])
+  })
+
+  it('refresh passes the commit of main and the checks another job reported', async () => {
+    vi.mocked(refresh).mockResolvedValue({ state: 'merged', detail: 'clean' } as never)
+    await run(
+      'refresh',
+      'DF-2',
+      '--because-pr',
+      '9',
+      '--because-title',
+      'Ship it',
+      '--main',
+      'abc123',
+      '--checks',
+      'passed',
+    )
+    expect(reportedChecks).toHaveBeenCalledWith('passed')
+    expect(refresh).toHaveBeenCalledWith({
+      key: 'DF-2',
+      because: { number: 9, title: 'Ship it' },
+      cfg: CFG,
+      dryRun: false,
+      main: 'abc123',
+      checks: 'checks',
+    })
+  })
+})
+
+describe('accept', () => {
+  it('says where the turn landed when it is accepted', async () => {
+    vi.mocked(acceptTurn).mockReturnValue({ state: 'accepted', base: 'b'.repeat(40) })
+    await run('accept', '--stage', 'build', '--bundle', 'turn.bundle')
+    expect(vi.mocked(acceptTurn).mock.calls[0]?.[0]).toBe('build')
+    expect(lines(log)).toEqual(['accept: the turn is on bbbbbbbbbbbb, uncommitted.'])
+  })
+
+  it('exits 5 when the merge from main was not resolved', async () => {
+    vi.mocked(acceptTurn).mockReturnValue({ state: 'merge-unresolved', problems: ['p1'] })
+    expect(await exitOf('accept', '--stage', 'build', '--bundle', 'turn.bundle')).toBe(5)
+    expect(lines(error)).toEqual(['accept: the merge from main was not resolved.', '  - p1'])
+  })
+
+  it('exits 4 when the turn is rejected', async () => {
+    vi.mocked(acceptTurn).mockReturnValue({ state: 'rejected', problems: ['out of scope'] })
+    expect(await exitOf('accept', '--stage', 'design', '--bundle', 'turn.bundle')).toBe(4)
+    expect(lines(error)).toEqual(['accept: REJECTED', '  - out of scope'])
   })
 })
 

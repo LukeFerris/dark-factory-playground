@@ -54,10 +54,10 @@ would rather grant the broader role.
 Entra matches the token's subject exactly, so both shapes Actions can present
 need a credential:
 
-| Subject                                   | Presented by                                                                                                                                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo:<owner>/<repo>:ref:refs/heads/main` | Every preview that is raised: the `preview` job of `build-start.yml` (`workflow_dispatch`) and of `build-turn.yml` (`workflow_dispatch` or `issue_comment`), plus `build-setup.yml`'s manual retry. The normal path |
-| `repo:<owner>/<repo>:pull_request`        | `build-teardown.yml` on `closed`                                                                                                                                                                                    |
+| Subject                                   | Presented by                                                                                                                                                                                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo:<owner>/<repo>:ref:refs/heads/main` | Every preview that is raised: the `preview` job of `turn.yml`, which `build-start.yml` and `build-turn.yml` call on `workflow_dispatch` (a called workflow's token carries its caller's subject), plus `build-setup.yml`'s manual retry. The normal path |
+| `repo:<owner>/<repo>:pull_request`        | `build-teardown.yml` on `closed`                                                                                                                                                                                                                         |
 
 A token from any other repository, branch or event type matches neither and is
 refused. Note that the `pull_request` subject does **not** name a branch — that

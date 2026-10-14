@@ -2,15 +2,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './env.ts'
-import {
-  ALLOWED_PATHS,
-  ALWAYS_DENIED,
-  ResultSchema,
-  ResultStatus,
-  STATUS_TRANSITIONS,
-  Stage,
-  toJsonSchema,
-} from './schema.ts'
+import { CORE_DENIED, allowedPaths } from './paths.ts'
+import { ResultSchema, ResultStatus, STATUS_TRANSITIONS, Stage, toJsonSchema } from './schema.ts'
 
 /**
  * The contract has two spellings — the zod the factory parses with and the
@@ -92,10 +85,10 @@ describe('where each status sends the card', () => {
 
 describe('what each stage may write', () => {
   it('has an allow list for every stage', () => {
-    expect(Object.keys(ALLOWED_PATHS).sort()).toEqual([...Stage.options].sort())
+    for (const stage of Stage.options) expect(allowedPaths(stage).length, stage).toBeGreaterThan(0)
   })
 
   it('denies the factory and the workflows outright', () => {
-    expect(ALWAYS_DENIED).toEqual(expect.arrayContaining(['.github/**', '.agent/**', 'factory/**']))
+    expect(CORE_DENIED).toEqual(expect.arrayContaining(['.github/**', '.agent/**', 'factory/**']))
   })
 })

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { changedFiles } from './git.ts'
 import { RESULT_PATH, writeFileEnsuringDir } from './meta.ts'
-import { ALLOWED_PATHS, ALWAYS_DENIED, ResultSchema, type Result, type Stage } from './schema.ts'
+import { allowedPaths, deniedPaths } from './paths.ts'
+import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 /**
  * Minimal glob matcher for the allow/deny lists.
@@ -32,11 +33,12 @@ export interface ScopeViolation {
 }
 
 export function checkScope(stage: Stage, files: string[]): ScopeViolation[] {
-  const allowed = ALLOWED_PATHS[stage]
+  const allowed = allowedPaths(stage)
+  const denied = deniedPaths()
   const violations: ScopeViolation[] = []
 
   for (const file of files) {
-    if (ALWAYS_DENIED.some((p) => matchesGlob(file, p))) {
+    if (denied.some((p) => matchesGlob(file, p))) {
       violations.push({ path: file, reason: 'denied' })
       continue
     }
@@ -90,6 +92,18 @@ export function contractProblems(result: Result): string[] {
   return problems
 }
 
+/** `failedResult`, from whatever the agent wrote, which may not parse. */
+export function rejection(stage: Stage, raw: string | null, problems: string[]): Result {
+  let result: Result | null = null
+  try {
+    const parsed = raw === null ? null : ResultSchema.safeParse(JSON.parse(raw))
+    if (parsed?.success === true) result = parsed.data
+  } catch {
+    // Not JSON. The problems already say why the turn was refused.
+  }
+  return failedResult(stage, result, problems)
+}
+
 export interface ValidateOutcome {
   ok: boolean
   result: Result
@@ -134,10 +148,10 @@ function scopeProblems(stage: Stage, violations: ScopeViolation[]): string[] {
 }
 
 /**
- * The `failed` result that stands in for a turn that did not ship: one
- * validation rejected, or one whose commit the pre-commit gates refused.
+ * The `failed` result that replaces a rejected turn's own, so `report` still
+ * has something coherent to put on the card.
  */
-export function failedResult(summary: string, result: Result | null, problems: string[]): Result {
+export function failedResult(stage: Stage, result: Result | null, problems: string[]): Result {
   const empty: Omit<Result, 'status' | 'summary' | 'reason'> = {
     context: '',
     acceptance_criteria: [],
@@ -150,7 +164,7 @@ export function failedResult(summary: string, result: Result | null, problems: s
   const from = result ?? empty
   return {
     status: 'failed',
-    summary,
+    summary: `The ${stage} turn was rejected by validation.`,
     context: from.context,
     // Carried through rather than dropped: if the agent wrote usable criteria
     // and then strayed outside its paths, they are still the clearest
@@ -188,7 +202,7 @@ export function validate(stage: Stage, base = 'origin/main'): ValidateOutcome {
     return { ok: true, result, violations, problems }
   }
 
-  const synthetic = failedResult(`The ${stage} turn was rejected by validation.`, result, problems)
+  const synthetic = failedResult(stage, result, problems)
   writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(synthetic, null, 2)}\n`)
   return { ok: false, result: synthetic, violations, problems }
 }

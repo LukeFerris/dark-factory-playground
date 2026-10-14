@@ -10,6 +10,7 @@ import {
   type TriageContext,
   type TriageDecision,
 } from './triage-classifier.ts'
+import { jqlStatus, statusOfCard } from './statuses.ts'
 
 /**
  * Comment triage.
@@ -136,7 +137,7 @@ export function triageComment(
 export async function triagePass(options: TriageOptions): Promise<TriageOutcome[]> {
   const { cfg, projectKey } = options
 
-  const statuses = TRIAGE_STATUSES.map((status) => `"${status}"`).join(', ')
+  const statuses = TRIAGE_STATUSES.map(jqlStatus).join(', ')
   const cards = await jira.search(
     cfg,
     `project = ${projectKey} AND status IN (${statuses}) ORDER BY created ASC`,
@@ -163,7 +164,7 @@ async function triageCard(
   me: string,
 ): Promise<TriageOutcome | null> {
   const { cfg } = options
-  const status = ((card.fields['status'] as { name?: string } | undefined)?.name ?? '').trim()
+  const status = statusOfCard(card.fields)
   const summary = (card.fields['summary'] as string) ?? card.key
 
   const comment = await commentToTriage(cfg, card, status, me)

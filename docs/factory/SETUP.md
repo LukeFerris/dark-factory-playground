@@ -66,6 +66,11 @@ repositories you install it on, and its commits are plainly attributed to a bot.
    Grant nothing else. In particular **do not** grant Administration, Members,
    or anything organisation-level.
 
+   Checks and commit statuses are not on the list on purpose. A finished build
+   waits for main's required checks, but the `verify` job reads them with its
+   own read-only `GITHUB_TOKEN`. Dispatching a slow suite for it uses Actions,
+   which the App already has.
+
 5. **Where can this App be installed?** Only on this account.
 6. Create it. On the App's page:
    - note the **App ID** → `FACTORY_APP_ID`
@@ -228,9 +233,11 @@ both are exits from the same running state, and the blocked one goes backwards.
 factory transitions by name, never by column — but its cards vanish from the
 board, which is the worst way to find out.
 
-**Column 1 is the backlog, not a board column.** With the Kanban backlog
-enabled, _Backlog_ cards appear in the **Backlog** tab rather than on the board.
-That suits a status the factory never touches.
+**The board keeps an eleventh, empty column in front.** A Kanban board made from
+the template starts with a placeholder for the Kanban backlog, which Jira will
+not let go. It holds no statuses, it is hidden while the Kanban backlog is off,
+and `bootstrap/jira.sh` sends it back as it found it. _Backlog_ is an ordinary
+column after it.
 
 If the script warned instead, do it by hand at **Board → ⋯ → Configure board →
 Columns**. Collapsing the ten into fewer columns is fine — group each stage with
@@ -254,36 +261,22 @@ factory's is always _Dark Factory_.
 
 ### Locking _Done_ to the factory
 
-**Manual, and browser-only.** The bot deliberately has no _Administer Projects_
-permission, so it cannot configure the workflow it runs inside — asking Jira
-for `/project/DF/role` as the bot returns _"You cannot edit the configuration
-of this project."_
-
 _Done_ means "merged, and production is serving it", which only the thing that
 deployed it can know. `production.yml` is the sole writer; this stops anyone
 else claiming it by dragging a card.
 
-This needs a **company-managed** project. Check with:
+`bootstrap/jira.sh` does this, in its _Lock_ section, alongside the locks on
+_Designing_ and _Building_. The one global transition into _Done_ gets a
+**Restrict who can move a work item** condition (`system:restrict-issue-transition`)
+naming the factory's account. No group is needed. Re-running the script puts it
+back if someone edits it by hand, and points it at the new account if the bot
+changes.
 
-```bash
-curl -s -u "$JIRA_USER:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$JIRA_PROJECT_KEY" \
-  | jq '{style, simplified}'          # want: {"style":"classic","simplified":false}
-```
-
-Team-managed projects (`"style":"next-gen"`) have no transition conditions and
-cannot do this. `bootstrap/jira.sh` creates a company-managed project, so a
-factory set up by the script is already on the right side of that line.
-
-1. Make a group holding only the bot — **Settings → User management → Groups**,
-   new group `factory-bot`, add `JIRA_BOT_EMAIL` and nobody else.
-2. **Project settings → Workflows**, edit the `Factory` workflow. Its scope is
-   `GLOBAL`, so it is available to every project — if a second project is using
-   it, copy it and point `Factory scheme` at the copy first, or the condition
-   lands there too.
-3. Select the transition named **Done**. There is exactly one: `bootstrap/jira.sh`
-   gives each status a single _global_ transition into it, from anywhere. That
-   is convenient here — one condition closes every route in.
-4. **Conditions → Add → User Is In Group → `factory-bot`**, and publish.
+It is the Jira admin's token in `.env` that installs it. The bot deliberately
+has no _Administer Projects_ permission, so it cannot configure the workflow it
+runs inside. It also needs a **company-managed** project, because team-managed
+projects (`"style":"next-gen"`) keep their workflows out of reach of the
+workflow API. The script creates the right kind.
 
 Then verify. As the bot, _Done_ must still be reachable:
 
@@ -292,22 +285,19 @@ curl -s -u "$JIRA_BOT_EMAIL:$JIRA_BOT_TOKEN" \
   "$JIRA_BASE/rest/api/3/issue/$KEY/transitions" | jq -r '.transitions[].to.name'
 ```
 
-As yourself, it must not be — and the drag target should be gone from the
+As yourself, it must not be, and the drag target should be gone from the
 board.
 
-Two things to know before you do it:
+Two things to know:
 
 - **Conditions bind administrators too.** Unlike permissions, being a Jira
   admin is not an exemption. You will not be able to close a card by hand
-  either, which is the point and also the cost: a card whose deploy succeeded
+  either. That is the point, and also the cost: a card whose deploy succeeded
   but whose `ship` step failed needs the workflow re-run, not a drag.
-- **If you want an escape hatch**, add a second transition into _Done_ — call
-  it _Force done_ — with a **User Is In Project Role → Administrators**
-  condition instead. `factory jira-transition` resolves transitions by
-  destination status, so it will happily use whichever one it is offered, and
-  the bot being in neither role would break shipping. Keep the bot's group
-  condition on the normal transition and put the role condition only on the
-  second. ADR 0004 argues for not having one at all.
+- **There is no escape hatch, on purpose.** A second transition into _Done_,
+  such as _Force done_ for administrators, would also be offered to
+  `factory jira-transition`, which picks a transition by its destination.
+  ADR 0004 argues for not having one at all.
 
 ---
 

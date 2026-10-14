@@ -2,8 +2,20 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** Repo root, resolved from this file's location rather than cwd. */
-export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+/**
+ * The repository the factory works on: this file's own, unless
+ * `FACTORY_REPO_ROOT` names another.
+ *
+ * The override is how a job that holds a token works on a card without running
+ * the card's code. It checks out main and runs the factory from there, checks
+ * the card branch out beside it, and points this at the card. Without it the
+ * factory would have to run from the card's checkout, whose code a build agent
+ * has been free to write and run. See ADR 0008.
+ */
+export const REPO_ROOT =
+  process.env['FACTORY_REPO_ROOT'] !== undefined && process.env['FACTORY_REPO_ROOT'] !== ''
+    ? resolve(process.env['FACTORY_REPO_ROOT'])
+    : resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
 /**
  * Reads .env if present, WITHOUT overriding anything already in the process

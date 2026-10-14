@@ -7,6 +7,191 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-14
+
+### The factory's commits meet the gates in CI, not on the runner
+
+The 2026-10-05 change ran the pre-commit gates on the factory's own commits, on
+the runner: each turn workflow installed the harness tools, and publish's turn
+commit and merge-finish's resolved merge went through `.husky/pre-commit`. ADR
+0008 then took those commits into trusted jobs, which hold the App and Jira
+tokens. The hook runs the card's code: eslint and prettier from the card's
+`node_modules`, and its test suite for coverage. Doing that in a trusted job is
+what ADR 0008 forbids, so the two could not both stand.
+
+ADR 0008 wins. The runner no longer installs the harness tools, and the
+factory commits with `--no-verify` in `publish` and in merge-finish. Publish no
+longer turns a refused commit into a failed result, and merge-finish no longer
+treats one as an unresolved merge, because neither can be refused now.
+
+The gates run on the pull request instead. A new workflow, `commit-gates.yml`,
+stages the whole PR on top of where it left main and runs the hook's gates on
+it: `git diff --check`, gitleaks, osv-scanner on the lockfile, eslint (with
+`eslint.gates.js`) and prettier on the changed files, and the per-file coverage
+floor. It installs gitleaks and osv-scanner at the versions
+`scripts/install-harness-tools.sh` pins, checked against their published
+checksums. It holds no secret, runs on every PR, people's included, and does
+not use `cache: npm`. The pattern audit is left to the hook and to the build
+manual, as before. Commit gates is not a required check yet: until it is, a
+red run does not stop a merge, and a reviewer has to look.
+
+Everything else from 2026-10-05 stands: the hook for people's commits, the
+complexity limits, the coverage floor, prettier, and `format:check` in ci.
+The build agent may now run `npm run test:coverage`, so it can check the floor
+before it finishes.
+
+## 2026-10-13
+
+### A finished build waits for main's required checks
+
+A build turn that ended `ready_for_review` marked its PR ready and moved the
+card to _In review_ straight after pushing, before any check had run on that
+push. A reviewer could find a red PR on a card that said it was ready.
+
+Build turns now keep the PR a draft. A new trusted job in `turn.yml`, `verify`,
+dispatches the workflows in `FACTORY_VERIFY_WORKFLOWS` so draft-skipping suites
+run, and waits for main's required checks on the pushed commit
+(`factory verify`). `report` reads
+the verdict: green marks the PR ready and moves the card to _In review_; red
+dispatches another build turn, up to two (`build-turn.yml`'s new `retry`
+input); anything else goes to _Blocked on engineer_. `gather` gives a
+continuing build turn the failing checks' log tails. Checks are read with the
+job's `GITHUB_TOKEN`, so the App's permissions are unchanged. See ADR 0009.
+
+### Code the agent touched never shares a job with a token
+
+The agent ran in a step with only the Anthropic key, and the App and Jira
+tokens were in other steps of the same job. A build agent runs its own tests
+and `npm ci`, and a hosted runner gives that code passwordless `sudo`, so it
+could read the later steps' tokens. Refresh ran the card's checks beside the
+same tokens, and `build-setup.yml` ran the factory from the PR.
+
+A turn is now `turn.yml`, called by `design.yml`, `build-start.yml` and
+`build-turn.yml`, in six jobs. The trusted ones (`prepare`, `publish`,
+`preview`, `report`) hold the tokens, run the factory from main with the card
+in `card/` (`FACTORY_REPO_ROOT`), and run none of the card's code. The
+untrusted ones (`agent`, `walkthrough`) run it, and hold the Anthropic key or
+nothing. The agent job hands its turn over as a git bundle, and the new
+`factory accept` merges main again, takes only the conflicted files from the
+agent's merge, and applies the work for `validate` and `publish` to judge.
+`.github/actions/merge-main` is gone.
+
+Refresh is split the same way into `refresh-card.yml`: a `checks` job with no
+secrets, and a `refresh` job that takes its outcome (`--checks`) and merges the
+same commit of main (`--main`). `build-setup.yml` and `build-teardown.yml` run
+the factory from main. No workflow uses `cache: npm`, since an agent job on
+main could write the cache. `publish` regenerates the lockfile with
+`--ignore-scripts`. See ADR 0008, which also lists what is still not bounded.
+
+### Previews and production a repository deploys itself
+
+A repository that already deploys a preview of every PR, and production on
+every push to main, had no way to use them: the factory built and deployed its
+own, on Container Apps or the `ghcr` stub.
+
+A third preview backend, `swa`, waits for the repository's Azure Static Web
+Apps workflow to finish on the turn's commit and hands back the preview URL. It
+reruns the workflow when the site was built too early (`SWA_PREVIEW_NOT_READY`).
+Setting `FACTORY_PRODUCTION_URL` and `FACTORY_PRODUCTION_WORKFLOWS` puts
+`production-up` in a mode that waits for the repository's own deployment of the
+merge commit instead of making one. Both are for Workbench, whose previews move
+to Container Apps once its infrastructure is in place. The waiting is in
+`runs.ts`. The warm-up's failure message no longer assumes a Container App.
+
+### What a stage may write can be set per repository
+
+The allow and deny lists were constants in `schema.ts`, written for this
+repository's `app/` workspace. A repository with its app at the root, or with
+database migrations beside it, could not run the factory without editing them.
+
+They now live in `factory/src/paths.ts`, and `enki.json` can replace them with
+a `paths` block (`design`, `build`, `denied`). The factory's own deny list,
+`CORE_DENIED` (`.github/`, `.agent/`, `factory/`, `bootstrap/`, `enki.json`),
+is not part of it and always applies. A `paths` block missing a list, or with
+a key it does not know, is refused rather than mixed with the defaults.
+Without one, as in this repository, nothing changes.
+
+Two things that assumed the `app/` layout follow the lists: the kickoff
+comment now prints the build allow list instead of a hand-written summary of
+it (which had already fallen behind: it left out `app/e2e`), and `publish`
+only passes `--workspaces` to the lockfile's `npm install` when the root
+`package.json` has workspaces.
+
+## 2026-10-12
+
+### Statuses can be pinned by id
+
+The factory found every status by name: when moving a card, in its JQL, and
+when reading a card's status and history. In a team-managed space, renaming a
+board column renames its status, so one rename by anyone who administers the
+space left every card stuck at its next move, and the poller stopped seeing
+cards waiting in that column.
+
+A repository can now pin the ten names to their status ids in `enki.json`
+(`jira.statuses`). With them pinned, `transitionTo` matches the transition's
+target id, the poller, triage, refresh and orphan sweep search with
+`status = <id>`, and the lock and hand-back read history by id, because a
+history line keeps the name the status had at the time. The poller gets the
+JQL value from a new `jira-status-jql` command rather than quoting the name in
+shell. Without `enki.json`, as in this repository, nothing changes.
+
+`enki.json` is on `ALWAYS_DENIED`. An agent that rewrote it could send cards to
+statuses the locks don't cover.
+
+## 2026-10-07
+
+### `bootstrap/jira.sh` locks _Done_ to the factory, through the API
+
+Locking _Done_ used to be a manual step in a browser, through a `factory-bot`
+group and a _User Is In Group_ condition. On this site it had never been done:
+every transition in the live workflow had no conditions, the group did not
+exist, and anyone could drag a card to _Done_.
+
+The workflow API can do it with no group. The _Lock_ section now reconciles a
+condition on the one global transition into _Done_, along with the status
+properties on _Designing_ and _Building_:
+
+```json
+"conditions": {
+  "operation": "ALL",
+  "conditionGroups": [],
+  "conditions": [{ "ruleKey": "system:restrict-issue-transition",
+                   "parameters": { "accountIds": "<bot>" } }]
+}
+```
+
+It was proven on DF with a test card. The admin was not offered _Done_, and
+posting the transition anyway got a 400. While the bot held the card in
+_Designing_, and again in _Building_, the admin was offered no transition at
+all: a move got a 400 and a reassignment a 403. The bot moved the card through
+each status and on to _Done_. That card, DF-16, is still in _Done_, because the
+admin token has no _Delete work items_ permission on DF.
+
+About the API:
+
+- **Rules go directly in `conditions`.** Putting them under a `rules` key gets a
+  400 with only "Invalid request payload". `"conditions": null` on the other
+  transitions is accepted, on create and on update.
+- **A condition reads back with an `id`, and with every parameter it takes,
+  empty or not.** The script compares rule keys and non-empty parameters, so
+  an unchanged lock is not rewritten on every run.
+- **"Done" is looked up among the workflow's own statuses.** A site usually
+  has more than one status with that name.
+
+Two smaller fixes:
+
+- **The Kanban backlog flag was read from a field Jira does not return.**
+  `isKanPlanEnabled` is not in the board settings, so the column mapping always
+  thought the backlog was off. Jira kept its placeholder column in front
+  anyway. The script now reads the placeholder from the first column's
+  `isKanPlanColumn` flag and sends it back as it was. _Checkpoint D_ in
+  `SETUP.md` described _Backlog_ as living in the backlog tab, which it does
+  not, and now describes the placeholder instead.
+- **A service account can be the factory.** Its `accountType` is `app`, and
+  both `bootstrap/jira.sh` and `bootstrap/jira-triggers.sh` only accepted
+  `atlassian`. Whether a service account can do everything the factory needs is
+  not yet proven; see `.claude/skills/install-enki`.
+
 ## 2026-10-05
 
 ### Every commit goes through the golden path's gates, the factory's included

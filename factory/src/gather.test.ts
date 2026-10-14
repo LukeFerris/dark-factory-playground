@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import { gather } from './gather.ts'
+import { ghRunner, setRunner, type Runner } from './github.ts'
 import { TASK_PATH } from './meta.ts'
 
 const BASE = 'https://example.atlassian.net'
@@ -110,5 +111,85 @@ describe('the branch a turn publishes to', () => {
     const meta = await gather({ key: 'DF-1', stage: 'build' })
     const current = execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim()
     expect(meta.branch).toBe(current)
+  })
+})
+
+/** `gh`, for a pull request whose `ci` check ended as given. */
+function pullRequest(conclusion: string): void {
+  const json = (out: unknown) => ({ status: 0, stdout: JSON.stringify(out), stderr: '' })
+  const logs = {
+    status: 0,
+    stdout: '2026-10-13T10:00:00.0Z FAIL src/app.test.ts > greets Ada\n',
+    stderr: '',
+  }
+  const pr = (field: string) => (args: string[]) => args[0] === 'pr' && args.includes(field)
+  const api = (test: (path: string) => boolean) => (args: string[]) => test(args[1] ?? '')
+  // The first that matches answers, so the more specific paths come first.
+  const answers: Array<[(args: string[]) => boolean, ReturnType<Runner>]> = [
+    [pr('comments'), json({ comments: [] })],
+    [pr('body,headRefName'), json({ body: '', headRefName: 'card/DF-1-x' })],
+    [pr('headRefOid'), json({ headRefOid: 'a'.repeat(40) })],
+    [
+      api((p) => p.endsWith('/rules/branches/main')),
+      json([
+        {
+          type: 'required_status_checks',
+          parameters: { required_status_checks: [{ context: 'ci' }] },
+        },
+      ]),
+    ],
+    [api((p) => p.endsWith('/branches/main')), json({})],
+    [
+      api((p) => p.includes('/check-runs')),
+      json([
+        {
+          id: 3,
+          name: 'ci',
+          status: 'completed',
+          conclusion,
+          html_url: null,
+          app: { slug: 'github-actions' },
+        },
+      ]),
+    ],
+    [api((p) => p.includes('/status')), json([])],
+    [api((p) => p.endsWith('/actions/jobs/3/logs')), logs],
+  ]
+  const runner: Runner = (args) =>
+    answers.find(([matches]) => matches(args))?.[1] ?? {
+      status: 1,
+      stdout: '',
+      stderr: `unexpected: ${args.join(' ')}`,
+    }
+  setRunner(runner)
+}
+
+describe('a build turn on a pull request whose required checks fail', () => {
+  const repository = process.env['GITHUB_REPOSITORY']
+  beforeEach(() => {
+    process.env['GITHUB_REPOSITORY'] = 'o/r'
+  })
+  afterEach(() => {
+    setRunner(ghRunner)
+    if (repository === undefined) delete process.env['GITHUB_REPOSITORY']
+    else process.env['GITHUB_REPOSITORY'] = repository
+  })
+
+  it('tells the agent what failed and that this is an automatic turn', async () => {
+    card([])
+    pullRequest('failure')
+    await gather({ key: 'DF-1', stage: 'build', pr: 5, retry: 1 })
+    const task = readFileSync(TASK_PATH, 'utf8')
+    expect(task).toContain('## Required checks failing on the pull request')
+    expect(task).toContain('automatic turn 1 of 2')
+    expect(task).toContain('### ci — failure')
+    expect(task).toContain('FAIL src/app.test.ts > greets Ada')
+  })
+
+  it('says nothing of checks that pass', async () => {
+    card([])
+    pullRequest('success')
+    await gather({ key: 'DF-1', stage: 'build', pr: 5 })
+    expect(readFileSync(TASK_PATH, 'utf8')).not.toContain('Required checks')
   })
 })

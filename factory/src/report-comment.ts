@@ -1,6 +1,7 @@
 import { runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import { SLIDES_FILENAME } from './evidence.ts'
+import { gateHeadline, gateNext, gateSection, type Gate } from './report-gate.ts'
 import type { Criterion, Question, Result, Stage } from './schema.ts'
 
 /**
@@ -35,6 +36,8 @@ export interface CommentOptions {
   previewUrl: string | null
   run: string | null
   evidence?: Evidence
+  /** Where a finished build stands at the gate, when it reached it. */
+  gate?: Gate | null
 }
 
 /**
@@ -52,8 +55,9 @@ export interface CommentOptions {
  */
 export function buildComment(stage: Stage, result: Result, options: CommentOptions): adf.AdfDoc {
   const evidence = options.evidence ?? { video: null, proved: [] }
+  const gate = options.gate ?? null
   return adf.doc(
-    adf.heading(headline(stage, result.status)),
+    adf.heading(gate === null ? headline(stage, result.status) : gateHeadline(stage, gate)),
     ...summarySection(result),
     // Before the criteria, not after. Somebody who answered a question on this
     // card opens the next comment looking for one thing: what was made of their
@@ -71,7 +75,8 @@ export function buildComment(stage: Stage, result: Result, options: CommentOptio
     ...bulletSection('Questions', result.questions, questionInline),
     ...bulletSection('Assumptions', result.assumptions, (a) => [adf.text(a)]),
     ...failureSection(result),
-    ...nextSection(stage, result),
+    ...(gate === null ? [] : gateSection(gate)),
+    ...nextSection(stage, result, gate),
     ...linksSection(options),
   )
 }
@@ -195,8 +200,8 @@ function failureSection(result: Result): adf.AdfNode[] {
  * paragraph, which is exactly the shape a criterion heading uses — so it read
  * as one more criterion at the bottom of the list.
  */
-function nextSection(stage: Stage, result: Result): adf.AdfNode[] {
-  const next = whatNext(stage, result)
+function nextSection(stage: Stage, result: Result, gate: Gate | null): adf.AdfNode[] {
+  const next = whatNext(stage, result, gate)
   if (next === null) return []
   return [adf.heading('What happens next', 4), adf.paragraph(adf.text(next))]
 }
@@ -231,14 +236,20 @@ function isSet(url: string | null): url is string {
  * the change actually answers in production — so telling a reviewer to drag the
  * card would be telling them to do something the board will refuse.
  *
+ * A build that did not clear the gate says what the factory is doing about it
+ * instead (`gateNext`).
+ *
  * `null` where there is genuinely nothing for the reader to do: a `continue`
  * design turn leaves the card in a status the comment poller does not watch, so
  * inviting a reply there would invite one into a void.
  */
-export function whatNext(stage: Stage, result: Result): string | null {
+export function whatNext(stage: Stage, result: Result, gate: Gate | null = null): string | null {
   const reply =
     'Reply on this card with the answer — a comment here is read on the next poll and ' +
     'starts the next turn from it.'
+
+  const atTheGate = gate === null ? null : gateNext(gate)
+  if (atTheGate !== null) return atTheGate
 
   switch (result.status) {
     case 'ready_for_review':

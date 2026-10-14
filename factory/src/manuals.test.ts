@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './env.ts'
-import { ALLOWED_PATHS, ALWAYS_DENIED } from './schema.ts'
+import { CORE_DENIED, readPaths } from './paths.ts'
 
 /**
  * The manuals are the agent's entire prompt, so the guarantees they make are
@@ -11,6 +11,12 @@ import { ALLOWED_PATHS, ALWAYS_DENIED } from './schema.ts'
  */
 
 const MANUALS = ['design', 'build'] as const
+
+/**
+ * The repository's own lists, not the test setup's: the tests point
+ * `ENKI_CONFIG` at a scratch file, and the manuals describe this repository.
+ */
+const PATHS = readPaths(resolve(REPO_ROOT, 'enki.json'))
 
 function manual(stage: (typeof MANUALS)[number]): string {
   return readFileSync(resolve(REPO_ROOT, `.agent/${stage}.md`), 'utf8')
@@ -40,7 +46,7 @@ function containmentRules(stage: (typeof MANUALS)[number]): void {
 
   it('lists exactly the paths the validator allows for the stage', () => {
     const text = manual(stage)
-    for (const glob of ALLOWED_PATHS[stage]) {
+    for (const glob of PATHS[stage]) {
       // The manuals spell DF-<n> out as <KEY>, so compare on the stable stem.
       const stem = glob.replace('/*/', '/<KEY>/').replace(/\/\*\*$/, '/**')
       expect(text).toContain(stem)
@@ -50,7 +56,7 @@ function containmentRules(stage: (typeof MANUALS)[number]): void {
   it('names the always-denied directories as off limits', () => {
     const text = manual(stage)
     for (const dir of ['.agent/', '.github/', 'factory/']) {
-      expect(ALWAYS_DENIED.some((glob) => glob.startsWith(dir))).toBe(true)
+      expect(CORE_DENIED.some((glob) => glob.startsWith(dir))).toBe(true)
       expect(text).toContain(dir)
     }
   })

@@ -9,9 +9,8 @@ import {
   headSha,
   identifyAsBot,
   remoteBranchExists,
-  tryCommit,
 } from './git.ts'
-import { installPreCommit, sh, useScratchRepo } from './git.stub.ts'
+import { sh, useScratchRepo } from './git.stub.ts'
 import type * as env from './env.ts'
 
 /**
@@ -34,7 +33,7 @@ vi.mock('./env.ts', async (importOriginal) => {
   }
 })
 
-const repo = useScratchRepo('factory-git-', root)
+useScratchRepo('factory-git-', root)
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -62,34 +61,6 @@ describe('running git', () => {
 
     expect(gitSucceeds(['rev-parse', 'no-such-ref'])).toBe(false)
     expect(error).toHaveBeenCalledWith(expect.stringMatching(/^git rev-parse no-such-ref: /))
-  })
-})
-
-describe('committing through the hooks', () => {
-  it('returns nothing when the commit lands', () => {
-    writeFileSync(join(root.path, 'README.md'), 'hello again\n')
-    sh(root.path, 'add', '.')
-
-    expect(tryCommit(['--quiet', '-m', 'second'])).toBeNull()
-    expect(git(['log', '-1', '--format=%s']).trim()).toBe('second')
-  })
-
-  it('returns the end of what a refusing hook said, without its colours', () => {
-    const lines = Array.from({ length: 40 }, (_, i) => `echo "line ${i + 1}"`).join('\n')
-    installPreCommit(
-      repo,
-      `#!/bin/sh\n${lines}\nprintf '\\033[0;31mCoverage gate: failed\\033[0m\\n' >&2\nexit 1\n`,
-    )
-    writeFileSync(join(root.path, 'README.md'), 'hello again\n')
-    sh(root.path, 'add', '.')
-
-    const said = tryCommit(['-m', 'second']) as string
-    const kept = said.split('\n')
-
-    expect(kept).toHaveLength(30)
-    expect(kept.at(-1)).toBe('Coverage gate: failed')
-    expect(kept[0]).toBe('line 12')
-    expect(git(['log', '--format=%s']).trim()).toBe('initial')
   })
 })
 

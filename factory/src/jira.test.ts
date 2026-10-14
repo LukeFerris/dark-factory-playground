@@ -344,6 +344,7 @@ describe('changelog', () => {
       field: 'status',
       to: '400',
       toString: 'Building',
+      from: '10016',
       fromString: 'In review',
     })
     expect(labelled?.items[0]?.fromString).toBeNull()

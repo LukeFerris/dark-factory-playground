@@ -1,0 +1,130 @@
+name: Commit gates
+
+# The pre-commit hook's gates (.husky/pre-commit), run on the whole pull
+# request as if it were one staged commit. The factory commits a turn's work
+# with --no-verify, because the job that commits holds tokens and must not run
+# the card's code (ADR 0008), so this is where an agent's work meets the same
+# gates a person's commit does. It runs on every PR, people's included.
+#
+# What it runs, in the hook's order:
+#   1. git diff --check
+#   2. gitleaks protect --staged, at the version
+#      scripts/install-harness-tools.sh pins
+#   3. osv-scanner on package-lock.json, at the pinned version
+#   4. what lint-staged runs, as checks: ESLint (with eslint.gates.js) on the
+#      changed .ts/.tsx of each workspace, Prettier on those and on
+#      .js/.mjs/.json/.md/.yml/.yaml/.css/.html
+#   5. the per-file coverage floor, scripts/check-staged-coverage.mjs
+#
+# What it leaves to the hook:
+#   0. scripts/check-tools.sh: this job installs the pinned tools itself, and
+#      git-ai's attribution notes are written on a developer's machine.
+#   6. scripts/check-patterns.sh: its stamp is written by /check-patterns, an
+#      AI audit run in the terminal, so CI has nothing to check it against.
+#
+# Holds no secret and only reads the repository, so it is safe to run the
+# PR's own code. Not a required check: ci stays the one main requires.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-gates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commit-gates:
+    name: Commit gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # scripts/install-harness-tools.sh pins these versions. The checksums are
+      # the ones their releases publish.
+      GITLEAKS_VERSION: 8.21.2
+      GITLEAKS_SHA256: 5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba
+      OSV_SCANNER_VERSION: 2.3.8
+      OSV_SCANNER_SHA256: bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          # No `cache:`. Agent jobs run on main and could write the cache this
+          # check would restore (ADR 0008).
+
+      - run: npm ci
+
+      - name: Install gitleaks and osv-scanner
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz -C "$bin" gitleaks
+          curl -fsSL -o "$bin/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  $bin/osv-scanner" | sha256sum -c -
+          chmod +x "$bin/osv-scanner"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      # Everything the PR changes, staged on top of where it left main, so the
+      # hook's gates see it the way they see a commit.
+      - name: Stage the pull request
+        run: |
+          set -euo pipefail
+          git reset --soft "$(git merge-base "$BASE_SHA" HEAD)"
+          git diff --cached --stat | tail -1
+
+      - name: 1. Whitespace errors and merge markers
+        run: git --no-pager diff --check --cached
+
+      - name: 2. Secrets
+        run: gitleaks protect --staged --no-banner --verbose
+
+      # The one lockfile at the root covers both workspaces. Scanning it by
+      # name keeps node_modules, which `npm ci` has just filled, out of it.
+      - name: 3. Dependency vulnerabilities
+        run: osv-scanner -L package-lock.json --config=.osv-scanner.toml
+
+      # Checks rather than fixes: lint-staged's --fix and --write would pass a
+      # file by changing it, and nothing here commits the change. ESLint runs
+      # inside each workspace, where its config (and so eslint.gates.js) is.
+      - name: 4. Lint and formatting of the changed files
+        run: |
+          set -euo pipefail
+          for ws in app factory; do
+            (
+              cd "$ws"
+              changed() { git diff --cached --name-only --diff-filter=ACMR --relative "$@" -- '*.ts' '*.tsx'; }
+              if [ -n "$(changed)" ]; then changed -z | xargs -0 npx eslint --no-warn-ignored; fi
+            )
+          done
+          patterns=('*.ts' '*.tsx' '*.js' '*.mjs' '*.json' '*.md' '*.yml' '*.yaml' '*.css' '*.html')
+          if [ -n "$(git diff --cached --name-only --diff-filter=ACMR -- "${patterns[@]}")" ]; then
+            git diff --cached --name-only --diff-filter=ACMR -z -- "${patterns[@]}" |
+              xargs -0 npx prettier --check --ignore-unknown
+          fi
+
+      # The hook skips this whenever a test file is staged, which its own
+      # comment says it does not mean to. Here it always runs:
+      # check-staged-coverage.mjs leaves out test files and exempt files itself.
+      # The report is written even when a test fails, which ci reports, so a
+      # failing test cannot skip the floor by leaving no report behind.
+      - name: 5. Coverage of the changed files
+        run: |
+          npm run test:coverage --silent -- --coverage.reportOnFailure || true
+          node scripts/check-staged-coverage.mjs

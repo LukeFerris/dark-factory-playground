@@ -5,6 +5,7 @@ import * as jira from './jira.ts'
 import { currentBranch, git } from './git.ts'
 import { dispatchWorkflow, findPrForCard } from './github.ts'
 import { abortMerge, attemptMerge, type MergeState } from './merge.ts'
+import { jqlStatus } from './statuses.ts'
 
 /**
  * Keeping the cards in review from going stale.
@@ -52,6 +53,8 @@ export interface RefreshTarget {
   key: string
   pr: number
   branch: string
+  /** The branch's head when the fan-out was planned. Both jobs of a leg work on it. */
+  sha: string
 }
 
 /**
@@ -69,7 +72,7 @@ export async function refreshTargets(
 ): Promise<RefreshTarget[]> {
   const cards = await jira.search(
     cfg,
-    `project = ${projectKey} AND status = "In review" ORDER BY created ASC`,
+    `project = ${projectKey} AND status = ${jqlStatus('In review')} ORDER BY created ASC`,
     ['summary'],
   )
 
@@ -81,7 +84,7 @@ export async function refreshTargets(
       console.warn(`::warning::${card.key} is In review but has no open pull request; skipping.`)
       continue
     }
-    targets.push({ key: card.key, pr: pr.number, branch: pr.headRefName })
+    targets.push({ key: card.key, pr: pr.number, branch: pr.headRefName, sha: pr.headRefOid })
   }
   return targets
 }
@@ -118,6 +121,37 @@ export const npmChecks: Checks = () => {
     if (!run(['run', script])) return { ok: false, failed: `npm run ${script}` }
   }
   return { ok: true, failed: null }
+}
+
+/**
+ * The checks as another job ran them, read back from what it reported.
+ *
+ * The checks run the card's own code, so they run in a job that holds no
+ * token, and the job that pushes is told only how they went (ADR 0008). That
+ * job's word is not trusted for anything that matters: whichever way it reports,
+ * the most it can do is push a merge git made here from two commits that are
+ * already on the remote, or send the card back to Building. So the outcome is
+ * only checked for being one of the answers `npmChecks` could have given.
+ */
+export function reportedChecks(outcome: string): Checks {
+  if (outcome === 'passed') return () => ({ ok: true, failed: null })
+  // The other job could not merge main cleanly, so it ran nothing. This job
+  // only asks when its own merge was clean, and the two merged the same
+  // commits, so being asked means they disagree. Nothing is pushed on that.
+  if (outcome === 'not-run') {
+    return () => {
+      throw new Error(
+        'The checks were not run, because main did not merge cleanly in their job. It did here.',
+      )
+    }
+  }
+  const failures = ['npm ci', ...CHECK_SCRIPTS.map((s) => `npm run ${s}`)]
+  if (!failures.includes(outcome)) {
+    throw new Error(
+      `The checks reported "${outcome}", which is not "passed", "not-run" or one of: ${failures.join(', ')}.`,
+    )
+  }
+  return () => ({ ok: false, failed: outcome })
 }
 
 function trailer(pr: number | null, run: string | null): adf.AdfNode[] {
@@ -233,8 +267,13 @@ export interface RefreshOptions {
   key: string
   because: Trigger
   cfg: jira.JiraConfig
-  /** Swapped out in tests so nothing shells out to npm. */
+  /**
+   * How the checks went on the merged tree. By default they are run here; the
+   * workflow runs them in a job of its own and passes on what it reported.
+   */
   checks?: Checks
+  /** The commit of main to merge. By default, origin/main as fetched now. */
+  main?: string
   dryRun?: boolean
 }
 
@@ -257,7 +296,7 @@ export async function refresh(options: RefreshOptions): Promise<RefreshOutcome> 
   if (pr === null) throw new Error(`${key} has no open pull request to refresh.`)
 
   const branch = currentBranch()
-  const state = attemptMerge(branch)
+  const state = attemptMerge(branch, options.main)
 
   if (state.state === 'up-to-date') {
     return { state: 'up-to-date', detail: `${key} already had main; nothing to do.` }

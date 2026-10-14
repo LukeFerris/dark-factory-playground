@@ -7,6 +7,7 @@ import { triagePass } from './triage.ts'
 import { releaseOrphans, stop, takeCard } from './lock.ts'
 import { findPrForCard } from './github.ts'
 import { claimCard, sentInBy } from './progress.ts'
+import { jqlStatus } from './statuses.ts'
 
 export function registerCardCommands(program: Command): void {
   jiraSearch(program)
@@ -16,6 +17,7 @@ export function registerCardCommands(program: Command): void {
   jiraTake(program)
   cardPr(program)
   jiraTransition(program)
+  jiraStatusJql(program)
   jiraClaim(program)
 }
 
@@ -116,12 +118,25 @@ function cardPr(program: Command): void {
 function jiraTransition(program: Command): void {
   program
     .command('jira-transition')
-    .description('Move a card to a status, matched by destination status name.')
+    .description('Move a card to a status: by the id enki.json pins it to, or else by name.')
     .argument('<key>', 'Issue key, e.g. DF-1')
     .argument('<status>', 'Target status name, e.g. "Design review"')
     .action(async (key: string, status: string) => {
       await jira.transitionTo(jira.configFromEnv(), key, status)
       console.log(`${key} -> ${status}`)
+    })
+}
+
+// For the poller's shell, which builds its own JQL. Asking here rather than
+// quoting the name in shell keeps one place that knows whether a space has
+// pinned its status ids.
+function jiraStatusJql(program: Command): void {
+  program
+    .command('jira-status-jql')
+    .description('Print the value for `status = …` in JQL: the pinned id, or else the quoted name.')
+    .argument('<status>', 'Status name, e.g. "Ready for build"')
+    .action((status: string) => {
+      console.log(jqlStatus(status))
     })
 }
 

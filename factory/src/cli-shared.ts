@@ -17,3 +17,11 @@ export function parseStage(value: string): Stage {
 export function parseNumber(value: string): number {
   return Number.parseInt(value, 10)
 }
+
+/** Commander's parser for `--retry`: how many automatic turns came before. */
+export function parseRetry(value: string): number {
+  const n = Number.parseInt(value, 10)
+  if (!Number.isInteger(n) || n < 0)
+    throw new Error(`--retry must be a whole number, got "${value}"`)
+  return n
+}

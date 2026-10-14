@@ -108,7 +108,7 @@ card that was not ready. It is noise with a bill attached. They can also disable
 `.agent/out` transcripts uploaded as artifacts, which removes the evidence of what
 a run did. Neither changes the code. It does not get code
 merged — the output still faces CI, the validator's path allowlist in
-`factory/src/schema.ts`, and a required human approval on `main` with an empty
+`factory/src/paths.ts`, and a required human approval on `main` with an empty
 `bypass_actors` list.
 
 ### Checkpoint 1 — create it

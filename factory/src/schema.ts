@@ -114,50 +114,8 @@ export type Result = z.infer<typeof ResultSchema>
 export const Stage = z.enum(['design', 'build'])
 export type Stage = z.infer<typeof Stage>
 
-/**
- * What each stage is allowed to write.
- *
- * `validate` diffs the branch against origin/main and rejects anything outside
- * this list. The deny list below is not strictly necessary — anything not
- * matched here is already rejected — but it is spelled out so the intent is
- * legible to a human reading the file, and so a careless widening of the allow
- * list still trips over it.
- */
-export const ALLOWED_PATHS: Record<Stage, readonly string[]> = {
-  design: ['docs/design/**', 'docs/adr/**'],
-  build: [
-    'app/src/**',
-    'app/public/**',
-    // The walkthrough the reviewer is handed is written here, by the same turn
-    // that writes the feature: a build agent that changes what the app does
-    // changes the spec that proves it, or the evidence stops matching the card.
-    'app/e2e/**',
-    'app/index.html',
-    'app/package.json',
-    'package-lock.json',
-    'docs/design/*/build-log.md',
-    '.preview/env.yaml',
-  ],
-}
-
-/** Never writable by any stage, whatever the allow list says. */
-export const ALWAYS_DENIED: readonly string[] = [
-  '.github/**',
-  '.agent/**',
-  'factory/**',
-  'bootstrap/**',
-  'package.json',
-  'tsconfig*.json',
-  'app/tsconfig.json',
-  'app/eslint.config.js',
-  'app/vite.config.ts',
-  // The agent writes the walkthrough but not the terms it is captured under.
-  // Viewport, base URL and whether screenshots are taken at all decide what
-  // the evidence shows, so they are the reviewer's guarantee, not the agent's
-  // to relax when a step will not go green.
-  'app/playwright.config.ts',
-  'factory/tsconfig.json',
-]
+// What each stage may write lives in paths.ts, because it depends on the
+// repository's layout and `enki.json` can change it.
 
 /**
  * status -> the Jira status `report` moves the card to, per stage.

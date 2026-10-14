@@ -1,6 +1,7 @@
 // The commands that make up a turn on a card's branch: gathering the task,
 // checking out the branch, merging main in, and checking and publishing what
 // the agent did.
+import { resolve } from 'node:path'
 import type { Command } from 'commander'
 import { required } from './env.ts'
 import * as jira from './jira.ts'
@@ -16,11 +17,12 @@ import {
   readMergeState,
   recordMerge,
 } from './merge.ts'
-import { refresh, refreshTargets } from './refresh.ts'
+import { refresh, refreshTargets, reportedChecks } from './refresh.ts'
 import { validate } from './validate.ts'
+import { acceptTurn } from './accept.ts'
 import { publish } from './publish.ts'
 import { RESULT_PATH, readMeta, turnBase, updateMeta, writeFileEnsuringDir } from './meta.ts'
-import { EXIT, parseNumber, parseStage } from './cli-shared.ts'
+import { EXIT, parseNumber, parseRetry, parseStage } from './cli-shared.ts'
 
 export function registerTurnCommands(program: Command): void {
   gatherCommand(program)
@@ -29,6 +31,7 @@ export function registerTurnCommands(program: Command): void {
   mergeFinishCommand(program)
   refreshPlan(program)
   refreshCommand(program)
+  acceptCommand(program)
   validateCommand(program)
   publishCommand(program)
 }
@@ -40,8 +43,19 @@ function gatherCommand(program: Command): void {
     .argument('<key>', 'Issue key')
     .requiredOption('--stage <stage>', 'design | build')
     .option('--pr <number>', 'PR number, for build turns', parseNumber)
-    .action(async (key: string, opts: { stage: string; pr?: number }) => {
-      const meta = await gather({ key, stage: parseStage(opts.stage), pr: opts.pr })
+    .option(
+      '--retry <n>',
+      'Which automatic turn this is, after required checks failed',
+      parseRetry,
+      0,
+    )
+    .action(async (key: string, opts: { stage: string; pr?: number; retry: number }) => {
+      const meta = await gather({
+        key,
+        stage: parseStage(opts.stage),
+        pr: opts.pr,
+        retry: opts.retry,
+      })
       console.log(`gather: ${meta.key} stage=${meta.stage} turn=${meta.turn}`)
     })
 }
@@ -58,12 +72,14 @@ function prepareBranchCommand(program: Command): void {
     })
 }
 
-// The merge, in three subcommands rather than one, because the middle of it runs
-// an agent: `merge-begin` leaves a conflicted merge in the index and describes it
-// in .agent/in/merge.json, the agent resolves it in a step holding nothing but an
-// Anthropic key, and `merge-finish` decides whether what came back is a commit or
-// a question for the card. `.github/actions/merge-main` is the three of them in
-// order and is the only thing that should be calling them.
+// The merge, in pieces rather than one command, because the middle of it runs
+// an agent: `merge-begin` works out whether main merges and describes a conflict
+// in .agent/in/merge.json, the agent resolves it in a job holding nothing but an
+// Anthropic key, and `accept` merges again and has `finishMerge` decide whether
+// what came back is a commit or a question for the card (ADR 0008). turn.yml
+// calls them in that order. `merge-finish` is the same decision for a merge
+// left in this checkout's index, which turn.yml's `prepare` uses to clear a
+// refused one.
 
 function mergeBegin(program: Command): void {
   program
@@ -155,18 +171,57 @@ function refreshCommand(program: Command): void {
       parseNumber,
     )
     .requiredOption('--because-title <title>', "That pull request's title")
-    .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
-    .action(
-      async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
-        const outcome = await refresh({
-          key,
-          because: { number: opts.becausePr, title: opts.becauseTitle },
-          cfg: jira.configFromEnv(),
-          dryRun: opts.dryRun,
-        })
-        console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
-      },
+    .option('--main <ref>', 'The commit of main to merge, rather than origin/main as fetched now')
+    .option(
+      '--checks <outcome>',
+      'How the checks went on the same merge in another job: "passed", or the command that failed. ' +
+        'Without it they are run here.',
     )
+    .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
+    .action(async (key: string, opts: RefreshOptions) => {
+      const outcome = await refresh({
+        key,
+        because: { number: opts.becausePr, title: opts.becauseTitle },
+        cfg: jira.configFromEnv(),
+        dryRun: opts.dryRun,
+        ...(opts.main !== undefined ? { main: opts.main } : {}),
+        ...(opts.checks !== undefined ? { checks: reportedChecks(opts.checks) } : {}),
+      })
+      console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+    })
+}
+
+interface RefreshOptions {
+  becausePr: number
+  becauseTitle: string
+  main?: string
+  checks?: string
+  dryRun: boolean
+}
+
+// The join between the agent's job and the job that publishes it (ADR 0008).
+// The agent job hands over a git bundle and its result; this merges main again
+// here, takes from the agent's merge only the conflicted files, and lays the
+// turn's work on top as uncommitted changes, ready for `validate`.
+function acceptCommand(program: Command): void {
+  program
+    .command('accept')
+    .description("Take an agent job's turn onto the card branch without running any of it.")
+    .requiredOption('--stage <stage>', 'design | build')
+    .requiredOption('--bundle <path>', 'The git bundle the agent job left')
+    .action((opts: { stage: string; bundle: string }) => {
+      const outcome = acceptTurn(parseStage(opts.stage), resolve(opts.bundle))
+      if (outcome.state === 'accepted') {
+        console.log(`accept: the turn is on ${outcome.base.slice(0, 12)}, uncommitted.`)
+        return
+      }
+      const unresolved = outcome.state === 'merge-unresolved'
+      console.error(
+        unresolved ? 'accept: the merge from main was not resolved.' : 'accept: REJECTED',
+      )
+      for (const problem of outcome.problems) console.error(`  - ${problem}`)
+      process.exit(unresolved ? EXIT.MERGE : EXIT.VALIDATION)
+    })
 }
 
 function validateCommand(program: Command): void {

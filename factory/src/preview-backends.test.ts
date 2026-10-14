@@ -70,7 +70,7 @@ describe('previewBackend', () => {
 
   it('refuses a backend it does not know', () => {
     vi.stubEnv('FACTORY_PREVIEW_BACKEND', 'heroku')
-    expect(() => previewBackend()).toThrow('must be "ghcr" or "azure", not "heroku"')
+    expect(() => previewBackend()).toThrow('must be "ghcr", "azure" or "swa", not "heroku"')
   })
 })
 
@@ -101,6 +101,7 @@ describe('previewUp on the ghcr stub', () => {
   })
 
   it('says so when docker fails, naming the command', async () => {
+    stubGh({ 'pr view': prView })
     vi.mocked(spawnSync).mockReturnValue({ status: 1 } as ReturnType<typeof spawnSync>)
     await expect(previewUp(16)).rejects.toThrow(
       /^docker build -f app\/Dockerfile .* failed with 1$/,
@@ -108,6 +109,7 @@ describe('previewUp on the ghcr stub', () => {
   })
 
   it('stops at a failed registry login rather than pushing', async () => {
+    stubGh({ 'pr view': prView })
     vi.mocked(spawnSync)
       .mockReturnValueOnce({ status: 0 } as ReturnType<typeof spawnSync>)
       .mockReturnValueOnce({ status: 1 } as ReturnType<typeof spawnSync>)
@@ -197,6 +199,30 @@ describe('previewDown on azure', () => {
     const calls = stubGh({})
     previewDown(16, true)
     expect(calls).toHaveLength(0)
+    expect(deletePreviewApp).not.toHaveBeenCalled()
+  })
+})
+
+// The repository's own workflow deploys the PR and closes its environment.
+describe('the swa backend', () => {
+  beforeEach(() => {
+    vi.stubEnv('FACTORY_PREVIEW_BACKEND', 'swa')
+    vi.stubEnv('SWA_PREVIEW_URL', 'https://calm-sea-0123-{pr}.westeurope.azurestaticapps.net')
+    vi.stubEnv('SWA_PREVIEW_WORKFLOW', 'azure-static-web-apps.yml')
+  })
+
+  it('names the preview the repository will deploy on a dry run, building nothing', async () => {
+    await expect(previewUp(16, true)).resolves.toBe(
+      'https://calm-sea-0123-16.westeurope.azurestaticapps.net',
+    )
+    expect(spawnSync).not.toHaveBeenCalled()
+  })
+
+  it('only deactivates the deployment on the way down', () => {
+    const calls = stubGh({ 'api repos/Acme/Dark-Factory/deployments?': [{ id: 3 }] })
+    previewDown(16)
+    expect(calls.some((c) => c.args.includes('state=inactive'))).toBe(true)
+    expect(calls.some((c) => c.args.includes('DELETE'))).toBe(false)
     expect(deletePreviewApp).not.toHaveBeenCalled()
   })
 })

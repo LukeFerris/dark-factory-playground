@@ -58,7 +58,9 @@ afterEach(() => {
 describe('putting the merge commit into production', () => {
   it('refuses on the ghcr stub, which serves nothing', async () => {
     vi.stubEnv('FACTORY_PREVIEW_BACKEND', 'ghcr')
-    await expect(productionUp(SHA)).rejects.toThrow(/needs FACTORY_PREVIEW_BACKEND=azure/)
+    await expect(productionUp(SHA)).rejects.toThrow(
+      /needs FACTORY_PRODUCTION_URL or FACTORY_PREVIEW_BACKEND=azure/,
+    )
     expect(azure.buildProductionImage).not.toHaveBeenCalled()
   })
 

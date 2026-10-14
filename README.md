@@ -45,8 +45,11 @@ osv-scanner, lint and format on what is staged, at least 75% coverage of each
 staged source file, and an audit of an agent's diff by `/check-patterns`. The
 lint rules include the golden path's complexity limits, in `eslint.gates.js`.
 `scripts/install-harness-tools.sh` installs the pinned tools, and the commit
-refuses to run without them. The factory's own commits go through the same
-gates on the runner.
+refuses to run without them. The factory commits without the hook, because the
+job that commits holds tokens and must not run the card's code
+([ADR 0008](docs/adr/0008-code-the-agent-touched-never-shares-a-job-with-a-token.md)).
+The `Commit gates` check runs the same gates over the whole PR instead, on every
+PR, people's included.
 
 ## Documentation
 

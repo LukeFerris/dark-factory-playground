@@ -159,7 +159,9 @@ describe('finishing a merge the agent resolved', () => {
     expect(sh('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ')).toHaveLength(3)
   })
 
-  it('turns a commit the pre-commit gates refused into a problem, leaving the merge to abort', () => {
+  // The commit is made in a job that holds tokens, so it runs no card code:
+  // not even the repository's own pre-commit hook (ADR 0008).
+  it('commits without running the pre-commit hook', () => {
     conflictInStylesheet()
     const state = attemptMerge(BRANCH)
     write('app/src/index.css', 'body { color: blue; }\n')
@@ -167,13 +169,7 @@ describe('finishing a merge the agent resolved', () => {
 
     const outcome = finishMerge(state, resolved)
 
-    expect(outcome).toEqual({
-      ok: false,
-      sha: null,
-      problems: ['The pre-commit gates refused the merge commit:\nCoverage gate: failed'],
-    })
-    abortMerge()
-    expect(sh('log', '-1', '--format=%s').trim()).toBe('DF-5: pink')
+    expect(outcome).toEqual({ ok: true, problems: [], sha: sh('rev-parse', 'HEAD').trim() })
   })
 
   it('refuses a file that still has markers in it', () => {

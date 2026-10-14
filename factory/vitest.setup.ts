@@ -21,6 +21,10 @@ import { join } from 'node:path'
 const dir = mkdtempSync(join(tmpdir(), 'factory-agent-'))
 process.env['FACTORY_AGENT_DIR'] = dir
 
+// Likewise the repository's enki.json, if it ever has one: tests match
+// statuses by name unless they pin ids themselves.
+process.env['ENKI_CONFIG'] = join(dir, 'enki.json')
+
 // Per worker, not per file — vitest reuses a worker across files, and the
 // teardown is only about not filling /tmp up.
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }))

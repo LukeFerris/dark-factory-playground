@@ -7,6 +7,8 @@ import { announce } from './announce.ts'
 import { report } from './report.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
+import type * as Verify from './verify.ts'
+import { verify, writeVerdict } from './verify.ts'
 import type * as Evidence from './evidence.ts'
 import { EVIDENCE_DIR, SLIDES_PATH, buildSlides } from './evidence.ts'
 import type * as Meta from './meta.ts'
@@ -18,6 +20,11 @@ vi.mock('./announce.ts', () => ({ announce: vi.fn() }))
 vi.mock('./report.ts', () => ({ report: vi.fn() }))
 vi.mock('./preview.ts', () => ({ kickoff: vi.fn(), previewDown: vi.fn(), previewUp: vi.fn() }))
 vi.mock('./production.ts', () => ({ productionUp: vi.fn(), ship: vi.fn() }))
+vi.mock('./verify.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof Verify>()),
+  verify: vi.fn(),
+  writeVerdict: vi.fn(),
+}))
 vi.mock('./evidence.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof Evidence>()),
   buildSlides: vi.fn(),
@@ -112,8 +119,45 @@ describe('announce and report', () => {
 
   it('report parses the stage and passes the PR URL', async () => {
     await run('report', '--stage', 'build', '--pr-url', 'https://pr/1')
-    expect(report).toHaveBeenCalledWith({ stage: 'build', prUrl: 'https://pr/1', dryRun: false })
+    expect(report).toHaveBeenCalledWith({
+      stage: 'build',
+      prUrl: 'https://pr/1',
+      retry: 0,
+      dryRun: false,
+    })
     await expect(run('report', '--stage', 'nope')).rejects.toThrow('--stage must be')
+  })
+
+  it('report passes which automatic turn this was', async () => {
+    await run('report', '--stage', 'build', '--retry', '1', '--dry-run')
+    expect(report).toHaveBeenCalledWith({
+      stage: 'build',
+      prUrl: undefined,
+      retry: 1,
+      dryRun: true,
+    })
+  })
+})
+
+describe('verify', () => {
+  it('writes the verdict where it is told, and lists the checks', async () => {
+    const verdict = {
+      outcome: 'red' as const,
+      sha: 'abc',
+      checks: [
+        { name: 'ci', state: 'pass' as const, conclusion: 'success', url: null },
+        { name: 'e2e', state: 'fail' as const, conclusion: 'failure', url: null },
+      ],
+    }
+    vi.mocked(verify).mockResolvedValue(verdict)
+    await run('verify', '7', '--sha', 'abc', '--out', 'v.json')
+    expect(verify).toHaveBeenCalledWith({ pr: 7, sha: 'abc' })
+    expect(writeVerdict).toHaveBeenCalledWith(verdict, 'v.json')
+    expect(log.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      'verify: red on abc',
+      '  pass    ci',
+      '  fail    e2e',
+    ])
   })
 })
 

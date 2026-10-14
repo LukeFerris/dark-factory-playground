@@ -32,7 +32,7 @@ export function move(created: string, from: string, to: string): jira.ChangeEntr
   return {
     authorId: FACTORY,
     created,
-    items: [{ field: 'status', to: null, toString: to, fromString: from }],
+    items: [{ field: 'status', to: null, toString: to, from: null, fromString: from }],
   }
 }
 

@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import type * as childProcess from 'node:child_process'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { git, identifyAsBot, tryCommit } from './git.ts'
+import { git, identifyAsBot } from './git.ts'
 import { ghRunner, parseFactoryBlock, setRunner, type PullRequest } from './github.ts'
 import { RESULT_PATH, readMeta, writeFileEnsuringDir, writeMeta, type Meta } from './meta.ts'
 import { publish } from './publish.ts'
@@ -25,12 +24,10 @@ vi.mock('node:child_process', async (importOriginal) => ({
 vi.mock('./git.ts', () => ({
   git: vi.fn(() => ''),
   identifyAsBot: vi.fn(),
-  tryCommit: vi.fn(() => null),
 }))
 
 const npm = vi.mocked(spawnSync)
 const gitCalls = vi.mocked(git)
-const commits = vi.mocked(tryCommit)
 
 const BRANCH = 'card/DF-9-add-a-close-date'
 const previousRepo = process.env['GITHUB_REPOSITORY']
@@ -129,31 +126,23 @@ describe('committing the turn', () => {
 
     expect(identifyAsBot).toHaveBeenCalled()
     expect(gitCalls).toHaveBeenCalledWith(['add', '--', 'docs/design/**'], true)
-    expect(commits).toHaveBeenCalledWith(['-m', 'DF-9: Added the close date.'])
+    expect(gitCalls).toHaveBeenCalledWith([
+      'commit',
+      '--no-verify',
+      '-m',
+      'DF-9: Added the close date.',
+    ])
   })
 
   it('keeps the subject to 72 characters', () => {
     result({ summary: 'x'.repeat(100) })
     publish({ stage: 'design', cardSummary: 'Add a close date', dryRun: true })
-    expect(commits).toHaveBeenCalledWith(['-m', `DF-9: ${'x'.repeat(72)}`])
-  })
-
-  it('fails the turn, in result.json for report to post, when the gates refuse the commit', () => {
-    github(null)
-    commits.mockReturnValueOnce('Coverage gate: app/src/App.tsx lines 40% < 75%')
-
-    expect(() =>
-      publish({ stage: 'build', cardSummary: 'Add a close date', dryRun: false }),
-    ).toThrow(/refused the commit:\nCoverage gate/)
-
-    const written = JSON.parse(readFileSync(RESULT_PATH, 'utf8')) as Result
-    expect(written.status).toBe('failed')
-    expect(written.summary).toBe(
-      "The build turn's commit was refused by the pre-commit gates, so none of it was pushed.",
-    )
-    expect(written.reason).toBe('Coverage gate: app/src/App.tsx lines 40% < 75%')
-    expect(gitCalls).not.toHaveBeenCalledWith(expect.arrayContaining(['push']))
-    expect(gh).toEqual([])
+    expect(gitCalls).toHaveBeenCalledWith([
+      'commit',
+      '--no-verify',
+      '-m',
+      `DF-9: ${'x'.repeat(72)}`,
+    ])
   })
 
   it('says so, and commits nothing, when nothing in scope changed', () => {
@@ -167,14 +156,21 @@ describe('committing the turn', () => {
   })
 
   // The agent may have added a dependency and cannot run npm install itself.
-  it('regenerates the lockfile on a build turn, and only then', () => {
+  // The job holds tokens, so none of the package's scripts run (ADR 0008).
+  it('regenerates the lockfile on a build turn, and only then, without scripts', () => {
     publish({ stage: 'design', cardSummary: 'Add a close date', dryRun: true })
     expect(npm).not.toHaveBeenCalled()
 
     publish({ stage: 'build', cardSummary: 'Add a close date', dryRun: true })
     expect(npm).toHaveBeenCalledWith(
       'npm',
-      ['install', '--package-lock-only', '--workspaces', '--include-workspace-root'],
+      [
+        'install',
+        '--package-lock-only',
+        '--ignore-scripts',
+        '--workspaces',
+        '--include-workspace-root',
+      ],
       expect.objectContaining({ stdio: 'inherit' }),
     )
   })
@@ -221,7 +217,36 @@ describe('pushing', () => {
 })
 
 describe('the pull request', () => {
-  it('opens a draft, labels it, takes it out of draft when finished, and records it', () => {
+  it('takes a finished design out of draft', () => {
+    github({
+      number: 7,
+      url: 'https://github.com/x/pull/7',
+      body: '',
+      isDraft: true,
+      headRefOid: 'e',
+    })
+    publish({ stage: 'design', cardSummary: 'Add a close date' })
+    expect(said()).toContain('pr ready 7')
+  })
+
+  it('puts a build turn back into draft, whatever it ended on', () => {
+    result({ status: 'continue' })
+    github({
+      number: 7,
+      url: 'https://github.com/x/pull/7',
+      body: '',
+      isDraft: false,
+      headRefOid: 'e',
+    })
+    publish({ stage: 'build', cardSummary: 'Add a close date' })
+    expect(said()).toContain('pr ready 7 --undo')
+  })
+
+  // A build stays a draft until verify has seen main's checks pass (ADR 0009).
+})
+
+describe('opening and editing the pull request', () => {
+  it('opens a draft, labels it, keeps a finished build in draft, and records it', () => {
     github(null)
     meta({ preview_url: 'https://pr-31.preview.example' })
 
@@ -234,7 +259,6 @@ describe('the pull request', () => {
       'pr list --head card/DF-9-add-a-close-date --state open --json number,url,body,isDraft,headRefOid',
       'pr edit 31 --add-label factory:build',
       'pr edit 31 --add-label factory:active',
-      'pr ready 31',
     ])
     expect(bodies[0]).toContain('**Preview:** https://pr-31.preview.example')
     expect(parseFactoryBlock(bodies[0] ?? '')).toEqual({

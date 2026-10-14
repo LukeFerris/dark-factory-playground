@@ -6,7 +6,10 @@ Date: 2026-10-05
 
 Accepted. Builds on [0006](0006-the-factory-takes-only-cards-assigned-to-it.md),
 which made a card the factory's by assignment; this makes it the factory's
-_alone_ for as long as a turn runs.
+_alone_ for as long as a turn runs. The turn's jobs moved into `turn.yml` and
+refresh's leg into `refresh-card.yml`
+([0008](0008-code-the-agent-touched-never-shares-a-job-with-a-token.md)); the
+callers and their concurrency group are unchanged.
 
 ## Context
 

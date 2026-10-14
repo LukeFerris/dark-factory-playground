@@ -9,11 +9,14 @@ import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
 import { handBackTarget, releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { addressedTo, buildComment, fallbackComment, type Evidence } from './report-comment.ts'
+import { atTheGate, gated, startRetry, type Gate } from './report-gate.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
 
 export interface ReportOptions {
   stage: Stage
   prUrl?: string | undefined
+  /** Which automatic turn this was, after a red gate. 0 for any other. */
+  retry?: number
   dryRun?: boolean
 }
 
@@ -86,26 +89,34 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
+  const gate = gated(options.stage, result)
+    ? atTheGate(meta.pr, options.retry ?? 0, options.dryRun === true)
+    : null
+  const retrying = gate?.decision.action === 'retry'
+
   const { evidence, evidenceNote } = await attachEvidence(cfg, meta.key, options.dryRun === true)
 
   // Through the launcher: the Jira comment is read by a person, who may open
   // it days later, long after the app has scaled back to zero. meta.preview_url
   // itself stays raw — that is the agent's copy.
-  const comment = addressedTo(
-    buildComment(options.stage, result, {
-      prUrl: pr,
-      previewUrl: launcherFor(meta.preview_url),
-      run: runUrl(),
-      evidence,
-    }),
-    await handBackTarget(cfg, meta.key),
-  )
-  const target = targetStatus(options.stage, result)
+  //
+  // Nobody is addressed on a retry: the card is not back with anyone yet.
+  const built = buildComment(options.stage, result, {
+    prUrl: pr,
+    previewUrl: launcherFor(meta.preview_url),
+    run: runUrl(),
+    evidence,
+    gate,
+  })
+  const comment = retrying ? built : addressedTo(built, await handBackTarget(cfg, meta.key))
+  const target = targetStatus(options.stage, result, gate)
 
   if (options.dryRun === true) {
     console.log(JSON.stringify(comment, null, 2))
     console.log(`report --dry-run: ${evidenceNote}`)
     console.log(`report --dry-run: would move ${meta.key} to ${target}`)
+    if (gate !== null)
+      console.log(`report --dry-run: the gate says ${JSON.stringify(gate.decision)}`)
     return
   }
 
@@ -121,11 +132,16 @@ export async function report(options: ReportOptions): Promise<void> {
   // `meta.preview_url` is set by now on a build turn; at `announce` time it was
   // usually still null, so this is the call that actually puts the preview on
   // the card. Posting the same globalId twice updates the row.
+  //
+  // Except on a retry, where the factory is still holding the card: another
+  // turn is about to start on it, and handing it back in between would tell
+  // somebody it was theirs for a minute.
   await syncLinks(cfg, meta.key, turnLinks(meta))
-  await releaseCard(cfg, meta.key)
+  if (!retrying) await releaseCard(cfg, meta.key)
 
   if (target === null) {
     console.log(`report: ${meta.key} stays where it is (status "${result.status}").`)
+    if (gate?.decision.action === 'retry') await startRetry(cfg, meta.key, gate.decision.next)
     return
   }
   await moveCard(cfg, meta.key, target)
@@ -182,6 +198,14 @@ async function moveCard(cfg: jira.JiraConfig, key: string, target: string): Prom
   }
 }
 
-export function targetStatus(stage: Stage, result: Result): string | null {
+export function targetStatus(
+  stage: Stage,
+  result: Result,
+  gate: Gate | null = null,
+): string | null {
+  if (gate !== null) {
+    if (gate.decision.action === 'retry') return null
+    if (gate.decision.action === 'blocked') return STATUS_TRANSITIONS[stage].blocked
+  }
   return STATUS_TRANSITIONS[stage][result.status]
 }

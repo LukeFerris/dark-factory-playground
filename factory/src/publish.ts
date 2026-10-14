@@ -1,20 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { resolve } from 'node:path'
 import { REPO_ROOT } from './env.ts'
-import { git, identifyAsBot, tryCommit } from './git.ts'
+import { git, identifyAsBot } from './git.ts'
 import {
   addLabel,
   createDraftPr,
   findPrForBranch,
+  markDraft,
   markReady,
   setPrTitle,
   updatePrBody,
   upsertFactoryBlock,
   type PullRequest,
 } from './github.ts'
-import { readMeta, updateMeta, writeFileEnsuringDir, RESULT_PATH, type Meta } from './meta.ts'
-import { ALLOWED_PATHS, ResultSchema, type Result, type Stage } from './schema.ts'
-import { failedResult } from './validate.ts'
+import { readMeta, updateMeta, RESULT_PATH, type Meta } from './meta.ts'
+import { allowedPaths } from './paths.ts'
+import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 function readResult(): Result {
   return ResultSchema.parse(JSON.parse(readFileSync(RESULT_PATH, 'utf8')))
@@ -96,15 +98,36 @@ export interface PublishOptions {
 }
 
 /**
+ * The `npm install` that regenerates the lockfile without installing anything.
+ *
+ * A repository with workspaces, like this one, keeps every workspace's
+ * dependencies in the root lockfile, so all of them are resolved. One without
+ * has a single package at the root, and `--workspaces` would fail there.
+ *
+ * It runs in a job that holds tokens, on a package.json the agent may have
+ * written, so no script in it runs (ADR 0008).
+ */
+export function lockfileArgs(root: string = REPO_ROOT): string[] {
+  const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+    workspaces?: unknown
+  }
+  const workspaces = Array.isArray(manifest.workspaces)
+    ? manifest.workspaces.length > 0
+    : manifest.workspaces != null
+  return [
+    'install',
+    '--package-lock-only',
+    '--ignore-scripts',
+    ...(workspaces ? ['--workspaces', '--include-workspace-root'] : []),
+  ]
+}
+
+/**
  * Regenerates the lockfile in case the agent added a dependency. It cannot run
  * npm install itself — that is not in its tool allow-list.
  */
 function regenerateLockfile(): void {
-  const install = spawnSync(
-    'npm',
-    ['install', '--package-lock-only', '--workspaces', '--include-workspace-root'],
-    { cwd: REPO_ROOT, stdio: 'inherit' },
-  )
+  const install = spawnSync('npm', lockfileArgs(), { cwd: REPO_ROOT, stdio: 'inherit' })
   if (install.status !== 0) {
     throw new Error('npm install --package-lock-only failed; the lockfile is out of date.')
   }
@@ -114,7 +137,7 @@ function regenerateLockfile(): void {
 function commitTurn(stage: Stage, key: string, result: Result): void {
   identifyAsBot()
 
-  for (const pattern of ALLOWED_PATHS[stage]) {
+  for (const pattern of allowedPaths(stage)) {
     git(['add', '--', pattern], true)
   }
 
@@ -123,27 +146,10 @@ function commitTurn(stage: Stage, key: string, result: Result): void {
     console.log("publish: nothing to commit within the stage's allowed paths.")
   } else {
     const subject = (result.summary.split('\n')[0] ?? 'factory turn').slice(0, 72)
-    const refusal = tryCommit(['-m', `${key}: ${subject}`])
-    if (refusal !== null) refuseTurn(stage, result, refusal)
+    // No hooks: this job holds tokens and runs no card code (ADR 0008). The
+    // Commit gates check runs the pre-commit gates on the pull request instead.
+    git(['commit', '--no-verify', '-m', `${key}: ${subject}`])
   }
-}
-
-/**
- * Turns a commit the pre-commit gates refused into a failed turn, then stops.
- *
- * Report runs whether or not publish did, and it reads result.json. Left
- * alone, that is the agent's own account of a turn that worked, and the card
- * would move on with nothing pushed. So, as validate does for a turn it
- * rejects, the result is replaced with one that says what happened.
- */
-function refuseTurn(stage: Stage, result: Result, refusal: string): never {
-  const failed = failedResult(
-    `The ${stage} turn's commit was refused by the pre-commit gates, so none of it was pushed.`,
-    result,
-    [refusal],
-  )
-  writeFileEnsuringDir(RESULT_PATH, `${JSON.stringify(failed, null, 2)}\n`)
-  throw new Error(`publish: the pre-commit gates refused the commit:\n${refusal}`)
 }
 
 /** The branch's open pull request, given this title and body — created as a draft if there is none. */
@@ -185,7 +191,7 @@ function prContent(
  *
  * The commit is authored as the App's bot identity so the history shows plainly
  * that a machine wrote it. For a build turn we run `npm install` first: the
- * agent may have edited app/package.json to add a dependency, and the lockfile
+ * agent may have edited a package.json to add a dependency, and the lockfile
  * has to be regenerated here — CI's `npm ci` is what catches it if it is not.
  */
 export function publish(options: PublishOptions): PullRequest | null {
@@ -223,8 +229,15 @@ export function publish(options: PublishOptions): PullRequest | null {
   addLabel(pr.number, `factory:${options.stage}`)
   if (options.stage === 'build') addLabel(pr.number, 'factory:active')
 
-  // A finished turn takes the PR out of draft so a human can review it.
-  if (result.status === 'ready_for_review' && pr.isDraft) {
+  // A finished design takes the PR out of draft so a human can review it. A
+  // build turn puts it back, whatever it ended on: the work is unproven until
+  // main's required checks pass on it, and `report` takes it out of draft only
+  // once `verify` has seen them do so. Until then nobody can merge it by
+  // mistake, and a repository whose expensive checks skip drafts runs them
+  // once, when the factory asks, rather than on every push.
+  if (options.stage === 'build') {
+    if (!pr.isDraft) markDraft(pr.number)
+  } else if (result.status === 'ready_for_review' && pr.isDraft) {
     markReady(pr.number)
   }
 

@@ -1,6 +1,8 @@
 # 3. The turn raises its own preview
 
-- **Status:** Accepted
+- **Status:** Accepted. The two jobs are now six, in `turn.yml`
+  ([0008](0008-code-the-agent-touched-never-shares-a-job-with-a-token.md)); the
+  preview is still raised by the turn, before it reports.
 - **Date:** 2026-09-25
 - **Supersedes:** the "The preview is raised by the pull request, not by a
   dispatch" decision in [0001](0001-factory-architecture.md)

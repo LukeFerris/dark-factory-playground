@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import { REPO_ROOT } from './env.ts'
-import { git, gitSucceeds, headSha, identifyAsBot, tryCommit } from './git.ts'
+import { git, gitSucceeds, headSha, identifyAsBot } from './git.ts'
 import { AGENT_IN, AGENT_OUT, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import { matchesGlob } from './validate.ts'
-import { ALWAYS_DENIED, QuestionSchema, type Result } from './schema.ts'
+import { deniedPaths } from './paths.ts'
+import { QuestionSchema, type Result } from './schema.ts'
 
 /**
  * Merging main into a card branch, and letting an agent finish the job.
@@ -119,18 +120,22 @@ function dirtyPaths(): string[] {
 }
 
 /**
- * Tries to merge origin/main into the checked-out branch.
+ * Tries to merge main into the checked-out branch.
  *
  * Fetches first, always. Local main goes stale within minutes of anything
  * merging, and a merge analysis against a stale main is worse than none: it
  * reports clean and the branch stays behind.
+ *
+ * `mainRef` names a particular commit of main instead, for when another job has
+ * already merged that commit and this one has to make the same merge: refresh
+ * runs the checks in a job of its own (ADR 0008).
  */
-export function attemptMerge(branch: string): MergeState {
+export function attemptMerge(branch: string, mainRef = 'origin/main'): MergeState {
   git(['fetch', 'origin', '--quiet'], true)
 
   const before = headSha()
-  const main = git(['rev-parse', 'origin/main']).trim()
-  const behindRaw = git(['rev-list', '--count', 'HEAD..origin/main'], true).trim()
+  const main = git(['rev-parse', '--verify', `${mainRef}^{commit}`]).trim()
+  const behindRaw = git(['rev-list', '--count', `HEAD..${main}`], true).trim()
   const behind = behindRaw === '' ? 0 : Number.parseInt(behindRaw, 10)
 
   const base: MergeState = {
@@ -145,7 +150,7 @@ export function attemptMerge(branch: string): MergeState {
   }
   if (behind === 0) return base
 
-  base.incoming = git(['log', '--oneline', '--no-merges', '-n', '20', 'HEAD..origin/main'], true)
+  base.incoming = git(['log', '--oneline', '--no-merges', '-n', '20', `HEAD..${main}`], true)
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '')
@@ -154,7 +159,7 @@ export function attemptMerge(branch: string): MergeState {
   // attempt rather than after: a clean merge commits immediately.
   identifyAsBot()
 
-  if (gitSucceeds(['merge', '--no-edit', 'origin/main'])) {
+  if (gitSucceeds(['merge', '--no-edit', main])) {
     return { ...base, state: 'merged' }
   }
 
@@ -165,7 +170,7 @@ export function attemptMerge(branch: string): MergeState {
     // resolve and pretending otherwise would hand it an empty file list.
     git(['merge', '--abort'], true)
     throw new Error(
-      `git merge origin/main into ${branch} failed without leaving a conflict to resolve. ` +
+      `git merge ${mainRef} into ${branch} failed without leaving a conflict to resolve. ` +
         `The message from git is above.`,
     )
   }
@@ -174,7 +179,7 @@ export function attemptMerge(branch: string): MergeState {
   // `.github/` means the branch has edited the machinery that is about to
   // judge it, and no agent gets to arbitrate that — not least because the
   // resolution it wrote would be the code running the next step.
-  const denied = conflicts.filter((p) => ALWAYS_DENIED.some((g) => matchesGlob(p, g)))
+  const denied = conflicts.filter((p) => deniedPaths().some((g) => matchesGlob(p, g)))
   if (denied.length > 0) {
     git(['merge', '--abort'], true)
     return { ...base, state: 'refused', conflicts, denied }
@@ -237,8 +242,8 @@ export function readMergeResult(): MergeResult {
  * the turn's base.
  *
  * Both entrances to a build turn go through here — `prepare-branch` on turn one
- * and `merge-begin` on every turn after, because build-turn.yml checks the
- * branch out itself and never calls `prepare-branch`. Until now that second
+ * and `merge-begin` on every turn after, because a continuing turn checks the
+ * PR's branch out itself and never calls `prepare-branch`. Until now that second
  * entrance did not merge main at all, which meant every turn granted by a
  * comment ran against whatever main looked like when the branch was cut.
  *
@@ -395,17 +400,10 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
 
   identifyAsBot()
   // --no-edit takes the merge message git already wrote into MERGE_MSG, so the
-  // commit reads like any other merge rather than like an agent artefact. It
-  // goes through the pre-commit gates, and a refusal is one more reason the
-  // merge needs a person: the caller aborts it and asks on the card.
-  const refusal = tryCommit(['--no-edit'])
-  if (refusal !== null) {
-    return {
-      ok: false,
-      sha: null,
-      problems: [`The pre-commit gates refused the merge commit:\n${refusal}`],
-    }
-  }
+  // commit reads like any other merge rather than like an agent artefact. No
+  // hooks: the factory's commits run no card code (ADR 0008), and the Commit
+  // gates check runs the pre-commit gates on the pull request instead.
+  git(['commit', '--no-verify', '--no-edit'])
   return { ok: true, problems: [], sha: headSha() }
 }
 
