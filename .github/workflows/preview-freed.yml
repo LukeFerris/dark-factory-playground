@@ -1,0 +1,60 @@
+name: factory preview freed
+
+# Wakes the poller when a PR closes, in a repository that caps its previews.
+#
+# A card that found every preview slot held waits in its Ready column (see
+# factory/src/slots.ts). What frees a slot is a PR closing, merged or not, and
+# that is a GitHub event: nothing on the board changes, so Jira never starts
+# the poller. Without this the card would wait for the next person to touch the
+# board. Every PR counts, not only the factory's: a PR someone opened by hand
+# holds a slot on the same host.
+#
+# Reads only main's enki.json, and runs nothing of the pull request's
+# (ADR 0008). In a repository with no cap it stops there.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    name: Wake the poller
+    # A fork's PR has no preview to free, and its run gets no secrets.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: enki.json
+          sparse-checkout-cone-mode: false
+
+      - name: Is there a cap?
+        id: cap
+        run: |
+          if [ -f enki.json ] && jq -e '.previews.slots' enki.json >/dev/null; then
+            echo "capped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No preview cap in enki.json; nothing is waiting for this slot."
+          fi
+
+      - name: Mint App token
+        if: steps.cap.outputs.capped == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # The App token, because the poller's own comment says a dispatch made
+      # with GITHUB_TOKEN starts nothing.
+      - name: Start the poller
+        if: steps.cap.outputs.capped == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh workflow run poller.yml --repo "$GITHUB_REPOSITORY"

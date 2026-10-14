@@ -61,6 +61,7 @@ describe('buildProgram', () => {
       'jira-transition',
       'jira-status-jql',
       'jira-claim',
+      'preview-slot',
       'gather',
       'prepare-branch',
       'merge-begin',

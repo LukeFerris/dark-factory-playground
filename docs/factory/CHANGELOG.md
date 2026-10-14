@@ -9,6 +9,25 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-14
 
+### A card waits for a preview slot rather than failing for want of one
+
+Some preview hosts have a hard cap: Azure Static Web Apps holds 10 staging
+environments on the Standard plan. On CVC Workbench a card's first build turn
+ran to the end and then failed at the upload, because the app already held
+its 10. A Jira WIP limit could not prevent it. It only colours the column; it
+counts cards in one column, while a preview is held from a card's first turn to
+the day its PR closes, through every column in between; and it cannot see the
+PRs people open by hand, which hold slots on the same host.
+
+So the factory enforces it, from `enki.json`'s `previews.slots`. Before the
+poller claims a card with no PR, `factory preview-slot` counts the open PRs and
+the cards in _Designing_ or _Building_ whose PR has not opened yet. If every
+slot is held, the card stays in its Ready column and gets one comment saying
+so, and `preview-freed.yml` starts the poller again when any PR closes. A card
+that already has a PR always goes ahead. A count that fails starts the card
+anyway, because a wasted turn is cheaper than a stranded card. Without
+`previews`, as in this repository, nothing changes.
+
 ### The factory's commits meet the gates in CI, not on the runner
 
 The 2026-10-05 change ran the pre-commit gates on the factory's own commits, on

@@ -3,9 +3,17 @@ import { Stage } from './schema.ts'
 /**
  * Exit codes are part of the contract with the workflows:
  *   0 ok · 1 unexpected · 2 Jira auth · 3 no such transition · 4 validation failed
- *   5 the merge from main could not be resolved
+ *   5 the merge from main could not be resolved · 6 no preview slot is free
  */
-export const EXIT = { OK: 0, ERROR: 1, AUTH: 2, TRANSITION: 3, VALIDATION: 4, MERGE: 5 } as const
+export const EXIT = {
+  OK: 0,
+  ERROR: 1,
+  AUTH: 2,
+  TRANSITION: 3,
+  VALIDATION: 4,
+  MERGE: 5,
+  NO_SLOT: 6,
+} as const
 
 export function parseStage(value: string): Stage {
   const parsed = Stage.safeParse(value)

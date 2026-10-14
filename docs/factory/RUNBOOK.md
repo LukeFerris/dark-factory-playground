@@ -32,13 +32,15 @@ jq . design-DF-1-*/result.json
 
 The CLI's exit codes are a contract:
 
-| Code | Means                         | Look at                                            |
-| ---- | ----------------------------- | -------------------------------------------------- |
-| 0    | Fine                          | —                                                  |
-| 1    | Unexpected error              | The step log                                       |
-| 2    | Jira rejected the credentials | `JIRA_BOT_EMAIL` variable, `JIRA_BOT_TOKEN` secret |
-| 3    | No transition to that status  | Jira status names vs `STATUS_TRANSITIONS`          |
-| 4    | Validation rejected the turn  | `result.json`'s `reason`                           |
+| Code | Means                           | Look at                                            |
+| ---- | ------------------------------- | -------------------------------------------------- |
+| 0    | Fine                            | —                                                  |
+| 1    | Unexpected error                | The step log                                       |
+| 2    | Jira rejected the credentials   | `JIRA_BOT_EMAIL` variable, `JIRA_BOT_TOKEN` secret |
+| 3    | No transition to that status    | Jira status names vs `STATUS_TRANSITIONS`          |
+| 4    | Validation rejected the turn    | `result.json`'s `reason`                           |
+| 5    | A merge from main is unresolved | _A merge from main is stuck on a card_             |
+| 6    | No preview slot is free         | _A card is waiting for a preview slot_             |
 
 ### Replaying a turn on your own machine
 
@@ -213,6 +215,35 @@ A `401` from the same step is a different fault — the key is valid but does no
 belong to `FACTORY_APP_ID`, or the App is not installed on this repository.
 
 ---
+
+## A card is waiting for a preview slot
+
+The card is in _Ready for design_ or _Ready for build_, assigned to the
+factory, with a comment from it starting "Waiting for a preview slot". The
+repository caps its previews in `enki.json`:
+
+```json
+{ "previews": { "slots": 10 } }
+```
+
+and every slot is held. The poller counts every open PR, the factory's and
+people's alike, plus each card in _Designing_ or _Building_ that has no PR yet,
+because its PR opens at the end of its first turn. A card that already has a PR
+is never held back. The poller's log says who holds the slots:
+
+```
+WKB-190: all 10 preview slots are in use (#108, #191, WKB-183, …)
+```
+
+Nothing needs doing: `preview-freed.yml` starts the poller whenever a PR
+closes, and the card goes on the next pass. To start it sooner, close a PR that
+is no longer wanted. Raise `slots` only if the preview host really holds more:
+Azure Static Web Apps holds 10 staging environments on the Standard plan and 3
+on Free, and a PR past the cap fails at the upload.
+
+If the count looks too high, a preview can outlive its PR when the host's
+clean-up fails. The count is of open PRs, not of what the host holds, so look
+on the host for environments whose PR has closed.
 
 ## A card is claimed but nothing is running
 

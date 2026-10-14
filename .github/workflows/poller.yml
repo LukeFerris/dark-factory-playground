@@ -183,10 +183,27 @@ jobs:
             # a key never contains whitespace, so word splitting is the iteration.
             # shellcheck disable=SC2086
             for key in $keys; do
+              # Before the claim, so a card that has to wait for a preview slot
+              # (enki.json's `previews.slots`) is left exactly as it was: in
+              # ${waiting_status}, assigned to the factory, for the first pass
+              # after a PR closes. A count that fails starts the card anyway.
+              # The cap is there to save a wasted turn, and a card stranded
+              # because GitHub or Jira hiccuped is worse than one wasted turn.
+              slot=0
+              npm run --silent factory -- preview-slot "$key" --started "$started" || slot=$?
+              if [ "$slot" -eq 6 ]; then
+                continue
+              elif [ "$slot" -ne 0 ]; then
+                echo "::warning::could not count the preview slots for ${key}; starting it anyway"
+              fi
+
               if ! npm run --silent factory -- jira-transition "$key" "$claimed_status"; then
                 echo "::warning::could not move ${key} to ${claimed_status}; leaving it for the next poll"
                 continue
               fi
+              # Holds a slot from now, though its PR is a turn away and a Jira
+              # search may not list it in Designing or Building for a moment.
+              started="${started:+${started},}${key}"
 
               # Record who the card goes back to when the turn ends: whoever
               # dragged it into ${waiting_status}. The card is normally already
@@ -207,6 +224,8 @@ jobs:
             done
           }
 
+          # The cards this run has started, for preview-slot. See the loop.
+          started=""
           deadline=$(( $(date +%s) + POLL_WINDOW ))
           pass=0
 
