@@ -47,17 +47,22 @@ export function headSha(): string {
   return git(['rev-parse', 'HEAD']).trim()
 }
 
-/** Files changed on this branch relative to origin/main, staged and unstaged alike. */
+/**
+ * Files changed on this branch relative to origin/main, staged and unstaged alike.
+ *
+ * Without rename detection, so a rename lists the path it left as well as the
+ * one it arrived at. With it, git names only the destination, and a protected
+ * file renamed into an allowed folder would pass the scope check deleted.
+ * Untracked folders are listed file by file for the same reason.
+ */
 export function changedFiles(base = 'origin/main'): string[] {
   git(['fetch', 'origin', 'main', '--quiet'], true)
-  const committed = git(['diff', '--name-only', `${base}...HEAD`], true)
-  const working = git(['status', '--porcelain'], true)
+  const committed = git(['diff', '--name-only', '--no-renames', `${base}...HEAD`], true)
+  const working = git(['status', '--porcelain', '--no-renames', '--untracked-files=all'], true)
   const fromStatus = working
     .split('\n')
     .map((l) => l.slice(3).trim())
     .filter((l) => l !== '')
-    // A rename shows as "old -> new"; only the destination matters for scope.
-    .map((l) => (l.includes(' -> ') ? (l.split(' -> ')[1] as string) : l))
 
   return [...new Set([...committed.split('\n'), ...fromStatus])]
     .map((f) => f.trim())
