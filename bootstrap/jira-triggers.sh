@@ -131,7 +131,7 @@ SCOPE="ari:cloud:jira:$CLOUD_ID:project/$PROJECT_ID"
 ok "scoped to $JIRA_PROJECT_KEY only ($SCOPE)"
 
 BOT_ID="$(jira_get "$JIRA_BASE/rest/api/3/user/search?query=$(jq -rn --arg e "$JIRA_BOT_EMAIL" '$e|@uri')" \
-  | jq -r '[.[] | select(.accountType == "atlassian")][0].accountId // empty')"
+  | jq -r '[.[] | select(.accountType == "atlassian" or .accountType == "app")][0].accountId // empty')"
 [[ -n "$BOT_ID" ]] || die "No Jira user found for JIRA_BOT_EMAIL ($JIRA_BOT_EMAIL)."
 ok "the factory is $BOT_ID: it takes cards assigned to it, and ignores its own comments"
 # JQL takes an account id as a quoted string.
