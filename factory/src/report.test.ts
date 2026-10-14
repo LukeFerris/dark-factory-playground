@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { prUrl } from './env.ts'
-import { addressedTo, buildComment, fallbackComment, targetStatus } from './report.ts'
+import { addressedTo, buildComment, fallbackComment, gated, targetStatus, type Gate } from './report.ts'
+import { MAX_RETRIES } from './verify.ts'
 import { STATUS_TRANSITIONS, type Criterion, type Result } from './schema.ts'
 import { slugify, branchName } from './branch.ts'
 
@@ -434,5 +435,63 @@ describe('fallbackComment', () => {
 
   it('leaves the pull request line out when there is none', () => {
     expect(textOf(fallbackComment('design', result(), null))).not.toContain('Pull request:')
+  })
+})
+
+describe('the gate on a finished build', () => {
+  const SHA = 'c0ffee0'.padEnd(40, '0')
+  const red: Gate['verdict'] = {
+    outcome: 'red',
+    sha: SHA,
+    checks: [
+      { name: 'ci', state: 'pass', conclusion: 'success', url: null },
+      { name: 'E2E Tests (Playwright)', state: 'fail', conclusion: 'failure', url: 'https://github.com/o/r/runs/9' },
+    ],
+  }
+  const comment = (gate: Gate) =>
+    buildComment('build', result({ acceptance_criteria: CRITERIA }), null, null, null, undefined, gate)
+
+  it('stands only between a build that says it is done and In review', () => {
+    expect(gated('build', result({ status: 'ready_for_review' }))).toBe(true)
+    expect(gated('design', result({ status: 'ready_for_review' }))).toBe(false)
+    for (const status of ['continue', 'blocked', 'question', 'failed'] as const) {
+      expect(gated('build', result({ status }))).toBe(false)
+    }
+  })
+
+  it('sends a green build to In review, and says the checks passed', () => {
+    const gate: Gate = { decision: { action: 'ready' }, verdict: { outcome: 'green', sha: SHA, checks: red!.checks.map((c) => ({ ...c, state: 'pass' as const })) } }
+    expect(targetStatus('build', result(), gate)).toBe('In review')
+    const text = textOf(comment(gate))
+    expect(text).toContain('ready for review')
+    expect(text).toContain('All 2 passed on commit c0ffee0')
+    expect(text).toContain('approve and merge the pull request')
+  })
+
+  it('keeps a red build in Building, lists what failed, and says another turn has started', () => {
+    const gate: Gate = { decision: { action: 'retry', next: 1 }, verdict: red }
+    expect(targetStatus('build', result(), gate)).toBeNull()
+    const doc = comment(gate)
+    const text = textOf(doc)
+    expect(text).toContain('required checks failed, trying again')
+    expect(text).toContain('E2E Tests (Playwright)')
+    expect(text).not.toContain('ci —')
+    expect(text).toContain(`automatic turn 1 of ${MAX_RETRIES}`)
+    expect(text).not.toContain('approve and merge')
+    expect(hrefs(doc)).toContain('https://github.com/o/r/runs/9')
+  })
+
+  it('sends a build that is still red to Blocked on engineer, with the reason', () => {
+    const gate: Gate = { decision: { action: 'blocked', why: 'Still failing after 2.' }, verdict: red }
+    expect(targetStatus('build', result(), gate)).toBe('Blocked on engineer')
+    const text = textOf(comment(gate))
+    expect(text).toContain('required checks not passing')
+    expect(text).toContain('Still failing after 2.')
+    expect(text).toContain('stays a draft')
+  })
+
+  it('says so when the checks could not be read at all', () => {
+    const gate: Gate = { decision: { action: 'blocked', why: 'Could not read them.' }, verdict: null }
+    expect(textOf(comment(gate))).toContain('The factory could not read them.')
   })
 })

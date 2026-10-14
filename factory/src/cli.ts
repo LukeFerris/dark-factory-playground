@@ -26,6 +26,7 @@ import { validate } from './validate.ts'
 import { acceptTurn } from './accept.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
+import { VERIFY_PATH, verify, writeVerdict } from './verify.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
 import { EVIDENCE_DIR, SLIDES_PATH, buildSlides } from './evidence.ts'
@@ -51,6 +52,12 @@ function parseStage(value: string): Stage {
   const parsed = Stage.safeParse(value)
   if (!parsed.success) throw new Error(`--stage must be "design" or "build", got "${value}"`)
   return parsed.data
+}
+
+function parseRetry(value: string): number {
+  const n = Number.parseInt(value, 10)
+  if (!Number.isInteger(n) || n < 0) throw new Error(`--retry must be a whole number, got "${value}"`)
+  return n
 }
 
 program
@@ -187,8 +194,9 @@ program
   .argument('<key>', 'Issue key')
   .requiredOption('--stage <stage>', 'design | build')
   .option('--pr <number>', 'PR number, for build turns', (v) => Number.parseInt(v, 10))
-  .action(async (key: string, opts: { stage: string; pr?: number }) => {
-    const meta = await gather({ key, stage: parseStage(opts.stage), pr: opts.pr })
+  .option('--retry <n>', 'Which automatic turn this is, after required checks failed', parseRetry, 0)
+  .action(async (key: string, opts: { stage: string; pr?: number; retry: number }) => {
+    const meta = await gather({ key, stage: parseStage(opts.stage), pr: opts.pr, retry: opts.retry })
     console.log(`gather: ${meta.key} stage=${meta.stage} turn=${meta.turn}`)
   })
 
@@ -416,9 +424,26 @@ program
   .description('Post the Jira comment and apply the status transition for this turn.')
   .requiredOption('--stage <stage>', 'design | build')
   .option('--pr-url <url>', 'Pull request URL to link')
+  .option('--retry <n>', 'Which automatic turn this was, after required checks failed', parseRetry, 0)
   .option('--dry-run', 'Print the comment without posting', false)
-  .action(async (opts: { stage: string; prUrl?: string; dryRun: boolean }) => {
-    await report({ stage: parseStage(opts.stage), prUrl: opts.prUrl, dryRun: opts.dryRun })
+  .action(async (opts: { stage: string; prUrl?: string; retry: number; dryRun: boolean }) => {
+    await report({ stage: parseStage(opts.stage), prUrl: opts.prUrl, retry: opts.retry, dryRun: opts.dryRun })
+  })
+
+// The gate between a finished build turn and In review. Waits for the checks
+// main requires on the commit the turn pushed, and writes what it found for
+// `report` to act on. Red is not an error here: it exits 0 with a verdict.
+program
+  .command('verify')
+  .description("Wait for main's required checks on a pull request's commit, and write the verdict.")
+  .argument('<pr>', 'Pull request number', (v) => Number.parseInt(v, 10))
+  .requiredOption('--sha <sha>', 'The commit the turn pushed')
+  .option('--out <path>', 'Where the verdict goes', VERIFY_PATH)
+  .action(async (pr: number, opts: { sha: string; out: string }) => {
+    const verdict = await verify({ pr, sha: opts.sha })
+    writeVerdict(verdict, opts.out)
+    console.log(`verify: ${verdict.outcome} on ${opts.sha}`)
+    for (const c of verdict.checks) console.log(`  ${c.state.padEnd(7)} ${c.name}`)
   })
 
 program
