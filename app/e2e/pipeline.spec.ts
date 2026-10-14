@@ -1,10 +1,9 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { uatStep } from './uat'
 
 /**
- * The walkthrough for DF-14: the app is called "Deal CRM!", with a briefcase
- * icon beside the name in the header. The reviewer asked for the "!" after
- * the first build, so it is in the heading and the tab title alike.
+ * The walkthrough for DF-15: each opportunity has an optional "Employees"
+ * field, typed in either form and shown on the card as "1,200 employees".
  *
  * Step numbers are the flattened `acceptance_criteria` steps a build turn
  * writes into `result.json`. A turn that changes those steps renumbers here in
@@ -14,96 +13,192 @@ import { uatStep } from './uat'
  * the steps in order on one page, so each step starts from whatever the one
  * before it left.
  *
- * Steps 5 and 7 have no `uatStep`: one is looking at the browser tab, which a
- * page screenshot does not show, and the other is the browser's own find bar,
- * which a page cannot open. The steps after each assert what the reviewer sees.
- *
- * It replaced DF-11's drag-and-drop walkthrough. Dragging is still covered by
- * the unit tests; the card's walkthrough is this card's.
+ * It replaced DF-14's walkthrough of the app's name and icon. Those checks
+ * remain covered by `App.test.tsx` and `index.html.test.ts`; the card's
+ * walkthrough is this card's.
  */
 
-type Box = { x: number; y: number; width: number; height: number }
-
-function heading(page: Page) {
-  return page.getByRole('heading', { level: 1 })
+function card(page: Page, stage: string, company: string) {
+  return page.getByRole('region', { name: stage }).getByRole('article', { name: company })
 }
 
-function icon(page: Page) {
-  return heading(page).locator('svg')
+function addForm(page: Page) {
+  return page.getByRole('form', { name: 'New opportunity' })
 }
 
-async function box(locator: Locator): Promise<Box> {
-  const found = await locator.boundingBox()
-  if (found === null) throw new Error('not on screen')
-  return found
-}
-
-// The box around the heading's words alone, without the icon beside them.
-function textBox(page: Page): Promise<Box> {
-  return heading(page).evaluate((element) => {
-    const range = document.createRange()
-    const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)
-    if (text === undefined) throw new Error('heading has no text')
-    range.selectNodeContents(text)
-    const { x, y, width, height } = range.getBoundingClientRect()
-    return { x, y, width, height }
-  })
-}
-
-// The icon sits wholly to the left of the words, and the two share a line.
-async function iconBesideName(page: Page) {
-  await expect(icon(page)).toBeVisible()
-  const glyph = await box(icon(page))
-  const words = await textBox(page)
-  expect(glyph.x + glyph.width).toBeLessThanOrEqual(words.x)
-  expect(glyph.y).toBeLessThan(words.y + words.height)
-  expect(words.y).toBeLessThan(glyph.y + glyph.height)
-}
-
-test('the app is called Deal CRM!, with a briefcase beside the name', async ({ page }) => {
+test('each opportunity can record its number of employees', async ({ page }) => {
   await page.goto('/')
+  const add = addForm(page)
+  const employees = add.getByLabel('Employees')
+  const addDeal = add.getByRole('button', { name: 'Add deal' })
 
-  // The header shows the name "Deal CRM!" with a briefcase icon beside it.
+  // Each sample deal shows its company's number of employees.
+  const northwind = card(page, 'Sourcing', 'Northwind Analytics')
   await uatStep(page, 1, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM!')
+    await expect(northwind).toBeVisible()
   })
 
   await uatStep(page, 2, async () => {
-    await expect(heading(page)).toHaveAccessibleName('Deal CRM!')
-    await iconBesideName(page)
+    await expect(northwind.getByText('Software')).toBeVisible()
+    await expect(northwind.getByText('180 employees')).toBeVisible()
   })
 
-  // The summary line still sits beneath the name.
-  const summary = page.getByText(/active deals? · /)
-
+  const kestrel = card(page, 'Investment committee', 'Kestrel Energy Services')
   await uatStep(page, 3, async () => {
-    await expect(summary).toBeVisible()
-    const name = await box(heading(page))
-    expect((await box(summary)).y).toBeGreaterThanOrEqual(name.y + name.height)
+    await expect(kestrel).toBeVisible()
   })
 
   await uatStep(page, 4, async () => {
-    await expect(summary).toHaveText('4 active deals · £210m in pipeline')
+    await expect(kestrel.getByText('1,300 employees')).toBeVisible()
   })
 
-  // The browser tab is titled "Deal CRM!".
+  // A new opportunity can be added with a number of employees.
+  await uatStep(page, 5, async () => {
+    await add.getByLabel('Company').fill('Acme Logistics')
+    await expect(add.getByLabel('Company')).toHaveValue('Acme Logistics')
+  })
+
   await uatStep(page, 6, async () => {
-    await expect(page).toHaveTitle('Deal CRM!')
+    await employees.fill('1,200')
+    await expect(employees).toHaveValue('1,200')
   })
 
-  // The old name "Deal Pipeline" appears nowhere on the page.
+  const acme = card(page, 'Sourcing', 'Acme Logistics')
+  await uatStep(page, 7, async () => {
+    await addDeal.click()
+    await expect(acme).toBeVisible()
+  })
+
   await uatStep(page, 8, async () => {
-    await expect(page.getByText('Deal Pipeline')).toHaveCount(0)
+    await expect(acme.getByText('1,200 employees')).toBeVisible()
+    await expect(employees).toHaveValue('')
   })
 
-  // The name and icon stay together on one line in a narrow window.
+  // A new opportunity can be added without a number of employees.
   await uatStep(page, 9, async () => {
-    await page.setViewportSize({ width: 375, height: 800 })
-    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(375)
+    await add.getByLabel('Company').fill('Quiet Co')
+    await expect(add.getByLabel('Company')).toHaveValue('Quiet Co')
+    await expect(employees).toHaveValue('')
   })
 
+  const quiet = card(page, 'Sourcing', 'Quiet Co')
   await uatStep(page, 10, async () => {
-    await expect(heading(page)).toHaveText('Deal CRM!')
-    await iconBesideName(page)
+    await addDeal.click()
+    await expect(quiet).toBeVisible()
+  })
+
+  await uatStep(page, 11, async () => {
+    await expect(quiet.getByText(/employee/)).toHaveCount(0)
+  })
+
+  // A number of employees that isn't a whole number above 0 is refused.
+  const message = add.getByRole('alert')
+  const badCount = page.getByRole('article', { name: 'Bad Count Ltd' })
+
+  await uatStep(page, 12, async () => {
+    await add.getByLabel('Company').fill('Bad Count Ltd')
+    await employees.fill('0')
+    await expect(employees).toHaveValue('0')
+  })
+
+  await uatStep(page, 13, async () => {
+    await addDeal.click()
+    await expect(message).toBeVisible()
+  })
+
+  await uatStep(page, 14, async () => {
+    await expect(message).toHaveText('Enter a whole number above 0')
+    await expect(employees).toHaveAccessibleDescription('Enter a whole number above 0')
+    await expect(employees).toBeFocused()
+    await expect(badCount).toHaveCount(0)
+  })
+
+  await uatStep(page, 15, async () => {
+    await employees.fill('12.5')
+    await addDeal.click()
+    await expect(employees).toHaveValue('12.5')
+  })
+
+  await uatStep(page, 16, async () => {
+    await expect(message).toHaveText('Enter a whole number above 0')
+    await expect(badCount).toHaveCount(0)
+  })
+
+  await uatStep(page, 17, async () => {
+    await employees.fill('40')
+    await addDeal.click()
+    await expect(card(page, 'Sourcing', 'Bad Count Ltd')).toBeVisible()
+  })
+
+  await uatStep(page, 18, async () => {
+    await expect(message).toHaveCount(0)
+    await expect(card(page, 'Sourcing', 'Bad Count Ltd').getByText('40 employees')).toBeVisible()
+  })
+
+  // A single employee reads "1 employee".
+  await uatStep(page, 19, async () => {
+    await add.getByLabel('Company').fill('Solo Ventures')
+    await employees.fill('1')
+    await expect(employees).toHaveValue('1')
+  })
+
+  const solo = card(page, 'Sourcing', 'Solo Ventures')
+  await uatStep(page, 20, async () => {
+    await addDeal.click()
+    await expect(solo).toBeVisible()
+  })
+
+  await uatStep(page, 21, async () => {
+    // The card's only mention of employees is exactly "1 employee".
+    await expect(solo.getByText(/employee/)).toHaveText(['1 employee'])
+  })
+
+  // The number of employees can be changed or removed when editing a deal.
+  const editForm = page.getByRole('form', { name: 'Edit Northwind Analytics' })
+  const editEmployees = editForm.getByLabel('Employees')
+  const editButton = page.getByRole('button', { name: 'Edit Northwind Analytics' })
+
+  await uatStep(page, 22, async () => {
+    await editButton.click()
+    await expect(editForm).toBeVisible()
+  })
+
+  await uatStep(page, 23, async () => {
+    await expect(editEmployees).toHaveValue('180')
+  })
+
+  await uatStep(page, 24, async () => {
+    await editEmployees.fill('210')
+    await editForm.getByRole('button', { name: 'Save' }).click()
+    await expect(editForm).toHaveCount(0)
+  })
+
+  await uatStep(page, 25, async () => {
+    await expect(northwind.getByText('210 employees')).toBeVisible()
+  })
+
+  await uatStep(page, 26, async () => {
+    await editButton.click()
+    await editEmployees.clear()
+    await editForm.getByRole('button', { name: 'Save' }).click()
+    await expect(editForm).toHaveCount(0)
+  })
+
+  await uatStep(page, 27, async () => {
+    await expect(northwind.getByText('Software')).toBeVisible()
+    await expect(northwind.getByText(/employee/)).toHaveCount(0)
+  })
+
+  // Numbers of employees survive a reload.
+  await uatStep(page, 28, async () => {
+    await page.reload()
+    await expect(acme).toBeVisible()
+  })
+
+  await uatStep(page, 29, async () => {
+    await expect(acme.getByText('1,200 employees')).toBeVisible()
+    await expect(kestrel.getByText('1,300 employees')).toBeVisible()
+    await expect(northwind).toBeVisible()
+    await expect(northwind.getByText(/employee/)).toHaveCount(0)
   })
 })

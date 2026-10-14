@@ -12,10 +12,12 @@ export interface EditDealFormProps {
 export function EditDealForm({ deal, onSave, onCancel }: EditDealFormProps) {
   const [company, setCompany] = useState(deal.company)
   const [sector, setSector] = useState(deal.sector)
+  const [employees, setEmployees] = useState(deal.employees === undefined ? '' : String(deal.employees))
   const [size, setSize] = useState(deal.size === undefined ? '' : String(deal.size))
   const [owner, setOwner] = useState(deal.owner)
   const [errors, setErrors] = useState<DealErrors>({})
   const companyRef = useRef<HTMLInputElement>(null)
+  const employeesRef = useRef<HTMLInputElement>(null)
   const sizeRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -27,10 +29,12 @@ export function EditDealForm({ deal, onSave, onCancel }: EditDealFormProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const result = validateDeal({ company, sector, size, owner })
+    const result = validateDeal({ company, sector, employees, size, owner })
     if ('errors' in result) {
       setErrors(result.errors)
+      // Focus the first wrong field in the order they appear on screen.
       if (result.errors.company) companyRef.current?.focus()
+      else if (result.errors.employees) employeesRef.current?.focus()
       else sizeRef.current?.focus()
       return
     }
@@ -70,6 +74,23 @@ export function EditDealForm({ deal, onSave, onCancel }: EditDealFormProps) {
       <div className="field">
         <label htmlFor={id('sector')}>Sector</label>
         <input id={id('sector')} value={sector} onChange={(event) => setSector(event.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor={id('employees')}>Employees</label>
+        <input
+          id={id('employees')}
+          ref={employeesRef}
+          inputMode="numeric"
+          value={employees}
+          onChange={(event) => setEmployees(event.target.value)}
+          aria-invalid={errors.employees ? true : undefined}
+          aria-describedby={errors.employees ? id('employees-error') : undefined}
+        />
+        {errors.employees && (
+          <p id={id('employees-error')} className="field__error" role="alert">
+            {errors.employees}
+          </p>
+        )}
       </div>
       <div className="field">
         <label htmlFor={id('size')}>Deal size (£m)</label>

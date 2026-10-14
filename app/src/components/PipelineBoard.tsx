@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { STAGES, formatSize, type Deal, type NewDeal, type Stage } from '../crm/types'
+import { STAGES, formatEmployees, formatSize, type Deal, type NewDeal, type Stage } from '../crm/types'
 import { EditDealForm } from './EditDealForm'
 
 export interface PipelineBoardProps {
@@ -164,6 +164,7 @@ function DealCard({ deal, onMove, onUpdate, onDragStart, onDragEnd }: DealCardPr
       ) : (
         <>
           {deal.sector && <p className="deal__sector">{deal.sector}</p>}
+          {deal.employees !== undefined && <p className="deal__employees">{formatEmployees(deal.employees)}</p>}
           {deal.owner && <p className="deal__owner">{deal.owner}</p>}
           <label className="deal__stage-label" htmlFor={selectId}>
             <span aria-hidden="true">Stage</span>
