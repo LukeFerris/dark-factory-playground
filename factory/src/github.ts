@@ -7,12 +7,17 @@ import { spawnSync } from 'node:child_process'
  * (whatever is in GH_TOKEN) instead of in this code, so no step needs to know
  * how to mint or hold an App token.
  */
-export type Runner = (args: string[], input?: string) => { status: number; stdout: string; stderr: string }
+export type Runner = (
+  args: string[],
+  input?: string,
+  env?: Record<string, string>,
+) => { status: number; stdout: string; stderr: string }
 
-export const ghRunner: Runner = (args, input) => {
+export const ghRunner: Runner = (args, input, env) => {
   const result = spawnSync('gh', args, {
     encoding: 'utf8',
     ...(input === undefined ? {} : { input }),
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
   })
   return {
     status: result.status ?? 1,
@@ -30,16 +35,16 @@ export function getRunner(): Runner {
   return runner
 }
 
-export function gh(args: string[], input?: string): string {
-  const result = runner(args, input)
+export function gh(args: string[], input?: string, env?: Record<string, string>): string {
+  const result = runner(args, input, env)
   if (result.status !== 0) {
     throw new Error(`gh ${args.join(' ')} failed (${result.status}): ${result.stderr.trim()}`)
   }
   return result.stdout
 }
 
-export function ghJson<T>(args: string[], input?: string): T {
-  const out = gh(args, input).trim()
+export function ghJson<T>(args: string[], input?: string, env?: Record<string, string>): T {
+  const out = gh(args, input, env).trim()
   return (out === '' ? null : JSON.parse(out)) as T
 }
 
@@ -109,13 +114,14 @@ export function findPrForCard(key: string): (PullRequest & { headRefName: string
  * environment: a dispatch made with GITHUB_TOKEN is accepted and then quietly
  * does nothing, which is why every caller runs under the App token.
  */
-export function dispatchWorkflow(workflow: string, inputs: Record<string, string>): void {
+export function dispatchWorkflow(workflow: string, inputs: Record<string, string>, ref?: string): void {
   gh([
     'workflow',
     'run',
     workflow,
     '--repo',
     repoSlug(),
+    ...(ref === undefined ? [] : ['--ref', ref]),
     ...Object.entries(inputs).flatMap(([name, value]) => ['-f', `${name}=${value}`]),
   ])
 }
@@ -155,6 +161,23 @@ export function addLabel(number: number, label: string): void {
 
 export function markReady(number: number): void {
   gh(['pr', 'ready', String(number), '--repo', repoSlug()])
+}
+
+export function markDraft(number: number): void {
+  gh(['pr', 'ready', String(number), '--repo', repoSlug(), '--undo'])
+}
+
+/** The commit a pull request's branch is at now. */
+export function prHead(number: number): string {
+  return ghJson<{ headRefOid: string }>([
+    'pr',
+    'view',
+    String(number),
+    '--repo',
+    repoSlug(),
+    '--json',
+    'headRefOid',
+  ]).headRefOid
 }
 
 export function commentOnPr(number: number, body: string): void {

@@ -7,6 +7,7 @@ import {
   addLabel,
   createDraftPr,
   findPrForBranch,
+  markDraft,
   markReady,
   setPrTitle,
   updatePrBody,
@@ -181,8 +182,15 @@ export function publish(options: PublishOptions): PullRequest | null {
   addLabel(pr.number, `factory:${options.stage}`)
   if (options.stage === 'build') addLabel(pr.number, 'factory:active')
 
-  // A finished turn takes the PR out of draft so a human can review it.
-  if (result.status === 'ready_for_review' && pr.isDraft) {
+  // A finished design takes the PR out of draft so a human can review it. A
+  // build turn puts it back, whatever it ended on: the work is unproven until
+  // main's required checks pass on it, and `report` takes it out of draft only
+  // once `verify` has seen them do so. Until then nobody can merge it by
+  // mistake, and a repository whose expensive checks skip drafts runs them
+  // once, when the factory asks, rather than on every push.
+  if (options.stage === 'build') {
+    if (!pr.isDraft) markDraft(pr.number)
+  } else if (result.status === 'ready_for_review' && pr.isDraft) {
     markReady(pr.number)
   }
 

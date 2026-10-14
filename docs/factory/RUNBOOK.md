@@ -365,6 +365,39 @@ triage starts the next turn. That is the ordinary loop, not an incident.
 
 ---
 
+## A finished build is waiting on its checks
+
+A build turn that ended `ready_for_review` leaves the card in *Building* and the
+PR in draft until main's required checks pass on its commit (see
+[STATE-MACHINE.md](STATE-MACHINE.md), *A finished build waits for main's
+required checks*). The turn's `verify` job is the one waiting; its log prints
+each check as it stands.
+
+**The card is still in *Building* with a draft PR, and the turn's run is still
+going.** Checks are running. `verify` gives up after `FACTORY_VERIFY_TIMEOUT_MINUTES`
+(a repository variable, 60 by default), minus five for the report. Raise it if
+the slowest required suite regularly takes longer.
+
+**The report says the checks failed and another turn has started.** Working as
+intended: up to two automatic turns, each reading the failing logs. Do nothing.
+The run for it is a `build-turn.yml` dispatch with `retry` set; if the card
+already has a run in progress, it queues behind it.
+
+**The card went to *Blocked on engineer* with "required checks not passing".**
+Two automatic turns did not fix it, or the checks did not finish in time, or
+`verify` could not read them. The comment lists which. Reply on the card to
+start another turn — a human-granted turn starts the retry count again — or fix
+the check by hand and comment once it is green.
+
+**A slow suite never runs, and the card says "skipped on the push, and never
+run again when asked".** A required workflow that skips drafts has to be named
+in `FACTORY_VERIFY_WORKFLOWS` (a repository variable, comma-separated file
+names), and has to accept `workflow_dispatch` with a `pr` input and run when
+dispatched. Otherwise `verify` waits for a run that never starts, and times
+out. The `verify` job's log says whether each dispatch was accepted.
+
+---
+
 ## A merge from main is stuck on a card
 
 The card is at *Blocked on engineer* with a question naming the conflicted files.
