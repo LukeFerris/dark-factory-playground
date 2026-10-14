@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { doc, paragraph, text, type AdfDoc } from './adf.ts'
 import { ghJson, repoSlug } from './github.ts'
 import * as jira from './jira.ts'
+import { cardKeyFromBranch } from './preview.ts'
 import { configPath, jqlStatus } from './statuses.ts'
 
 /**
@@ -46,11 +47,6 @@ export function readPreviewSlots(file: string = configPath()): number | null {
   return parsed.data.previews?.slots ?? null
 }
 
-/** The card a branch belongs to, from `card/<KEY>-…`, or null for any other branch. */
-export function cardOfBranch(branch: string): string | null {
-  return /^card\/([A-Z][A-Z0-9_]*-\d+)-/.exec(branch)?.[1] ?? null
-}
-
 export interface OpenPr {
   number: number
   headRefName: string
@@ -67,7 +63,7 @@ export interface OpenPr {
  */
 export function slotHolders(open: OpenPr[], working: string[], started: string[]): string[] {
   const holders = new Set<string>()
-  for (const pr of open) holders.add(cardOfBranch(pr.headRefName) ?? `#${pr.number}`)
+  for (const pr of open) holders.add(cardKeyFromBranch(pr.headRefName) ?? `#${pr.number}`)
   for (const key of [...working, ...started]) holders.add(key)
   return [...holders].sort()
 }
@@ -95,26 +91,32 @@ export function decideSlot(key: string, slots: number | null, holders: string[])
 }
 
 /**
- * The open PRs, all of them.
+ * The open PRs that can hold a preview: those into main from a branch of this
+ * repository. A preview is built only for a PR into main, and a fork's PR gets
+ * no secrets to build one with, so counting either would hold cards back for a
+ * slot nobody is using.
  *
  * `gh pr list` stops at 30 unless told otherwise, and a cap is only worth
  * having on a repository that can have more open than that.
  */
 export function openPullRequests(): OpenPr[] {
-  return (
-    ghJson<OpenPr[]>([
-      'pr',
-      'list',
-      '--repo',
-      repoSlug(),
-      '--state',
-      'open',
-      '--limit',
-      '1000',
-      '--json',
-      'number,headRefName',
-    ]) ?? []
-  )
+  const open = ghJson<Array<OpenPr & { isCrossRepository: boolean }>>([
+    'pr',
+    'list',
+    '--repo',
+    repoSlug(),
+    '--state',
+    'open',
+    '--base',
+    'main',
+    '--limit',
+    '1000',
+    '--json',
+    'number,headRefName,isCrossRepository',
+  ])
+  return (open ?? [])
+    .filter((pr) => !pr.isCrossRepository)
+    .map(({ number, headRefName }) => ({ number, headRefName }))
 }
 
 /** The cards a turn is working, or about to. */
@@ -171,6 +173,12 @@ export async function previewSlot(q: SlotQuestion): Promise<SlotVerdict> {
     q.started,
   )
   const verdict = decideSlot(q.key, slots, holders)
-  if (!verdict.start) await tellWaiting(q.cfg, q.key, slots)
+  // The comment is a courtesy. Failing here would exit 1, which the poller
+  // reads as "could not count" and starts the card into a full house.
+  if (!verdict.start) {
+    await tellWaiting(q.cfg, q.key, slots).catch((error: Error) => {
+      console.error(`::warning::could not tell ${q.key} it is waiting: ${error.message}`)
+    })
+  }
   return verdict
 }

@@ -7,7 +7,6 @@ import { setRunner } from './github.ts'
 import { BASE, cfg, keyOf, server, textOf, useFakes } from './jira.stub.ts'
 import {
   WAITING,
-  cardOfBranch,
   decideSlot,
   previewSlot,
   readPreviewSlots,
@@ -44,17 +43,6 @@ describe('readPreviewSlots', () => {
   // A cap of 0 would stop every card for good, and one of 2.5 means nothing.
   it.each([0, -1, 2.5, '10'])('refuses a cap of %j', (slots) => {
     expect(() => readPreviewSlots(config({ previews: { slots } }))).toThrow(/previews\.slots/)
-  })
-})
-
-describe('cardOfBranch', () => {
-  it('finds the key in a card branch', () => {
-    expect(cardOfBranch('card/WKB-183-smoke-test')).toBe('WKB-183')
-  })
-
-  it('is null for any other branch', () => {
-    expect(cardOfBranch('factory/turn-fixes')).toBeNull()
-    expect(cardOfBranch('dependabot/npm_and_yarn/vite-7.1.0')).toBeNull()
   })
 })
 
@@ -166,25 +154,36 @@ describe('tellWaiting', () => {
   })
 })
 
+/** Two PRs that hold a slot and a fork's that cannot, and WKB-184 in Building. */
+function repository(): { asked: string[]; searched: string[] } {
+  const seen = { asked: [] as string[], searched: [] as string[] }
+  setRunner((args) => {
+    seen.asked = args
+    return {
+      status: 0,
+      stdout: JSON.stringify([
+        { number: 201, headRefName: 'card/WKB-183-smoke-test', isCrossRepository: false },
+        { number: 202, headRefName: 'factory/turn-fixes', isCrossRepository: false },
+        // A fork's PR gets no secrets, so it never has a preview.
+        { number: 203, headRefName: 'patch-1', isCrossRepository: true },
+      ]),
+      stderr: '',
+    }
+  })
+  server.use(
+    http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
+      seen.searched.push(((await request.json()) as { jql: string }).jql)
+      return HttpResponse.json({ issues: [{ key: 'WKB-184', fields: {} }], isLast: true })
+    }),
+  )
+  return seen
+}
+
 describe('previewSlot', () => {
   let searched: string[]
 
   beforeEach(() => {
-    searched = []
-    setRunner(() => ({
-      status: 0,
-      stdout: JSON.stringify([
-        { number: 201, headRefName: 'card/WKB-183-smoke-test' },
-        { number: 202, headRefName: 'factory/turn-fixes' },
-      ]),
-      stderr: '',
-    }))
-    server.use(
-      http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
-        searched.push(((await request.json()) as { jql: string }).jql)
-        return HttpResponse.json({ issues: [{ key: 'WKB-184', fields: {} }], isLast: true })
-      }),
-    )
+    searched = repository().searched
   })
 
   it('asks neither GitHub nor Jira when there is no cap', async () => {
@@ -221,5 +220,39 @@ describe('previewSlot', () => {
     expect(verdict.start).toBe(false)
     expect(verdict.reason).toBe('all 4 preview slots are in use (#202, WKB-183, WKB-184, WKB-189)')
     expect(posted).toHaveLength(1)
+  })
+})
+
+describe('previewSlot, at the edges', () => {
+  let seen: ReturnType<typeof repository>
+
+  beforeEach(() => {
+    seen = repository()
+  })
+
+  // Only a PR into main gets a preview.
+  it('asks only for PRs into main', async () => {
+    await previewSlot({ cfg, projectKey: 'WKB', key: 'WKB-190', started: [], slots: 4 })
+    expect(seen.asked.join(' ')).toContain('--base main')
+  })
+
+  // The poller reads any exit but 6 as "could not count", and starts the card.
+  it('still holds the card back when it cannot say so', async () => {
+    server.use(
+      http.get(`${BASE}/rest/api/3/myself`, () => HttpResponse.json({ accountId: FACTORY })),
+      http.get(`${BASE}/rest/api/3/issue/:key/comment`, () => HttpResponse.json({ comments: [] })),
+      http.post(
+        `${BASE}/rest/api/3/issue/:key/comment`,
+        () => new HttpResponse(null, { status: 503 }),
+      ),
+    )
+    const verdict = await previewSlot({
+      cfg,
+      projectKey: 'WKB',
+      key: 'WKB-190',
+      started: ['WKB-189'],
+      slots: 4,
+    })
+    expect(verdict.start).toBe(false)
   })
 })

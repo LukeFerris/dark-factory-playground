@@ -226,8 +226,8 @@ repository caps its previews in `enki.json`:
 { "previews": { "slots": 10 } }
 ```
 
-and every slot is held. The poller counts every open PR, the factory's and
-people's alike, plus each card in _Designing_ or _Building_ that has no PR yet,
+and every slot is held. The poller counts every open PR into main from this
+repository, the factory's and people's alike, plus each card in _Designing_ or _Building_ that has no PR yet,
 because its PR opens at the end of its first turn. A card that already has a PR
 is never held back. The poller's log says who holds the slots:
 
@@ -241,9 +241,10 @@ is no longer wanted. Raise `slots` only if the preview host really holds more:
 Azure Static Web Apps holds 10 staging environments on the Standard plan and 3
 on Free, and a PR past the cap fails at the upload.
 
-If the count looks too high, a preview can outlive its PR when the host's
-clean-up fails. The count is of open PRs, not of what the host holds, so look
-on the host for environments whose PR has closed.
+If a card started but its preview still failed at the upload for want of
+room, the host holds more than the poller counts. A preview can outlive its PR
+when the host's clean-up fails, and the count is of open PRs, not of what the
+host holds. Look on the host for environments whose PR has closed.
 
 ## A card is claimed but nothing is running
 
