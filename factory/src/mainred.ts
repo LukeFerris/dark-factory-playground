@@ -105,6 +105,8 @@ export async function raiseMainRed(
         summary: summaryFor(test),
         description: description(result, test, card, pr),
         labels: [labelFor(result.workflow, test)],
+        // Said outright: left out, Jira gives it the space's default assignee.
+        assignee: null,
       })
       entry.created = true
       made += 1
@@ -176,7 +178,7 @@ export function withMainRed(body: string, raised: Raised[], base: string | null)
     '### Failing on main as well',
     '',
     `These tests failed on this pull request and on main${base === null || base === '' ? '' : ` at ${base.slice(0, 7)}`} as ` +
-      'well, so they do not hold it back. Each has a card of its own.',
+      'well, so they do not hold it back. Each is listed with its card.',
     '',
     ...raised.map((r) => {
       return `- \`${r.test.replace(/`/g, "'")}\` (${r.workflow}) — ${r.key ?? 'no card yet'}`

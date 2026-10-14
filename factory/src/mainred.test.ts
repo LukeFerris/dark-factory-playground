@@ -92,7 +92,7 @@ describe('a card for each failure main has', () => {
       summary: 'Failing on main: [chromium] › a.spec.ts › logs in',
       labels: [labelFor('e2e-tests.yml', '[chromium] › a.spec.ts › logs in')],
     })
-    expect(created[0]).not.toHaveProperty('assignee')
+    expect(created[0]).toHaveProperty('assignee', null)
     expect(JSON.stringify(created[0]?.['description'])).toContain('https://github.com/o/r/pull/9')
   })
 

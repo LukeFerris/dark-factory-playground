@@ -101,7 +101,10 @@ export function gateSection(gate: Gate): adf.AdfNode[] {
   const runs = verdict.workflows.filter((r) => r.state !== 'pass' && r.state !== 'excused')
   if (checks.length === 0 && runs.length === 0) {
     const total = verdict.checks.length + verdict.workflows.length
-    const said = total === 0 ? 'Main requires none.' : `All ${total} passed on commit ${commit}.`
+    const how = verdict.workflows.some((r) => r.state === 'excused')
+      ? 'passed or were excused'
+      : 'passed'
+    const said = total === 0 ? 'Main requires none.' : `All ${total} ${how} on commit ${commit}.`
     blocks.push(adf.paragraph(adf.text(said)))
   } else {
     blocks.push(

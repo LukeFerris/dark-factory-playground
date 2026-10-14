@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseFailedTests } from './dispatched.ts'
-import { getRunner, setRunner } from './github.ts'
+import { getRunner, setRunner, type Runner } from './github.ts'
 import { verify } from './verify.ts'
 import { BASE, FAST, SHA, dispatched, failing, rule, run, stub, useStubGh } from './verify.stub.ts'
 
@@ -151,6 +151,25 @@ describe('a run verify did not ask for', () => {
       state: 'pass',
       url: 'https://github.com/o/r/actions/runs/101',
     })
+  })
+
+  it('does not judge a run of a commit it was not asked about, as when the branch moved', async () => {
+    stub({ outcome: failing({ failed: ['a'], errors: 0 }, { failed: ['a'], errors: 0 }) })
+    setRunner(
+      (
+        (inner: Runner): Runner =>
+        (args, input, env) => {
+          const out = inner(args, input, env)
+          for (const r of dispatched) if (r.branch !== 'main') r.headSha = 'c'.repeat(40)
+          return out
+        }
+      )(getRunner()),
+    )
+    const verdict = await verify(e2e)
+    expect(verdict.outcome).toBe('timeout')
+    expect(verdict.workflows[0]).toMatchObject({ state: 'missing' })
+    expect(verdict.workflows[0]?.note).toContain('the branch moved')
+    expect(dispatched.filter((r) => r.branch === 'main')).toEqual([])
   })
 
   it('runs the whole suite on main when the list is too long to send', async () => {

@@ -91,8 +91,8 @@ function workflowReport(workflow: string, sha: string): string[] {
   }
   if (result.excused.length > 0) {
     lines.push(
-      "These failed on main as well. They are not this card's to fix, and a card has been raised for",
-      'each; leave them alone:',
+      "These failed on main as well. They are not this card's to fix, and the factory raises a card for",
+      'each one it can; leave them alone:',
       '',
       ...result.excused.map((t) => `- ${t}`),
       '',

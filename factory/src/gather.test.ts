@@ -193,3 +193,13 @@ describe('a build turn on a pull request whose required checks fail', () => {
     expect(readFileSync(TASK_PATH, 'utf8')).not.toContain('Checks failing')
   })
 })
+
+describe('the job gather runs in', () => {
+  // gather reads the failures of the workflows verify dispatches from the same
+  // variable verify does. Unset, its report covers the required checks alone.
+  it('is given the workflows verify dispatches', () => {
+    const turn = readFileSync(new URL('../../.github/workflows/turn.yml', import.meta.url), 'utf8')
+    const prepare = turn.slice(turn.indexOf('\n  prepare:\n'), turn.indexOf('\n  agent:\n'))
+    expect(prepare).toContain('FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}')
+  })
+})

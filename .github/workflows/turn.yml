@@ -78,6 +78,8 @@ jobs:
       ENKI_CONFIG: ${{ github.workspace }}/enki.json
       KEY: ${{ inputs.key }}
       STAGE: ${{ inputs.stage }}
+      # So gather's failure report covers the workflows verify dispatches.
+      FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
       branch: ${{ steps.describe.outputs.branch }}

@@ -238,6 +238,12 @@ function firstLook(
 ): WorkflowResult | Failing {
   const run = newest(dispatchedRuns(t.workflow, ['--branch', t.branch]).filter(mine))
   if (run === null) return result(t.workflow, null, { note: 'Not started yet.' })
+  // A tag names the dispatch, not the commit. A branch that moved between
+  // publish and the dispatch has a run of a commit nobody asked about.
+  if (run.headSha !== t.sha) {
+    const note = `It ran on ${run.headSha.slice(0, 7)}, not ${t.sha.slice(0, 7)}: the branch moved after the turn published.`
+    return result(t.workflow, run, { state: 'missing', note })
+  }
   if (run.status !== 'completed') return result(t.workflow, run, { note: 'Still running.' })
   const judged = judgeRun(t.workflow, run)
   if ('state' in judged) return judged

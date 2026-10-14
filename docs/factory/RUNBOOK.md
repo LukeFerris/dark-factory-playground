@@ -461,8 +461,9 @@ out. The `verify` job's log says whether each dispatch was accepted.
 
 **A card went to _In review_ with "Failing on main as well".** Some of the
 suite's failures fail on main too, so they were not held against the card
-(ADR 0010). Each has a card of its own in the space, labelled
-`enki-main-red-…`, in the first status and unassigned. Fix main, or hand the
+(ADR 0010). Each gets a card of its own in the space, labelled
+`enki-main-red-…`, in the first status and unassigned: at most ten a report,
+and none when the card is a subtask. The rest are listed without one. Fix main, or hand the
 card to Enki. While it is open, the next PR that fails the same test finds it
 rather than raising another. The PR body lists them as well.
 

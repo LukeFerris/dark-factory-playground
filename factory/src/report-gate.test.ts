@@ -158,7 +158,7 @@ describe('what the gate says of the workflows verify dispatched, when main fails
       },
     }
     const text = textOf(comment(gate))
-    expect(text).toContain('All 1 passed on commit c0ffee0')
+    expect(text).toContain('All 1 passed or were excused on commit c0ffee0')
     expect(text).toContain('a  — no card raised')
   })
 
