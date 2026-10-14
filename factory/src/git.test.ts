@@ -1,6 +1,6 @@
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   changedFiles,
   currentBranch,
@@ -10,7 +10,7 @@ import {
   identifyAsBot,
   remoteBranchExists,
 } from './git.ts'
-import { sh, useScratchRepo } from './git.stub.ts'
+import { commitIn, sh, useScratchRepo } from './git.stub.ts'
 import type * as env from './env.ts'
 
 /**
@@ -19,7 +19,7 @@ import type * as env from './env.ts'
  * Every helper here runs git in REPO_ROOT, so REPO_ROOT is pointed at a fresh
  * clone of a fresh bare "origin" for each test. Faking git's output instead
  * would only test that the fake agrees with itself — what matters is what git
- * actually prints, rename arrows and all.
+ * actually prints.
  */
 
 const root = vi.hoisted(() => ({ path: '' }))
@@ -113,9 +113,33 @@ describe('the files a turn changed', () => {
     expect(changedFiles()).toEqual(['README.md', 'committed.txt', 'untracked.txt'])
   })
 
-  it('counts a rename as its destination only', () => {
-    sh(root.path, 'mv', 'README.md', 'READ-ME.md')
-    expect(changedFiles()).toEqual(['READ-ME.md'])
+  // A rename has two sides, and a protected file renamed into an allowed
+  // folder is a protected file deleted. The scope check has to see both.
+  describe('a rename of a protected file into an allowed folder', () => {
+    const PROTECTED = '.github/workflows/turn.yml'
+    const MOVED = 'app/src/turn.yml'
+
+    beforeEach(() => {
+      commitIn(root.path, { path: PROTECTED, body: 'name: factory turn\n'.repeat(20), message: 'base' })
+      sh(root.path, 'push', '--quiet', 'origin', 'main')
+      sh(root.path, 'checkout', '--quiet', '-b', 'card/DF-1-x')
+      mkdirSync(join(root.path, 'app/src'), { recursive: true })
+      sh(root.path, 'mv', PROTECTED, MOVED)
+    })
+
+    it('lists both sides once committed', () => {
+      sh(root.path, 'commit', '--quiet', '-m', 'move it')
+      expect(changedFiles()).toEqual([PROTECTED, MOVED])
+    })
+
+    it('lists both sides when staged', () => {
+      expect(changedFiles()).toEqual([PROTECTED, MOVED])
+    })
+
+    it('lists both sides when left unstaged', () => {
+      sh(root.path, 'reset', '--quiet')
+      expect(changedFiles()).toEqual([PROTECTED, MOVED])
+    })
   })
 
   it('is empty for a branch with nothing on it', () => {
