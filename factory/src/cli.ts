@@ -20,10 +20,13 @@ import {
   recordMerge,
 } from './merge.ts'
 import { claimCard, sentInBy } from './progress.ts'
-import { refresh, refreshTargets } from './refresh.ts'
+import { refresh, refreshTargets, reportedChecks } from './refresh.ts'
+import { jqlStatus } from './statuses.ts'
 import { validate } from './validate.ts'
+import { acceptTurn } from './accept.ts'
 import { publish } from './publish.ts'
 import { report } from './report.ts'
+import { VERIFY_PATH, verify, writeVerdict } from './verify.ts'
 import { kickoff, previewDown, previewUp } from './preview.ts'
 import { productionUp, ship } from './production.ts'
 import { EVIDENCE_DIR, SLIDES_PATH, buildSlides } from './evidence.ts'
@@ -49,6 +52,12 @@ function parseStage(value: string): Stage {
   const parsed = Stage.safeParse(value)
   if (!parsed.success) throw new Error(`--stage must be "design" or "build", got "${value}"`)
   return parsed.data
+}
+
+function parseRetry(value: string): number {
+  const n = Number.parseInt(value, 10)
+  if (!Number.isInteger(n) || n < 0) throw new Error(`--retry must be a whole number, got "${value}"`)
+  return n
 }
 
 program
@@ -129,12 +138,23 @@ program
 
 program
   .command('jira-transition')
-  .description('Move a card to a status, matched by destination status name.')
+  .description('Move a card to a status: by the id enki.json pins it to, or else by name.')
   .argument('<key>', 'Issue key, e.g. DF-1')
   .argument('<status>', 'Target status name, e.g. "Design review"')
   .action(async (key: string, status: string) => {
     await jira.transitionTo(jira.configFromEnv(), key, status)
     console.log(`${key} -> ${status}`)
+  })
+
+// For the poller's shell, which builds its own JQL. Asking here rather than
+// quoting the name in shell keeps one place that knows whether a space has
+// pinned its status ids.
+program
+  .command('jira-status-jql')
+  .description('Print the value for `status = …` in JQL: the pinned id, or else the quoted name.')
+  .argument('<status>', 'Status name, e.g. "Ready for build"')
+  .action((status: string) => {
+    console.log(jqlStatus(status))
   })
 
 // The other half of a claim. The status says the factory has the card; the
@@ -174,8 +194,9 @@ program
   .argument('<key>', 'Issue key')
   .requiredOption('--stage <stage>', 'design | build')
   .option('--pr <number>', 'PR number, for build turns', (v) => Number.parseInt(v, 10))
-  .action(async (key: string, opts: { stage: string; pr?: number }) => {
-    const meta = await gather({ key, stage: parseStage(opts.stage), pr: opts.pr })
+  .option('--retry <n>', 'Which automatic turn this is, after required checks failed', parseRetry, 0)
+  .action(async (key: string, opts: { stage: string; pr?: number; retry: number }) => {
+    const meta = await gather({ key, stage: parseStage(opts.stage), pr: opts.pr, retry: opts.retry })
     console.log(`gather: ${meta.key} stage=${meta.stage} turn=${meta.turn}`)
   })
 
@@ -189,12 +210,14 @@ program
     console.log(prepareBranch(key, summary))
   })
 
-// The merge, in three subcommands rather than one, because the middle of it runs
-// an agent: `merge-begin` leaves a conflicted merge in the index and describes it
-// in .agent/in/merge.json, the agent resolves it in a step holding nothing but an
-// Anthropic key, and `merge-finish` decides whether what came back is a commit or
-// a question for the card. `.github/actions/merge-main` is the three of them in
-// order and is the only thing that should be calling them.
+// The merge, in pieces rather than one command, because the middle of it runs
+// an agent: `merge-begin` works out whether main merges and describes a conflict
+// in .agent/in/merge.json, the agent resolves it in a job holding nothing but an
+// Anthropic key, and `accept` merges again and has `finishMerge` decide whether
+// what came back is a commit or a question for the card (ADR 0008). turn.yml
+// calls them in that order. `merge-finish` is the same decision for a merge
+// left in this checkout's index, which turn.yml's `prepare` uses to clear a
+// refused one.
 
 program
   .command('merge-begin')
@@ -267,15 +290,52 @@ program
     Number.parseInt(v, 10),
   )
   .requiredOption('--because-title <title>', 'That pull request\'s title')
+  .option('--main <ref>', 'The commit of main to merge, rather than origin/main as fetched now')
+  .option(
+    '--checks <outcome>',
+    'How the checks went on the same merge in another job: "passed", or the command that failed. ' +
+      'Without it they are run here.',
+  )
   .option('--dry-run', 'Decide and print, but push nothing and change nothing', false)
-  .action(async (key: string, opts: { becausePr: number; becauseTitle: string; dryRun: boolean }) => {
-    const outcome = await refresh({
-      key,
-      because: { number: opts.becausePr, title: opts.becauseTitle },
-      cfg: jira.configFromEnv(),
-      dryRun: opts.dryRun,
-    })
-    console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+  .action(
+    async (
+      key: string,
+      opts: { becausePr: number; becauseTitle: string; main?: string; checks?: string; dryRun: boolean },
+    ) => {
+      const outcome = await refresh({
+        key,
+        because: { number: opts.becausePr, title: opts.becauseTitle },
+        cfg: jira.configFromEnv(),
+        dryRun: opts.dryRun,
+        ...(opts.main !== undefined ? { main: opts.main } : {}),
+        ...(opts.checks !== undefined ? { checks: reportedChecks(opts.checks) } : {}),
+      })
+      console.log(`refresh: ${outcome.state} — ${outcome.detail}`)
+    },
+  )
+
+// The join between the agent's job and the job that publishes it (ADR 0008).
+// The agent job hands over a git bundle and its result; this merges main again
+// here, takes from the agent's merge only the conflicted files, and lays the
+// turn's work on top as uncommitted changes, ready for `validate`.
+program
+  .command('accept')
+  .description("Take an agent job's turn onto the card branch without running any of it.")
+  .requiredOption('--stage <stage>', 'design | build')
+  .requiredOption('--bundle <path>', 'The git bundle the agent job left')
+  .action((opts: { stage: string; bundle: string }) => {
+    const outcome = acceptTurn(parseStage(opts.stage), resolve(opts.bundle))
+    if (outcome.state === 'accepted') {
+      console.log(`accept: the turn is on ${outcome.base.slice(0, 12)}, uncommitted.`)
+      return
+    }
+    console.error(
+      outcome.state === 'merge-unresolved'
+        ? 'accept: the merge from main was not resolved.'
+        : 'accept: REJECTED',
+    )
+    for (const problem of outcome.problems) console.error(`  - ${problem}`)
+    process.exit(outcome.state === 'merge-unresolved' ? EXIT.MERGE : EXIT.VALIDATION)
   })
 
 program
@@ -364,9 +424,26 @@ program
   .description('Post the Jira comment and apply the status transition for this turn.')
   .requiredOption('--stage <stage>', 'design | build')
   .option('--pr-url <url>', 'Pull request URL to link')
+  .option('--retry <n>', 'Which automatic turn this was, after required checks failed', parseRetry, 0)
   .option('--dry-run', 'Print the comment without posting', false)
-  .action(async (opts: { stage: string; prUrl?: string; dryRun: boolean }) => {
-    await report({ stage: parseStage(opts.stage), prUrl: opts.prUrl, dryRun: opts.dryRun })
+  .action(async (opts: { stage: string; prUrl?: string; retry: number; dryRun: boolean }) => {
+    await report({ stage: parseStage(opts.stage), prUrl: opts.prUrl, retry: opts.retry, dryRun: opts.dryRun })
+  })
+
+// The gate between a finished build turn and In review. Waits for the checks
+// main requires on the commit the turn pushed, and writes what it found for
+// `report` to act on. Red is not an error here: it exits 0 with a verdict.
+program
+  .command('verify')
+  .description("Wait for main's required checks on a pull request's commit, and write the verdict.")
+  .argument('<pr>', 'Pull request number', (v) => Number.parseInt(v, 10))
+  .requiredOption('--sha <sha>', 'The commit the turn pushed')
+  .option('--out <path>', 'Where the verdict goes', VERIFY_PATH)
+  .action(async (pr: number, opts: { sha: string; out: string }) => {
+    const verdict = await verify({ pr, sha: opts.sha })
+    writeVerdict(verdict, opts.out)
+    console.log(`verify: ${verdict.outcome} on ${opts.sha}`)
+    for (const c of verdict.checks) console.log(`  ${c.state.padEnd(7)} ${c.name}`)
   })
 
 program

@@ -1,0 +1,847 @@
+name: factory turn
+
+# One turn on one card, design or build. Called by design.yml, build-start.yml
+# and build-turn.yml, which say which card, which stage and how the turn starts,
+# and hold the card's concurrency group.
+#
+# The jobs below fall on one side or the other of a line (ADR 0008):
+#
+#   trusted     prepare, publish, preview, verify, report. They hold the tokens: the
+#               App's, Jira's, Azure's. They run the factory from this commit
+#               of main, at the root of the workspace, and check the card out
+#               beside it in card/. They read the card as data and never run
+#               any of it: no `npm ci` there, no tests, no app.
+#   untrusted   agent, walkthrough. They run the card's code, and the agent
+#               job runs an agent besides. A build agent runs its own tests,
+#               with the passwordless sudo every hosted runner has, so it can
+#               read anything its runner holds. The agent job holds
+#               ANTHROPIC_API_KEY and nothing else; the walkthrough holds
+#               nothing at all.
+#
+# Nothing crosses from an untrusted job to a trusted one but data, and the
+# trusted side treats it as data:
+#
+#   - the turn, as a git bundle. `factory accept` merges main again itself,
+#     takes only the files that conflicted from the agent's merge, refuses a
+#     turn built on anything else, and leaves the work uncommitted for
+#     `validate` and `publish` to judge exactly as they always have;
+#   - result.json and merge-result.json, which the factory parses against its
+#     schema, as it always has, and the transcripts;
+#   - the walkthrough's screenshots and video, which go on the card as files.
+#
+# No untrusted job's outputs are read. Trusted artifacts are downloaded by the
+# id a trusted job reported, so a job that uploads under a name it was not
+# given cannot stand in for one.
+
+on:
+  workflow_call:
+    inputs:
+      key:
+        description: Jira issue key, e.g. DF-14
+        required: true
+        type: string
+      stage:
+        description: design or build
+        required: true
+        type: string
+      continues:
+        description: >-
+          A later build turn: the card already has an open pull request, and
+          the turn reads its conversation.
+        required: false
+        default: false
+        type: boolean
+      retry:
+        description: >-
+          Which automatic turn this is, after main's required checks failed on
+          the last one. 0 for every turn a person or the poller started.
+        required: false
+        default: 0
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Read only, and only for the checks gather shows a continuing build
+      # turn: what failed on the pull request, and the end of its log.
+      checks: read
+      statuses: read
+      actions: read
+    env:
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
+      KEY: ${{ inputs.key }}
+      STAGE: ${{ inputs.stage }}
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+      branch: ${{ steps.describe.outputs.branch }}
+      turn: ${{ steps.describe.outputs.turn }}
+      preview: ${{ steps.describe.outputs.preview }}
+      before: ${{ steps.describe.outputs.before }}
+      main: ${{ steps.describe.outputs.main }}
+      merge: ${{ steps.describe.outputs.merge }}
+    steps:
+      # The factory, as of the commit this run was started from.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No `cache:` in any job of this workflow. A cache is shared across the
+      # runs on a branch, and an untrusted job can write one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # The card's branch, matched on the `card/<KEY>-` prefix. The trailing
+      # hyphen is load-bearing: without it DF-3 also matches card/DF-30-…
+      - name: Resolve the PR
+        id: pr
+        if: inputs.continues
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          read -r pr branch <<<"$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" \
+            --jq "[.[] | select(.head.ref | startswith(\"card/${KEY}-\"))][0] | \
+                  if . == null then \"\" else \"\(.number) \(.head.ref)\" end")"
+          if [ -z "${pr:-}" ]; then
+            echo "::error::${KEY} was routed to a build turn but has no open pull request."
+            exit 1
+          fi
+          case "$branch" in
+            card/*) ;;
+            *) echo "::error::PR #${pr} is on ${branch}, which is not a card branch."; exit 1 ;;
+          esac
+          echo "number=${pr}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      # The card, as data. Whole history, because the merge needs both sides.
+      # The job's own token stays on this checkout, and it can only read:
+      # prepare-branch asks the remote whether the card's branch exists, and on
+      # a private repository an anonymous `ls-remote` fails quietly and cuts a
+      # second branch from main.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch || github.event.repository.default_branch }}
+          path: card
+          fetch-depth: 0
+
+      # A turn sent from a comment on the pull request finds its card in
+      # review, where anyone can drag it. Moving it to Building locks it to the
+      # factory until the turn reports (ADR 0007). Triage and refresh have
+      # already moved theirs, so for those this only claims it.
+      - name: Take the card
+        if: inputs.continues
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- jira-take "$KEY" Building
+
+      # A later turn reads the pull request conversation since the factory last
+      # spoke, and derives the turn number from it.
+      - name: Gather the card
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          GH_CHECKS_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr.outputs.number }}
+          RETRY: ${{ inputs.retry }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR" ]; then
+            npm run --silent factory -- gather "$KEY" --stage "$STAGE" --pr "$PR" --retry "$RETRY"
+          else
+            npm run --silent factory -- gather "$KEY" --stage "$STAGE"
+          fi
+
+      # Straight after gather, which is the first step that knows which turn
+      # this is. The card is otherwise silent from the moment it is claimed
+      # until `report` runs; a status change notifies nobody.
+      - name: Say the turn has started
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- announce
+
+      - name: Prepare the branch
+        if: ${{ !inputs.continues }}
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: npm run --silent factory -- prepare-branch "$KEY"
+
+      # Decides whether the branch needs main, and writes down the two commits
+      # the agent job merges: the branch as it is, and main as it is now. The
+      # merge made here goes no further than this runner. The agent job makes
+      # it again, and `accept` a third time, from those same two commits.
+      #
+      # A conflict in the factory's own machinery is refused outright, and
+      # merge-finish puts the question on the card for `report` to post.
+      - name: Decide on the merge from main
+        env:
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run --silent factory -- merge-begin "$KEY"
+          if [ "$(jq -r .state card/.agent/in/merge.json)" = refused ]; then
+            npm run --silent factory -- merge-finish || true
+          fi
+
+      - name: Describe the turn
+        id: describe
+        run: |
+          set -euo pipefail
+          meta=card/.agent/in/meta.json
+          merge=card/.agent/in/merge.json
+          {
+            echo "branch=$(jq -r '.branch' "$meta")"
+            echo "turn=$(jq -r '.turn' "$meta")"
+            echo "preview=$(jq -r '.preview_url // empty' "$meta")"
+            echo "before=$(jq -r '.before' "$merge")"
+            echo "main=$(jq -r '.main' "$merge")"
+            echo "merge=$(jq -r '.state' "$merge")"
+          } >> "$GITHUB_OUTPUT"
+          # An artifact is rooted at the deepest directory its files share, so
+          # with nothing in out/ it would unpack in/'s files a level too high.
+          mkdir -p card/.agent/out
+          jq -n --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{run_id: $run, run_attempt: $attempt}' > card/.agent/out/prepared.json
+
+      - name: Upload what the turn starts from
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            card/.agent/in/
+            card/.agent/out/
+          retention-days: 14
+
+  # Untrusted. ANTHROPIC_API_KEY and nothing else.
+  agent:
+    needs: prepare
+    if: needs.prepare.outputs.merge != 'refused'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.stage == 'build' && 45 || 30 }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: card
+    env:
+      BEFORE: ${{ needs.prepare.outputs.before }}
+      MAIN: ${{ needs.prepare.outputs.main }}
+      MERGE: ${{ needs.prepare.outputs.merge }}
+      AGENT_VERSION: ${{ vars.FACTORY_AGENT_VERSION || '2.1.281' }}
+      AGENT_MODEL: ${{ vars.FACTORY_AGENT_MODEL || 'claude-opus-5-5' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.before }}
+          path: card
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore what the turn starts from
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          path: card/.agent
+          merge-multiple: true
+
+      # Commits made here are never pushed. They are how the turn is handed
+      # over, and `accept` makes its own.
+      - name: Merge main
+        if: env.MERGE == 'merged' || env.MERGE == 'conflicted'
+        env:
+          BRANCH: ${{ needs.prepare.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git checkout -q -B "$BRANCH"
+          git config user.name 'enki'
+          git config user.email 'enki@factory.invalid'
+          git merge --no-ff --no-edit "$MAIN" || echo "Main conflicts, as expected."
+
+      # Pinned deliberately, and the version and the model are pinned together.
+      #
+      # The flag surface is version-coupled (see the CHANGELOG entry for
+      # --max-turns), so an unpinned install lets a CLI release change how a
+      # turn behaves with nobody watching. The model is coupled in the other
+      # direction: the API refuses a model the CLI is too old for. So raising
+      # FACTORY_AGENT_MODEL without raising FACTORY_AGENT_VERSION fails every
+      # turn at its first API call, and the two defaults move as a pair.
+      - name: Install the agent
+        run: npm i -g "@anthropic-ai/claude-code@${AGENT_VERSION}"
+
+      # Read-only git only. It edits the conflicted files, and `accept` takes
+      # those and nothing else from what it leaves.
+      - name: Resolve the conflict
+        if: env.MERGE == 'conflicted'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BUDGET: ${{ vars.FACTORY_MERGE_BUDGET_USD || '5' }}
+        run: |
+          set -euo pipefail
+          claude -p "$(cat .agent/merge.md)" \
+            --model "$AGENT_MODEL" \
+            --allowedTools "Read,Glob,Grep,Write,Edit,Bash(git show:*),Bash(git log:*),Bash(git diff:*)" \
+            --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
+            --strict-mcp-config \
+            --max-budget-usd "$BUDGET" \
+            --output-format json > .agent/out/merge-transcript.json \
+            || echo "::warning::the resolving agent exited non-zero; accept will treat that as unresolved"
+          git add -A
+          git commit -q --no-verify --no-edit
+
+      - name: Decide whether there is a turn to run
+        id: go
+        run: |
+          set -euo pipefail
+          status=resolved
+          if [ "$MERGE" = conflicted ]; then
+            status="$(jq -r '.status // "unresolved"' .agent/out/merge-result.json 2>/dev/null || echo unresolved)"
+          fi
+          echo "run=$([ "$status" = resolved ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # After the merge, which may have brought a new lockfile across. The
+      # agent runs the checks and the walkthrough before it finishes a turn,
+      # and `npx playwright install` is not on its allow-list.
+      - name: Install the app
+        if: steps.go.outputs.run == 'true' && inputs.stage == 'build'
+        run: |
+          set -euo pipefail
+          npm ci
+          npx --workspace @factory/app playwright install --with-deps chromium
+
+      # The Bash allow-list for a build is the four checks plus preview and
+      # curl. npm install is deliberately absent: to add a dependency the agent
+      # edits package.json and `factory publish` regenerates the lockfile. A
+      # design turn cannot run anything at all.
+      - name: Agent
+        if: steps.go.outputs.run == 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PREVIEW_URL: ${{ needs.prepare.outputs.preview }}
+          STAGE: ${{ inputs.stage }}
+          BUILD_BUDGET: ${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}
+          DESIGN_BUDGET: ${{ vars.FACTORY_DESIGN_BUDGET_USD || '5' }}
+        run: |
+          set -euo pipefail
+          if [ "$STAGE" = build ]; then
+            allowed="Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)"
+            denied="WebFetch,WebSearch,Task,NotebookEdit"
+            budget="$BUILD_BUDGET"
+          else
+            allowed="Read,Glob,Grep,Write,Edit"
+            denied="Bash,WebFetch,WebSearch,Task,NotebookEdit"
+            budget="$DESIGN_BUDGET"
+          fi
+          claude -p "$(cat ".agent/${STAGE}.md")" \
+            --model "$AGENT_MODEL" \
+            --allowedTools "$allowed" \
+            --disallowedTools "$denied" \
+            --strict-mcp-config \
+            --max-budget-usd "$budget" \
+            --output-format json > .agent/out/transcript.json
+
+      # Everything the turn wrote, as one commit on top of the merge, bundled
+      # with nothing the publishing job does not already have.
+      - name: Package the turn
+        if: steps.go.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name 'enki'
+          git config user.email 'enki@factory.invalid'
+          git add -A
+          git commit -q --no-verify --allow-empty -m 'turn'
+          git branch -f enki-turn
+          git bundle create .agent/out/turn.bundle enki-turn "^${BEFORE}"
+
+      - name: Upload the turn
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: turn-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: card/.agent/out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  publish:
+    needs: [prepare, agent]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.merge != 'refused' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
+      STAGE: ${{ inputs.stage }}
+    outputs:
+      validated: ${{ steps.validate.outcome }}
+      pr: ${{ steps.describe.outputs.pr }}
+      sha: ${{ steps.describe.outputs.sha }}
+      status: ${{ steps.describe.outputs.status }}
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.before }}
+          path: card
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore what the turn starts from
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          path: card/.agent
+          merge-multiple: true
+
+      # Somewhere of its own, and then only the files the factory reads, and
+      # only if they are files.
+      - name: Take the turn's files
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: turn-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/turn
+
+      - name: Keep what the factory reads
+        run: |
+          set -euo pipefail
+          turn="$RUNNER_TEMP/turn"
+          for f in result.json merge-result.json transcript.json merge-transcript.json; do
+            if [ -f "$turn/$f" ] && [ ! -L "$turn/$f" ]; then
+              cp "$turn/$f" "card/.agent/out/$f"
+            fi
+          done
+
+      # Exits 4 if the turn is refused and 5 if the merge from main is a
+      # question for the card. Either way it has written the result `report`
+      # posts.
+      - name: Accept the turn
+        id: accept
+        continue-on-error: true
+        run: npm run --silent factory -- accept --stage "$STAGE" --bundle "$RUNNER_TEMP/turn/turn.bundle"
+
+      - name: Validate
+        id: validate
+        if: steps.accept.outcome == 'success'
+        continue-on-error: true
+        run: npm run --silent factory -- validate --stage "$STAGE"
+
+      - name: Mint App token
+        id: app-token
+        if: steps.validate.outcome == 'success'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      - name: Publish
+        if: steps.validate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          git -C card remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run --silent factory -- publish --stage "$STAGE"
+
+      - name: Describe the turn
+        id: describe
+        if: always()
+        env:
+          VALIDATED: ${{ steps.validate.outcome }}
+        run: |
+          set -euo pipefail
+          echo "pr=$(jq -r '.pr // empty' card/.agent/in/meta.json)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git -C card rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Only read when the turn validated, which means the file is there
+          # and parsed against the schema.
+          if [ "$VALIDATED" = success ]; then
+            echo "status=$(jq -r '.status' card/.agent/out/result.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Inputs as well as outputs. A turn is a pure function of .agent/in, so
+      # shipping both is what makes a failed turn replayable locally.
+      - name: Upload the turn as published
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            card/.agent/in/
+            card/.agent/out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Deploys what was published. Builds nothing of the card's here: the `azure`
+  # backend builds remotely in the registry, and `swa` waits for the
+  # repository's own workflow.
+  preview:
+    needs: [prepare, publish]
+    if: ${{ !cancelled() && inputs.stage == 'build' && needs.publish.outputs.validated == 'success' && needs.publish.outputs.pr != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.FACTORY_PREVIEW_TIMEOUT_MINUTES || '30') }}
+    permissions:
+      contents: read
+      packages: write
+      deployments: write
+      id-token: write
+      pull-requests: write
+      # The `swa` backend runs the repository's own deploy workflow again
+      # while the preview it built is not ready.
+      actions: write
+    env:
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
+      PR: ${{ needs.publish.outputs.pr }}
+    outputs:
+      url: ${{ steps.up.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          path: card
+          persist-credentials: false
+
+      - name: Restore the published turn
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.publish.outputs.artifact }}
+          path: card/.agent
+          merge-multiple: true
+
+      # Federated credentials; no Azure secret is stored in this repository.
+      - name: Sign in to Azure
+        if: vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # `az containerapp` ships as an extension. Adding it explicitly beats
+      # relying on dynamic install, which prompts by default and so hangs.
+      - name: Add the containerapp extension
+        if: vars.FACTORY_PREVIEW_BACKEND == 'azure'
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      # Waits for the preview to answer before it returns, so the cold start is
+      # spent here rather than in a reviewer's tab, and a preview that never
+      # serves fails the job instead of being published as a working link.
+      - name: Raise the preview
+        id: up
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          FACTORY_PREVIEW_BACKEND: ${{ vars.FACTORY_PREVIEW_BACKEND }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT }}
+          AZURE_PREVIEW_REPOSITORY: ${{ vars.AZURE_PREVIEW_REPOSITORY }}
+          AZURE_PREVIEW_PREFIX: ${{ vars.AZURE_PREVIEW_PREFIX }}
+          AZURE_PREVIEW_IDENTITY: ${{ vars.AZURE_PREVIEW_IDENTITY }}
+          AZURE_PREVIEW_COOLDOWN_SECONDS: ${{ vars.AZURE_PREVIEW_COOLDOWN_SECONDS }}
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+          SWA_PREVIEW_WORKFLOW: ${{ vars.SWA_PREVIEW_WORKFLOW }}
+          SWA_PREVIEW_URL: ${{ vars.SWA_PREVIEW_URL }}
+          SWA_PREVIEW_NOT_READY: ${{ vars.SWA_PREVIEW_NOT_READY }}
+          SWA_PREVIEW_MAX_RERUNS: ${{ vars.SWA_PREVIEW_MAX_RERUNS }}
+          SWA_PREVIEW_RERUN_DELAY_SECONDS: ${{ vars.SWA_PREVIEW_RERUN_DELAY_SECONDS }}
+        run: |
+          set -euo pipefail
+          npm run --silent factory -- preview-up "$PR"
+          echo "url=$(jq -r '.preview_url // empty' card/.agent/in/meta.json)" >> "$GITHUB_OUTPUT"
+
+  # Untrusted, and holds nothing. Records the card's walkthrough against the
+  # preview that is now serving this turn's code: the agent could only ever
+  # see the previous turn's.
+  walkthrough:
+    needs: [publish, preview]
+    if: ${{ !cancelled() && needs.preview.outputs.url != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A finished card reaches a reviewer whether or not a browser could be
+    # installed, so the worst this job does is leave the comment without
+    # pictures.
+    continue-on-error: true
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: card
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          path: card
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: card/.nvmrc
+
+      - run: npm ci
+
+      # result.json says which acceptance criteria the slides are about.
+      - name: Restore the published turn
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.publish.outputs.artifact }}
+          path: card/.agent
+          merge-multiple: true
+
+      # Debian's ffmpeg has drawtext, which the slide captions need and which
+      # is a build option rather than a given.
+      - name: Install the browser and ffmpeg
+        run: |
+          set -euo pipefail
+          npx --workspace @factory/app playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Walk the card in a browser
+        env:
+          FACTORY_E2E_BASE_URL: ${{ needs.preview.outputs.url }}
+          FACTORY_UAT_EVIDENCE: ${{ github.workspace }}/card/.agent/out/evidence
+        run: |
+          set -euo pipefail
+          rm -rf "$FACTORY_UAT_EVIDENCE"
+          npm run e2e --workspace @factory/app
+
+      - name: Build the walkthrough
+        if: ${{ !cancelled() }}
+        run: npm run --silent factory -- evidence-slides
+
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: card/.agent/out/evidence/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # The gate between a finished build turn and In review. Waits for the
+  # checks main requires on the commit the turn pushed, beside the preview and
+  # the walkthrough rather than after them, and leaves its verdict for
+  # `report`. The card stays in Building, and locked, while it waits.
+  #
+  # Trusted, and the lightest job here: API calls, and nothing of the card's
+  # checked out at all. It reads the checks with its own token, granted read
+  # on them below; the App is given no access to checks and needs none. The
+  # App token is for the dispatch alone: it starts FACTORY_VERIFY_WORKFLOWS on
+  # the card's branch, for a repository whose expensive checks skip drafts
+  # until asked.
+  verify:
+    needs: [publish]
+    if: ${{ !cancelled() && inputs.stage == 'build' && needs.publish.outputs.validated == 'success' && needs.publish.outputs.pr != '' && needs.publish.outputs.status == 'ready_for_review' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60') }}
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+      actions: read
+    env:
+      PR: ${{ needs.publish.outputs.pr }}
+      SHA: ${{ needs.publish.outputs.sha }}
+      FACTORY_VERIFY_TIMEOUT_MINUTES: ${{ vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60' }}
+      FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # Red is a verdict, not a failure: it exits 0 either way.
+      - name: Wait for the required checks
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_CHECKS_TOKEN: ${{ github.token }}
+        run: npm run --silent factory -- verify "$PR" --sha "$SHA" --out "$RUNNER_TEMP/verify/verify.json"
+
+      - name: Upload the verdict
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify/verify.json
+          retention-days: 14
+
+  # Last, so that "In review" means there is something serving to review. A
+  # rejected turn arrives here with no preview and still gets its comment and
+  # its move to Blocked on engineer. Not on cancellation, which is a stop:
+  # `factory stop` reports that itself.
+  report:
+    needs: [prepare, agent, publish, preview, walkthrough, verify]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
+      STAGE: ${{ inputs.stage }}
+      PR: ${{ needs.publish.outputs.pr }}
+      PREVIEW: ${{ needs.preview.outputs.url }}
+      RETRY: ${{ inputs.retry }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      # The turn as published, or as prepared if it never got that far: a
+      # merge refused in prepare has its question waiting there.
+      - name: Restore the turn
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.publish.outputs.artifact || needs.prepare.outputs.artifact }}
+          path: card/.agent
+          merge-multiple: true
+
+      - name: Take the walkthrough
+        if: env.PREVIEW != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: evidence-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence
+
+      # Files only, so that nothing in it points anywhere else on this runner.
+      - name: Keep the walkthrough's files
+        if: env.PREVIEW != ''
+        run: |
+          set -euo pipefail
+          [ -d "$RUNNER_TEMP/evidence" ] || exit 0
+          cd "$RUNNER_TEMP/evidence"
+          find . -type f -print0 | while IFS= read -r -d '' f; do
+            mkdir -p "$FACTORY_REPO_ROOT/.agent/out/evidence/$(dirname "$f")"
+            cp "$f" "$FACTORY_REPO_ROOT/.agent/out/evidence/$f"
+          done
+
+      # By the id `verify` reported. With no verdict, a build turn that ended
+      # ready for review goes to a person rather than to In review.
+      - name: Take the verdict
+        if: needs.verify.outputs.artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact }}
+          path: card/.agent/out
+
+      # Raised after the turn was published, so not in what was published.
+      - name: Record the preview
+        if: env.PREVIEW != ''
+        run: |
+          set -euo pipefail
+          meta=card/.agent/in/meta.json
+          jq --arg url "$PREVIEW" '.preview_url = $url' "$meta" > "$meta.new"
+          mv "$meta.new" "$meta"
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # Once per PR, on the turn that raised its first preview.
+      - name: Post the kickoff comment
+        if: ${{ !inputs.continues && env.PREVIEW != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        run: npm run --silent factory -- kickoff "$PR"
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          # The Jira comment's preview link is read by a person, possibly days
+          # later when the app has long since scaled to zero, so it goes
+          # through the launcher. meta.preview_url itself stays raw.
+          AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
+        run: npm run --silent factory -- report --stage "$STAGE" --retry "$RETRY"
+
+      - name: Fail the run if the turn was rejected
+        if: needs.publish.outputs.validated != 'success'
+        run: |
+          echo "::error::The ${STAGE} turn was not published. See the Jira comment and the uploaded artifacts."
+          exit 1

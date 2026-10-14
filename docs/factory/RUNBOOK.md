@@ -53,7 +53,7 @@ rm -rf .agent/in && cp -R <artifact-dir>/in .agent/in
 ```
 
 Then run the same `claude -p` invocation as the workflow's Agent step. Copy it
-from `.github/workflows/design.yml` or `build-turn.yml` rather than from here,
+from the agent job in `.github/workflows/turn.yml` rather than from here,
 so the allow-list cannot drift out of sync with what actually ran.
 
 **Install the same CLI version, or it is not the same turn.** Agent steps pin
@@ -62,7 +62,7 @@ defaulting to the version in the workflow. Read the pin, do not guess it:
 
 ```bash
 gh variable get FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
-  || grep -m1 claude-code .github/workflows/design.yml
+  || grep -m1 FACTORY_AGENT_VERSION .github/workflows/turn.yml
 ```
 
 Bump it deliberately — the flag surface is version-coupled, and a CLI release
@@ -74,13 +74,13 @@ gh variable set FACTORY_AGENT_VERSION --repo "$GH_OWNER/$GH_REPO" --body 2.1.230
 
 **The model is pinned too, and the two move together.** `FACTORY_AGENT_MODEL`
 sets the model for all four agents — design, both build turns, and the conflict
-resolver in `.github/actions/merge-main`. It defaults to `claude-opus-5-5`.
+resolver, all in the agent job of `.github/workflows/turn.yml`. It defaults to `claude-opus-5-5`.
 Triage is the exception and is deliberately not covered by it: see
 `FACTORY_TRIAGE_MODEL` below.
 
 ```bash
 gh variable get FACTORY_AGENT_MODEL --repo "$GH_OWNER/$GH_REPO" 2>/dev/null \
-  || grep -m1 -- --model .github/workflows/design.yml
+  || grep -m1 FACTORY_AGENT_MODEL .github/workflows/turn.yml
 ```
 
 The coupling runs one way and it is not obvious: the API rejects a model the
@@ -330,11 +330,13 @@ type error. The manual tells it to report `blocked` instead. If it keeps trying,
 the design is probably asking for something the allow-list does not permit —
 fix the design, not the allow-list.
 
-To genuinely widen a stage's scope, edit `ALLOWED_PATHS` in
-`factory/src/schema.ts`, run `npm run --silent factory -- emit-schema`, and
-update the corresponding section of the stage's manual. CI fails if the schema
-and the committed `.agent/result.schema.json` disagree. Never add anything under
-`.agent/`, `.github/`, `factory/` or `bootstrap/` — that is the boundary itself.
+To genuinely widen a stage's scope, edit `DEFAULT_PATHS` in
+`factory/src/paths.ts` (or the `paths` block of `enki.json`, in a repository
+that has one) and update the corresponding section of the stage's manual. The
+manuals test fails if a manual stops listing a path its stage is allowed. Never
+add anything under `.agent/`, `.github/`, `factory/` or `bootstrap/`, or
+`enki.json` itself — that is the boundary, and `CORE_DENIED` refuses it
+whatever the allow list says.
 
 ---
 
@@ -363,6 +365,39 @@ triage starts the next turn. That is the ordinary loop, not an incident.
 
 ---
 
+## A finished build is waiting on its checks
+
+A build turn that ended `ready_for_review` leaves the card in *Building* and the
+PR in draft until main's required checks pass on its commit (see
+[STATE-MACHINE.md](STATE-MACHINE.md), *A finished build waits for main's
+required checks*). The turn's `verify` job is the one waiting; its log prints
+each check as it stands.
+
+**The card is still in *Building* with a draft PR, and the turn's run is still
+going.** Checks are running. `verify` gives up after `FACTORY_VERIFY_TIMEOUT_MINUTES`
+(a repository variable, 60 by default), minus five for the report. Raise it if
+the slowest required suite regularly takes longer.
+
+**The report says the checks failed and another turn has started.** Working as
+intended: up to two automatic turns, each reading the failing logs. Do nothing.
+The run for it is a `build-turn.yml` dispatch with `retry` set; if the card
+already has a run in progress, it queues behind it.
+
+**The card went to *Blocked on engineer* with "required checks not passing".**
+Two automatic turns did not fix it, or the checks did not finish in time, or
+`verify` could not read them. The comment lists which. Reply on the card to
+start another turn — a human-granted turn starts the retry count again — or fix
+the check by hand and comment once it is green.
+
+**A slow suite never runs, and the card says "skipped on the push, and never
+run again when asked".** A required workflow that skips drafts has to be named
+in `FACTORY_VERIFY_WORKFLOWS` (a repository variable, comma-separated file
+names), and has to accept `workflow_dispatch` with a `pr` input and run when
+dispatched. Otherwise `verify` waits for a run that never starts, and times
+out. The `verify` job's log says whether each dispatch was accepted.
+
+---
+
 ## A merge from main is stuck on a card
 
 The card is at *Blocked on engineer* with a question naming the conflicted files.
@@ -388,8 +423,8 @@ reads the reply on the next poll and starts a build turn, which merges again wit
 your answer in the conversation. Do not resolve it by hand unless you want to —
 answering is the shorter path and leaves the reasoning on the ticket.
 
-Either way the branch is untouched. `merge-begin` leaves a conflicted merge in
-the index, uncommitted, and `merge-finish` aborts it before writing the question.
+Either way the branch is untouched. The agent job's merge is never pushed, and
+`factory accept` aborts its own merge before writing the question.
 
 To see what the agent was given and what it said, download the run's artifact:
 `.agent/in/merge-task.md` is the brief, `.agent/in/merge.json` the state,
@@ -570,7 +605,8 @@ npm run --silent factory -- jira-transition DF-1 "In review"
 ```
 
 If that fails too, the status name in Jira no longer matches
-`STATUS_TRANSITIONS`. `smoke.sh` lists all ten.
+`STATUS_TRANSITIONS`, or, where `enki.json` pins the status ids, the id there
+no longer matches the status the workflow uses. `smoke.sh` lists all ten.
 
 *Done* is the exception and does not belong here: it is restricted to the bot
 by a workflow condition, and nothing but `production.yml` should be setting it.

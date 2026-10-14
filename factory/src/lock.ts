@@ -4,6 +4,7 @@ import * as jira from './jira.ts'
 import { gh, ghJson, repoSlug } from './github.ts'
 import { claimCard, handBackTarget } from './progress.ts'
 import { TRIAGE_PROPERTY, addressedTo } from './triage.ts'
+import { jqlStatus, nameOf, statusOfCard } from './statuses.ts'
 
 /**
  * The lock: while the factory works a card, nobody else can move it.
@@ -82,7 +83,7 @@ export function isStopCommand(comment: jira.JiraComment, factoryAccountId: strin
  */
 export async function takeCard(cfg: jira.JiraConfig, key: string, status: string): Promise<void> {
   const issue = await jira.getIssue(cfg, key)
-  const current = (issue.fields['status'] as { name?: string } | undefined)?.name ?? ''
+  const current = statusOfCard(issue.fields)
   if (!isLocked(current)) await jira.transitionTo(cfg, key, status)
   await claimCard(cfg, key)
 }
@@ -95,14 +96,20 @@ export interface Hold {
   from: string
 }
 
-/** Reads the hold off the card's history, newest move first. */
+/**
+ * Reads the hold off the card's history, newest move first.
+ *
+ * History keeps the name a status had at the time, so a column renamed since
+ * would not match. Each line also carries the status ids, and `nameOf` reads
+ * those when `enki.json` pins them.
+ */
 export function holdFrom(history: jira.ChangeEntry[]): Hold {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const entry = history[i] as jira.ChangeEntry
     const move = entry.items.find(
-      (item) => item.field === 'status' && isLocked(item.toString ?? ''),
+      (item) => item.field === 'status' && isLocked(nameOf({ id: item.to, name: item.toString })),
     )
-    if (move !== undefined) return { since: entry.created, from: move.fromString ?? '' }
+    if (move !== undefined) return { since: entry.created, from: nameOf({ id: move.from, name: move.fromString }) }
   }
   return { since: '', from: '' }
 }
@@ -251,9 +258,8 @@ export type StopOutcome = 'not-locked' | 'not-a-stop' | 'already-handled' | 'sto
  * newest comment addressed to the factory is a stop, and it has not been acted
  * on. The mark is triage's, so triage never reads the same comment later.
  *
- * The cancelled run usually cannot move the card itself — a build run's last
- * job is skipped on cancellation, and design.yml's report step does not run on
- * it either — so this does. If the run won the race and reported anyway, the
+ * The cancelled run usually cannot move the card itself — turn.yml's `report`
+ * job is skipped on cancellation — so this does. If the run won the race and reported anyway, the
  * card has left the locked statuses and is left alone.
  */
 export async function stop(options: StopOptions): Promise<StopOutcome> {
@@ -261,7 +267,7 @@ export async function stop(options: StopOptions): Promise<StopOutcome> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)))
 
   const issue = await jira.getIssue(cfg, key)
-  const status = (issue.fields['status'] as { name?: string } | undefined)?.name ?? ''
+  const status = statusOfCard(issue.fields)
   if (!isLocked(status)) return 'not-locked'
 
   const me = await jira.myAccountId(cfg)
@@ -287,7 +293,7 @@ export async function stop(options: StopOptions): Promise<StopOutcome> {
   await waitForRuns(runs, options.waitMs ?? 180_000, options.pollMs ?? 5_000, sleep)
 
   const now = await jira.getIssue(cfg, key)
-  const statusNow = (now.fields['status'] as { name?: string } | undefined)?.name ?? ''
+  const statusNow = statusOfCard(now.fields)
   const stillLocked = isLocked(statusNow)
   const to = returnStatus(statusNow, holdFrom(await jira.changelog(cfg, key)))
   const body = stoppedComment(to, comment.authorId, runs, stillLocked)
@@ -353,7 +359,7 @@ export interface OrphanOptions {
 export async function releaseOrphans(options: OrphanOptions): Promise<string[]> {
   const { cfg, projectKey } = options
   const now = options.now ?? Date.now()
-  const statuses = LOCKED_STATUSES.map((s) => `"${s}"`).join(', ')
+  const statuses = LOCKED_STATUSES.map(jqlStatus).join(', ')
   const cards = await jira.search(cfg, `project = ${projectKey} AND status IN (${statuses})`, ['status'])
   if (cards.length === 0) return []
 
@@ -362,7 +368,7 @@ export async function releaseOrphans(options: OrphanOptions): Promise<string[]> 
 
   for (const card of cards) {
     if ((runs.get(card.key) ?? []).length > 0) continue
-    const status = (card.fields['status'] as { name?: string } | undefined)?.name ?? ''
+    const status = statusOfCard(card.fields)
     try {
       const hold = holdFrom(await jira.changelog(cfg, card.key))
       const since = Date.parse(hold.since)

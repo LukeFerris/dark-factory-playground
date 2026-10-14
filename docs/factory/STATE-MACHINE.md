@@ -82,7 +82,7 @@ comment on a card in *Design review* can start a **build** one. See below.
 | **Design review** | In progress | A design is waiting for a human to read it | Factory |
 | **Blocked on architect** | In progress | The design agent asked a question | Factory |
 | **Ready for build** | To do | Design approved; the next poll will pick it up | Human |
-| **Building** | In progress | A build turn is running, or waiting for the next to be granted | Poller (from *Ready for build*, or from any waiting status on a comment) |
+| **Building** | In progress | A build turn is running, waiting on main's required checks, or waiting for the next to be granted | Poller (from *Ready for build*, or from any waiting status on a comment) |
 | **In review** | In progress | The PR is ready for a human | Factory |
 | **Blocked on engineer** | In progress | The build agent asked a question | Factory |
 | **Done** | Done | Merged, and production is serving it | Factory (`production.yml`, after the deployment answers) — **and nobody else** |
@@ -364,6 +364,71 @@ overwrites `result.json` with a synthetic failure naming the problem, so the
 card still moves and still gets a comment, rather than sitting in *Building*
 with nobody told.
 
+## A finished build waits for main's required checks
+
+A build turn that ends `ready_for_review` does not go straight to *In review*.
+The pull request has to pass the checks main requires first, on the commit the
+turn pushed — the same checks a person's PR has to pass to merge. Otherwise a
+reviewer opens a card in *In review* to find a red PR, and the review is wasted.
+
+**The PR stays a draft for the whole build.** `publish` opens it as a draft and,
+on a build turn, puts it back into draft if anything took it out. Expensive
+suites can then skip drafts (`if: github.event.pull_request.draft == false`)
+and run once, when the factory asks, rather than on every push of a multi-turn
+build. A design turn still marks the PR ready when the design is done, as
+before.
+
+**The `verify` job asks for the full run.** It runs after `publish`, beside the
+preview and the walkthrough, and only on a build turn that validated and ended
+`ready_for_review`. It:
+
+1. reads the required checks from main's rulesets and classic protection, both;
+2. dispatches each workflow named in `FACTORY_VERIFY_WORKFLOWS` on the PR's
+   branch, with the PR's number as `pr`. This is how a suite that skips drafts
+   gets its one full run;
+3. waits for every required check on the pushed commit — the newest run of each
+   name, falling back to commit statuses — until all have finished or the budget
+   (`FACTORY_VERIFY_TIMEOUT_MINUTES`, 60 by default) runs out;
+4. writes a verdict: **green**, **red** or **timeout**.
+
+`success`, `neutral` and `skipped` count as passing, as they do for branch
+protection, with one exception: once `verify` has dispatched something, a run
+that was skipped *before* it did is the draft push's skip, and counts as not
+finished until a newer run replaces it. A check that never reported counts as
+not finished too.
+
+It is a dispatch rather than a label on purpose. A workflow listening for
+`pull_request: labeled` runs on *every* label anyone adds to any PR, and on a
+label that is not the factory's it would skip — and a skipped run newer than a
+failed one passes branch protection. When main
+requires no checks at all, the verdict is green at once.
+
+**`report` acts on the verdict:**
+
+| Verdict | What happens |
+| --- | --- |
+| green | The PR is marked ready, the card moves to *In review* |
+| red, fewer than 2 retries so far | The card stays in *Building* with the factory, the PR stays a draft, and `report` dispatches another build turn itself |
+| red, after 2 retries | *Blocked on engineer*, listing the failing checks |
+| timeout, or no verdict | *Blocked on engineer* — a check that never finishes is not something another turn can fix |
+
+The retry count is not stored anywhere. `report` passes `retry: n+1` to
+`build-turn.yml`, which passes it to the turn, which passes it to `gather` and
+`report`. A turn started any other way starts at 0, so a human comment always
+buys a fresh two.
+
+**The next turn reads the failures.** `gather` reads the PR's required checks
+afresh on every continuing build turn and, for each failing one, appends the
+last 80 lines of its job log (or, for a check from another app, its own title
+and summary) under *Required checks failing on the pull request*. Nothing about
+the failure is posted on the PR, because `gather` counts the factory's PR
+comments as turns. The log text is marked as output to read, not instructions:
+it is printed by code in the PR, which the agent wrote.
+
+The report comment on the card says which checks failed, and on a retry that
+another turn has started; it does not mention or hand the card back to anyone,
+because the card is not theirs yet.
+
 ## Why transitions are matched by destination, not by name
 
 Jira transitions have their own names, independent of the status they lead to,
@@ -372,6 +437,21 @@ available transitions and picks the one whose `to.name` matches, case
 insensitively. Rename a transition in Jira and nothing breaks. Rename a
 **status** and reporting breaks until `STATUS_TRANSITIONS` is changed to match —
 which is why `bootstrap/smoke.sh` asserts all ten names.
+
+A space can take status renames out of that by pinning each of the ten names to
+its status id, in `enki.json` at the repository root:
+
+```json
+{ "jira": { "statuses": { "Backlog": "10054", "Ready for design": "10055", "…": "…" } } }
+```
+
+With the ids pinned, the factory matches `to.id` instead, searches with
+`status = <id>`, and reads a card's status and history by id. In a
+team-managed space, renaming a board column renames its status, and anyone who
+administers the space can do it, so a team-managed space should always pin. It
+is all ten or none: `factory/src/statuses.ts` refuses a partial list rather
+than match some statuses one way and the rest the other. This repository has
+no `enki.json`, so it still goes by name.
 
 The `Factory` workflow that `bootstrap/jira.sh` creates gives every status a
 global transition, so any status is reachable from any other. That is deliberate:

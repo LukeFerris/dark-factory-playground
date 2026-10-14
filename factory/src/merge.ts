@@ -5,7 +5,8 @@ import { REPO_ROOT } from './env.ts'
 import { git, gitSucceeds, headSha, identifyAsBot } from './git.ts'
 import { AGENT_IN, AGENT_OUT, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import { matchesGlob } from './validate.ts'
-import { ALWAYS_DENIED, QuestionSchema, type Result } from './schema.ts'
+import { deniedPaths } from './paths.ts'
+import { QuestionSchema, type Result } from './schema.ts'
 
 /**
  * Merging main into a card branch, and letting an agent finish the job.
@@ -119,18 +120,22 @@ function dirtyPaths(): string[] {
 }
 
 /**
- * Tries to merge origin/main into the checked-out branch.
+ * Tries to merge main into the checked-out branch.
  *
  * Fetches first, always. Local main goes stale within minutes of anything
  * merging, and a merge analysis against a stale main is worse than none: it
  * reports clean and the branch stays behind.
+ *
+ * `mainRef` names a particular commit of main instead, for when another job has
+ * already merged that commit and this one has to make the same merge: refresh
+ * runs the checks in a job of its own (ADR 0008).
  */
-export function attemptMerge(branch: string): MergeState {
+export function attemptMerge(branch: string, mainRef = 'origin/main'): MergeState {
   git(['fetch', 'origin', '--quiet'], true)
 
   const before = headSha()
-  const main = git(['rev-parse', 'origin/main']).trim()
-  const behindRaw = git(['rev-list', '--count', 'HEAD..origin/main'], true).trim()
+  const main = git(['rev-parse', '--verify', `${mainRef}^{commit}`]).trim()
+  const behindRaw = git(['rev-list', '--count', `HEAD..${main}`], true).trim()
   const behind = behindRaw === '' ? 0 : Number.parseInt(behindRaw, 10)
 
   const base: MergeState = {
@@ -145,7 +150,7 @@ export function attemptMerge(branch: string): MergeState {
   }
   if (behind === 0) return base
 
-  base.incoming = git(['log', '--oneline', '--no-merges', '-n', '20', 'HEAD..origin/main'], true)
+  base.incoming = git(['log', '--oneline', '--no-merges', '-n', '20', `HEAD..${main}`], true)
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '')
@@ -154,7 +159,7 @@ export function attemptMerge(branch: string): MergeState {
   // attempt rather than after: a clean merge commits immediately.
   identifyAsBot()
 
-  if (gitSucceeds(['merge', '--no-edit', 'origin/main'])) {
+  if (gitSucceeds(['merge', '--no-edit', main])) {
     return { ...base, state: 'merged' }
   }
 
@@ -165,7 +170,7 @@ export function attemptMerge(branch: string): MergeState {
     // resolve and pretending otherwise would hand it an empty file list.
     git(['merge', '--abort'], true)
     throw new Error(
-      `git merge origin/main into ${branch} failed without leaving a conflict to resolve. ` +
+      `git merge ${mainRef} into ${branch} failed without leaving a conflict to resolve. ` +
         `The message from git is above.`,
     )
   }
@@ -174,7 +179,7 @@ export function attemptMerge(branch: string): MergeState {
   // `.github/` means the branch has edited the machinery that is about to
   // judge it, and no agent gets to arbitrate that — not least because the
   // resolution it wrote would be the code running the next step.
-  const denied = conflicts.filter((p) => ALWAYS_DENIED.some((g) => matchesGlob(p, g)))
+  const denied = conflicts.filter((p) => deniedPaths().some((g) => matchesGlob(p, g)))
   if (denied.length > 0) {
     git(['merge', '--abort'], true)
     return { ...base, state: 'refused', conflicts, denied }
@@ -237,8 +242,8 @@ export function readMergeResult(): MergeResult {
  * the turn's base.
  *
  * Both entrances to a build turn go through here — `prepare-branch` on turn one
- * and `merge-begin` on every turn after, because build-turn.yml checks the
- * branch out itself and never calls `prepare-branch`. Until now that second
+ * and `merge-begin` on every turn after, because a continuing turn checks the
+ * PR's branch out itself and never calls `prepare-branch`. Until now that second
  * entrance did not merge main at all, which meant every turn granted by a
  * comment ran against whatever main looked like when the branch was cut.
  *

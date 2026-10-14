@@ -1,0 +1,166 @@
+name: factory refresh one card
+
+# One card's leg of refresh.yml: bring its branch up to main, or hand it to a
+# build turn. Called once per card in review, with the commit of main and the
+# commit of the branch the fan-out was planned against.
+#
+# Two jobs, on either side of the line ADR 0008 draws:
+#
+#   checks    untrusted, and holds nothing. Merges main into the branch and runs
+#             ci.yml's checks on the result, which is to say it runs the card's
+#             code, and reports how they went as one word.
+#   refresh   trusted. Runs the factory from main, makes the same merge again
+#             and decides on it, using the checks job's word for how the checks
+#             went. That word only ever chooses between pushing a merge git
+#             made here and sending the card back to Building, so it is checked
+#             for being an answer the checks could give and no more.
+
+on:
+  workflow_call:
+    inputs:
+      key:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+      sha:
+        description: The branch's head when the fan-out was planned
+        required: true
+        type: string
+      main:
+        description: The commit of main to merge
+        required: true
+        type: string
+      pr:
+        description: The merged pull request that set this off
+        required: true
+        type: string
+      title:
+        description: Its title. Whoever opened it wrote it, so it only ever travels through env.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      checks: ${{ steps.checks.outputs.checks }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No `cache:`. A cache is shared across runs, and this job can write one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # `npm ci` first and not optionally: the merge may have brought a new
+      # lockfile across. The scripts are CHECK_SCRIPTS in refresh.ts, in the
+      # order ci.yml runs them, and a test holds the two lists together. A
+      # failing script is an answer, not a failed job: the job fails only if it
+      # could not answer, and then nothing is decided.
+      - name: Merge main and run the checks
+        id: checks
+        env:
+          MAIN: ${{ inputs.main }}
+        run: |
+          set -uo pipefail
+          # Already has main: the other job will find nothing to do, and ask
+          # nothing.
+          if git merge-base --is-ancestor "$MAIN" HEAD; then
+            echo "checks=not-run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git -c user.name=enki -c user.email=enki@factory.invalid \
+                 merge --no-ff --no-edit "$MAIN"; then
+            git merge --abort || true
+            echo "checks=not-run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          outcome=passed
+          if ! npm ci; then
+            outcome='npm ci'
+          else
+            for script in lint typecheck test build; do
+              if ! npm run "$script"; then outcome="npm run ${script}"; break; fi
+            done
+          fi
+          echo "checks=${outcome}" >> "$GITHUB_OUTPUT"
+
+  refresh:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      FACTORY_REPO_ROOT: ${{ github.workspace }}/card
+      ENKI_CONFIG: ${{ github.workspace }}/enki.json
+    steps:
+      # The factory, as of the main being merged.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.main }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # The card, as data, at the commit the checks ran on. `persist-credentials:
+      # false` because the push, if there is one, goes out over the App token,
+      # which the ruleset lets near the branch and which attributes the commit
+      # to the bot. It is not forced, so a branch that moved since the fan-out
+      # was planned refuses it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          path: card
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No ANTHROPIC_API_KEY anywhere in this job. It merges, and either pushes
+      # or hands the card to a build turn; every judgement call it meets is one
+      # it declines to make.
+      - name: Bring the card up to main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          JIRA_BASE: ${{ vars.JIRA_BASE }}
+          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
+          KEY: ${{ inputs.key }}
+          BRANCH: ${{ inputs.branch }}
+          MAIN: ${{ inputs.main }}
+          CHECKS: ${{ needs.checks.outputs.checks }}
+          BECAUSE_PR: ${{ inputs.pr }}
+          BECAUSE_TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          git -C card checkout -q -B "$BRANCH"
+          git -C card remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run --silent factory -- refresh "$KEY" \
+            --main "$MAIN" \
+            --checks "$CHECKS" \
+            --because-pr "$BECAUSE_PR" \
+            --because-title "$BECAUSE_TITLE"

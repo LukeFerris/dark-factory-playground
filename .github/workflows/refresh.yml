@@ -19,6 +19,9 @@ name: factory refresh cards in review
 # still pass, and back to Building for the build agent if either fails. No agent
 # runs here — the one that resolves conflicts lives in the build turn this hands
 # to, which is also the only place its output can be reviewed.
+#
+# Each leg is refresh-card.yml, which runs the checks in a job that holds no
+# token, because the checks run the card's code (ADR 0008).
 
 on:
   pull_request:
@@ -69,17 +72,25 @@ jobs:
     outputs:
       cards: ${{ steps.plan.outputs.cards }}
       count: ${{ steps.plan.outputs.count }}
+      main: ${{ steps.main.outputs.sha }}
       pr: ${{ steps.trigger.outputs.number }}
       title: ${{ steps.trigger.outputs.title }}
     steps:
+      # Main by name. A pull_request event's own ref is the pull request's.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
+      # Every leg merges this commit, in both of its jobs, however far main has
+      # moved by the time they run. A later merge fans out again.
+      - name: Record which main this is
+        id: main
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
 
       - run: npm ci
 
@@ -145,14 +156,12 @@ jobs:
           echo "count=$(printf '%s' "$cards" | jq 'length')" >> "$GITHUB_OUTPUT"
           printf '%s' "$cards" | jq -r '.[] | "will refresh \(.key) on \(.branch)"'
 
-  # One runner per card. The matrix is empty when nothing is in review, and an
+  # One leg per card. The matrix is empty when nothing is in review, and an
   # empty matrix skips the job rather than failing it — hence the `count` guard,
   # which keeps the run green and legible instead of silently skipped.
   card:
     needs: plan
     if: needs.plan.outputs.count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -163,51 +172,16 @@ jobs:
     concurrency:
       group: factory-card-${{ matrix.key }}
       cancel-in-progress: false
-    steps:
-      - name: Mint App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.FACTORY_APP_ID }}
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-
-      # The card's own branch, whole. `fetch-depth: 0` because a merge needs the
-      # history on both sides; `persist-credentials: false` because the push, if
-      # there is one, goes out over the App token set below rather than over the
-      # default GITHUB_TOKEN, which the ruleset on main does not let near a
-      # protected branch and which would not attribute the commit to the bot.
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ matrix.branch }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - run: npm ci
-
-      # No ANTHROPIC_API_KEY anywhere in this job. It merges, runs the checks and
-      # either pushes or hands the card to a build turn; every judgement call it
-      # meets is one it declines to make.
-      - name: Bring the card up to main
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
-          JIRA_BASE: ${{ vars.JIRA_BASE }}
-          JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
-          KEY: ${{ matrix.key }}
-          BECAUSE_PR: ${{ needs.plan.outputs.pr }}
-          # Through env, not `${{ }}`, for the reason given in the plan job: this
-          # is a pull request title and whoever opened it wrote it.
-          BECAUSE_TITLE: ${{ needs.plan.outputs.title }}
-        run: |
-          set -euo pipefail
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npm run --silent factory -- refresh "$KEY" \
-            --because-pr "$BECAUSE_PR" \
-            --because-title "$BECAUSE_TITLE"
+    permissions:
+      contents: read
+    uses: ./.github/workflows/refresh-card.yml
+    with:
+      key: ${{ matrix.key }}
+      branch: ${{ matrix.branch }}
+      sha: ${{ matrix.sha }}
+      main: ${{ needs.plan.outputs.main }}
+      pr: ${{ needs.plan.outputs.pr }}
+      # A pull request title, which whoever opened it wrote. It goes on as an
+      # input and is only ever read through env, for the reason given above.
+      title: ${{ needs.plan.outputs.title }}
+    secrets: inherit

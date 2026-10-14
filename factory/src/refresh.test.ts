@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { setupServer } from 'msw/node'
@@ -8,12 +8,15 @@ import { REPO_ROOT } from './env.ts'
 import { ghRunner, setRunner, type Runner } from './github.ts'
 import type { MergeState } from './merge.ts'
 import {
+  CHECK_SCRIPTS,
   handOverComment,
   refreshTargets,
   refreshedComment,
   refusedComment,
+  reportedChecks,
   type Trigger,
 } from './refresh.ts'
+import { STATUS_NAMES, configPath, resetStatusIds } from './statuses.ts'
 
 /**
  * The half of the fan-out that does not drive git.
@@ -93,8 +96,8 @@ describe('choosing which cards a merge invalidated', () => {
     ])
 
     expect(await refreshTargets(cfg, 'DF')).toEqual([
-      { key: 'DF-4', pr: 16, branch: 'card/DF-4-let-the-user-type-their-name' },
-      { key: 'DF-5', pr: 19, branch: 'card/DF-5-add-a-greeting' },
+      { key: 'DF-4', pr: 16, branch: 'card/DF-4-let-the-user-type-their-name', sha: 'deadbeef' },
+      { key: 'DF-5', pr: 19, branch: 'card/DF-5-add-a-greeting', sha: 'deadbeef' },
     ])
   })
 
@@ -129,6 +132,28 @@ describe('choosing which cards a merge invalidated', () => {
     prs([{ number: 60, headRefName: 'card/DF-41-something-else' }])
 
     expect(await refreshTargets(cfg, 'DF')).toEqual([])
+  })
+
+  // So that renaming "In review" on the board does not stop refreshes.
+  it('searches for In review by id when enki.json pins it', async () => {
+    const ids = Object.fromEntries(STATUS_NAMES.map((name, i) => [name, String(10050 + i)]))
+    writeFileSync(configPath(), JSON.stringify({ jira: { statuses: ids } }))
+    resetStatusIds()
+    let jql = ''
+    server.use(
+      http.post(`${BASE}/rest/api/3/search/jql`, async ({ request }) => {
+        jql = ((await request.json()) as { jql: string }).jql
+        return HttpResponse.json({ issues: [] })
+      }),
+    )
+
+    try {
+      await refreshTargets(cfg, 'DF')
+    } finally {
+      rmSync(configPath(), { force: true })
+      resetStatusIds()
+    }
+    expect(jql).toBe('project = DF AND status = 10057 ORDER BY created ASC')
   })
 })
 
@@ -205,6 +230,36 @@ describe('what the card says when no agent may touch the conflict', () => {
  * button that would not go, because the fan-out only fired for `card/`
  * branches.
  */
+// The checks run in a job that holds no token, and report back as one word.
+describe('the checks as another job reported them', () => {
+  it('passes on a pass', () => {
+    expect(reportedChecks('passed')()).toEqual({ ok: true, failed: null })
+  })
+
+  it('names the command that failed, as the card comment does', () => {
+    expect(reportedChecks('npm run typecheck')()).toEqual({ ok: false, failed: 'npm run typecheck' })
+    expect(reportedChecks('npm ci')()).toEqual({ ok: false, failed: 'npm ci' })
+  })
+
+  // An empty answer is a job that never got as far as saying, and anything
+  // else is not an answer the checks could give. Neither is a reason to push.
+  it('refuses anything else', () => {
+    expect(() => reportedChecks('')).toThrow(/not "passed"/)
+    expect(() => reportedChecks('npm run deploy')).toThrow(/not "passed"/)
+  })
+
+  // Only asked for when the merge here was clean, which the other job's was not.
+  it('will not stand in for checks that were never run', () => {
+    expect(reportedChecks('not-run')).toThrow(/were not run/)
+  })
+
+  // The job that runs them lists them again, in shell.
+  it('runs the same scripts as the job that reports them', () => {
+    const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/refresh-card.yml'), 'utf8')
+    expect(yaml).toContain(`for script in ${CHECK_SCRIPTS.join(' ')}; do`)
+  })
+})
+
 describe('the refresh trigger', () => {
   const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/refresh.yml'), 'utf8')
 

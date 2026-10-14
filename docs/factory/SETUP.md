@@ -64,6 +64,11 @@ repositories you install it on, and its commits are plainly attributed to a bot.
 
    Grant nothing else. In particular **do not** grant Administration, Members,
    or anything organisation-level.
+
+   Checks and commit statuses are not on the list on purpose. A finished build
+   waits for main's required checks, but the `verify` job reads them with its
+   own read-only `GITHUB_TOKEN`. Dispatching a slow suite for it uses Actions,
+   which the App already has.
 5. **Where can this App be installed?** Only on this account.
 6. Create it. On the App's page:
    - note the **App ID** → `FACTORY_APP_ID`
