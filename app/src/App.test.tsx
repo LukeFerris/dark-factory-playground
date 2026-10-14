@@ -9,8 +9,22 @@ function column(stage: string) {
 }
 
 // A column's heading is its name followed by its count, e.g. "Sourcing1".
-function counts() {
-  return STAGES.map((stage) => column(stage).getByRole('heading', { level: 2 }).textContent)
+// Takes one count per column, in STAGES order.
+function expectCounts(...expected: number[]) {
+  const headings = STAGES.map((stage) => column(stage).getByRole('heading', { level: 2 }).textContent)
+  expect(headings).toEqual(STAGES.map((stage, index) => `${stage}${expected[index]}`))
+}
+
+function dragHarbourDentalToPassed() {
+  // jsdom has no DataTransfer; the handlers only write to it.
+  const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
+  const passed = screen.getByRole('region', { name: 'Passed' })
+  fireEvent.dragStart(
+    column('Screening').getByRole('article', { name: 'Harbour Dental Group' }),
+    { dataTransfer },
+  )
+  fireEvent.dragOver(passed, { dataTransfer })
+  fireEvent.drop(passed, { dataTransfer })
 }
 
 beforeEach(() => {
@@ -124,16 +138,8 @@ describe('App editing', () => {
 
 describe('App dragging', () => {
   it('moves a deal dropped on another column, announces it and keeps it after a reload', () => {
-    // jsdom has no DataTransfer; the handlers only write to it.
-    const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
     const { unmount } = render(<App />)
-    const passed = screen.getByRole('region', { name: 'Passed' })
-    fireEvent.dragStart(
-      column('Screening').getByRole('article', { name: 'Harbour Dental Group' }),
-      { dataTransfer },
-    )
-    fireEvent.dragOver(passed, { dataTransfer })
-    fireEvent.drop(passed, { dataTransfer })
+    dragHarbourDentalToPassed()
 
     expect(
       column('Passed').getByRole('article', { name: 'Harbour Dental Group' }),
@@ -153,14 +159,7 @@ describe('App dragging', () => {
 describe('App column counts', () => {
   it('shows one deal in every column on a first visit', () => {
     render(<App />)
-    expect(counts()).toEqual([
-      'Sourcing1',
-      'Screening1',
-      'Due diligence1',
-      'Investment committee1',
-      'Closed1',
-      'Passed1',
-    ])
+    expectCounts(1, 1, 1, 1, 1, 1)
   })
 
   it('counts a deal added to Sourcing straight away, and nothing else', async () => {
@@ -169,14 +168,7 @@ describe('App column counts', () => {
     await user.type(screen.getByLabelText('Company'), 'Acme Logistics')
     await user.click(screen.getByRole('button', { name: 'Add deal' }))
 
-    expect(counts()).toEqual([
-      'Sourcing2',
-      'Screening1',
-      'Due diligence1',
-      'Investment committee1',
-      'Closed1',
-      'Passed1',
-    ])
+    expectCounts(2, 1, 1, 1, 1, 1)
   })
 
   it('moves the count with a deal moved by its stage picker, and shows 0 for the emptied column', async () => {
@@ -187,14 +179,7 @@ describe('App column counts', () => {
       'Due diligence',
     )
 
-    expect(counts()).toEqual([
-      'Sourcing1',
-      'Screening0',
-      'Due diligence2',
-      'Investment committee1',
-      'Closed1',
-      'Passed1',
-    ])
+    expectCounts(1, 0, 2, 1, 1, 1)
     expect(column('Screening').getByText('No deals')).toBeInTheDocument()
   })
 
@@ -206,35 +191,14 @@ describe('App column counts', () => {
       'Passed',
     )
 
-    expect(counts()).toEqual([
-      'Sourcing1',
-      'Screening1',
-      'Due diligence1',
-      'Investment committee0',
-      'Closed1',
-      'Passed2',
-    ])
+    expectCounts(1, 1, 1, 0, 1, 2)
   })
 
   it('moves the count with a deal dropped on another column', () => {
-    const dataTransfer = { setData: () => undefined, effectAllowed: '', dropEffect: '' }
     render(<App />)
-    const passed = screen.getByRole('region', { name: 'Passed' })
-    fireEvent.dragStart(
-      column('Screening').getByRole('article', { name: 'Harbour Dental Group' }),
-      { dataTransfer },
-    )
-    fireEvent.dragOver(passed, { dataTransfer })
-    fireEvent.drop(passed, { dataTransfer })
+    dragHarbourDentalToPassed()
 
-    expect(counts()).toEqual([
-      'Sourcing1',
-      'Screening0',
-      'Due diligence1',
-      'Investment committee1',
-      'Closed1',
-      'Passed2',
-    ])
+    expectCounts(1, 0, 1, 1, 1, 2)
     expect(column('Screening').getByText('No deals')).toBeInTheDocument()
   })
 })

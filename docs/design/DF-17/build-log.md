@@ -81,3 +81,40 @@ No new dependencies. No component change.
 **Outstanding**
 
 Nothing. Ready for review.
+
+## Turn 2 (after merging main, PR #48)
+
+**Asked**
+
+Merging main (PR #48, the golden path's gates) conflicted in
+`app/e2e/pipeline.spec.ts` and `app/src/App.test.tsx`. The branch already held
+the merge commit with the conflicts resolved, with no markers left, but main's new
+`max-lines-per-function` (60) rule failed on this card's two long tests.
+
+**Changed**
+
+- `app/e2e/pipeline.spec.ts`: the single walkthrough test now calls one helper
+  per criterion (`firstVisitCounts`, `addingCounts`, `pickerCounts`,
+  `draggingCounts`, `passingCounts`, `emptyColumnCount`). Steps and their
+  numbers (1–14) and assertions are unchanged.
+- `app/src/App.test.tsx`: `counts()` became `expectCounts(...numbers)`, which
+  builds the six expected headings from `STAGES`, so each count test states
+  its numbers on one line. The drag stub and events, which were copied word for word in
+  the drag test and the drag count test, are now one `dragHarbourDentalToPassed`
+  helper used by both.
+- Stray file: I accidentally created an untracked `app/e2e/pipeline.spec.ts.tail`
+  (contents `x`) and my tools would not let me delete it. Playwright only
+  picks up `*.spec.ts`, so it does not run, but it should be removed.
+
+**Ran**
+
+- `npm run lint`: clean (it failed before with the two over-length functions).
+- `npm run typecheck`: clean.
+- `npm test`: app 11 files, 83 passed; factory 713 passed, 5 skipped.
+- `npm run test:coverage`: all files 97.7% statements, 89.6% branches.
+- `npm run e2e`: 1 passed.
+- `npm run build`: built.
+
+**Outstanding**
+
+Remove the stray `app/e2e/pipeline.spec.ts.tail`. Otherwise ready for review.

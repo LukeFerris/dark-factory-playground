@@ -52,8 +52,8 @@ function stagePicker(page: Page, company: string) {
   return page.getByRole('combobox', { name: `Stage for ${company}` })
 }
 
-test('every column counts its deals, and the count keeps up', async ({ page }) => {
-  // Every pipeline column header shows the number of deals in that column.
+// Every pipeline column header shows the number of deals in that column.
+async function firstVisitCounts(page: Page) {
   await uatStep(page, 1, async () => {
     await page.goto('/')
     await expect(column(page, 'Sourcing')).toBeVisible()
@@ -70,8 +70,10 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
       await expectPillBesideName(page, stage, 1)
     }
   })
+}
 
-  // The count updates straight away when a deal is added.
+// The count updates straight away when a deal is added.
+async function addingCounts(page: Page) {
   await uatStep(page, 4, async () => {
     await page.getByLabel('Company').fill('Acme Logistics')
     await expect(page.getByLabel('Company')).toHaveValue('Acme Logistics')
@@ -85,8 +87,10 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
   await uatStep(page, 6, async () => {
     await expect(header(page, 'Sourcing')).toHaveText('Sourcing2')
   })
+}
 
-  // The count updates straight away when a deal is moved with its stage picker.
+// The count updates straight away when a deal is moved with its stage picker.
+async function pickerCounts(page: Page) {
   await uatStep(page, 7, async () => {
     await stagePicker(page, 'Harbour Dental Group').selectOption('Due diligence')
     await expect(column(page, 'Due diligence').getByRole('article', { name: 'Harbour Dental Group' })).toBeVisible()
@@ -96,8 +100,10 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
     await expect(header(page, 'Screening')).toHaveText('Screening0')
     await expect(header(page, 'Due diligence')).toHaveText('Due diligence2')
   })
+}
 
-  // The count updates straight away when a deal is dragged to another column.
+// The count updates straight away when a deal is dragged to another column.
+async function draggingCounts(page: Page) {
   await uatStep(page, 9, async () => {
     await column(page, 'Due diligence')
       .getByRole('article', { name: 'Brightline Packaging' })
@@ -111,8 +117,10 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
     await expect(header(page, 'Due diligence')).toHaveText('Due diligence1')
     await expect(header(page, 'Investment committee')).toHaveText('Investment committee2')
   })
+}
 
-  // The count updates straight away when a deal is passed on.
+// The count updates straight away when a deal is passed on.
+async function passingCounts(page: Page) {
   await uatStep(page, 11, async () => {
     await stagePicker(page, 'Kestrel Energy Services').selectOption('Passed')
     await expect(column(page, 'Passed').getByRole('article', { name: 'Kestrel Energy Services' })).toBeVisible()
@@ -122,8 +130,10 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
     await expect(header(page, 'Investment committee')).toHaveText('Investment committee1')
     await expect(header(page, 'Passed')).toHaveText('Passed2')
   })
+}
 
-  // An empty column shows 0.
+// An empty column shows 0.
+async function emptyColumnCount(page: Page) {
   await uatStep(page, 13, async () => {
     await column(page, 'Screening').scrollIntoViewIfNeeded()
     await expect(column(page, 'Screening').getByRole('article')).toHaveCount(0)
@@ -134,4 +144,13 @@ test('every column counts its deals, and the count keeps up', async ({ page }) =
     await expect(header(page, 'Screening')).toHaveText('Screening0')
     await expectPillBesideName(page, 'Screening', 0)
   })
+}
+
+test('every column counts its deals, and the count keeps up', async ({ page }) => {
+  await firstVisitCounts(page)
+  await addingCounts(page)
+  await pickerCounts(page)
+  await draggingCounts(page)
+  await passingCounts(page)
+  await emptyColumnCount(page)
 })
