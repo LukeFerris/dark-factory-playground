@@ -8,6 +8,8 @@ import { releaseOrphans, stop, takeCard } from './lock.ts'
 import { findPrForCard } from './github.ts'
 import { claimCard, sentInBy } from './progress.ts'
 import { jqlStatus } from './statuses.ts'
+import { previewSlot } from './slots.ts'
+import { EXIT } from './cli-shared.ts'
 
 export function registerCardCommands(program: Command): void {
   jiraSearch(program)
@@ -19,6 +21,7 @@ export function registerCardCommands(program: Command): void {
   jiraTransition(program)
   jiraStatusJql(program)
   jiraClaim(program)
+  previewSlotCommand(program)
 }
 
 function jiraSearch(program: Command): void {
@@ -170,5 +173,27 @@ function jiraClaim(program: Command): void {
       }
       await claimCard(cfg, key, handBackTo)
       console.log(`${key} claimed`)
+    })
+}
+
+// The poller asks this before it claims a card, so a card that has to wait is
+// left exactly where it was: in its Ready column, assigned to the factory, and
+// picked up by the first pass after a slot frees. See slots.ts.
+function previewSlotCommand(program: Command): void {
+  program
+    .command('preview-slot')
+    .description('Exit 0 if the card may start now, or 6 if every preview slot is held.')
+    .argument('<key>', 'Issue key, e.g. DF-1')
+    .option('--started <keys>', 'Cards this poller run has already started, comma-separated', '')
+    .action(async (key: string, opts: { started: string }) => {
+      const started = opts.started.split(',').filter((k) => k !== '')
+      const verdict = await previewSlot({
+        cfg: jira.configFromEnv(),
+        projectKey: required('JIRA_PROJECT_KEY'),
+        key,
+        started,
+      })
+      console.log(`${key}: ${verdict.reason}`)
+      if (!verdict.start) process.exit(EXIT.NO_SLOT)
     })
 }

@@ -49,6 +49,36 @@ describe('how the poller claims a card', () => {
 })
 
 /**
+ * Waiting for a preview slot (slots.ts).
+ *
+ * The check comes before the move, so a card that has to wait is left in its
+ * Ready column, untouched, for a later pass. After the move it would sit in
+ * Designing or Building, locked, with nothing running.
+ */
+describe('how the poller waits for a preview slot', () => {
+  const yaml = readFileSync(resolve(REPO_ROOT, '.github/workflows/poller.yml'), 'utf8')
+  const check = yaml.indexOf('preview-slot "$key" --started "$started"')
+  const transition = yaml.indexOf('jira-transition "$key"')
+  const recorded = yaml.indexOf('started="${started:+${started},}${key}"')
+
+  it('asks before the move', () => {
+    expect(check).toBeGreaterThan(-1)
+    expect(check).toBeLessThan(transition)
+  })
+
+  // A card the move refused holds nothing.
+  it('counts a card as started only once it has been moved', () => {
+    expect(recorded).toBeGreaterThan(transition)
+  })
+
+  // `set -e` is on: without the `||` a full house would end the pass.
+  it('skips a card that has to wait without ending the pass', () => {
+    expect(yaml).toContain('preview-slot "$key" --started "$started" || slot=$?')
+    expect(yaml).toMatch(/if \[ "\$slot" -eq 6 \]; then\s+continue/)
+  })
+})
+
+/**
  * Which cards the poller takes.
  *
  * A card in a Ready column is only the factory's if it is also assigned to the
