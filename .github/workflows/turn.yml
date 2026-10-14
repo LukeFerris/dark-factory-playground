@@ -6,7 +6,7 @@ name: factory turn
 #
 # The jobs below fall on one side or the other of a line (ADR 0008):
 #
-#   trusted     prepare, publish, preview, report. They hold the tokens: the
+#   trusted     prepare, publish, preview, verify, report. They hold the tokens: the
 #               App's, Jira's, Azure's. They run the factory from this commit
 #               of main, at the root of the workspace, and check the card out
 #               beside it in card/. They read the card as data and never run
@@ -51,6 +51,13 @@ on:
         required: false
         default: false
         type: boolean
+      retry:
+        description: >-
+          Which automatic turn this is, after main's required checks failed on
+          the last one. 0 for every turn a person or the poller started.
+        required: false
+        default: 0
+        type: number
 
 permissions:
   contents: read
@@ -61,6 +68,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      # Read only, and only for the checks gather shows a continuing build
+      # turn: what failed on the pull request, and the end of its log.
+      checks: read
+      statuses: read
+      actions: read
     env:
       FACTORY_REPO_ROOT: ${{ github.workspace }}/card
       ENKI_CONFIG: ${{ github.workspace }}/enki.json
@@ -151,11 +163,13 @@ jobs:
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
           FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
+          GH_CHECKS_TOKEN: ${{ github.token }}
           PR: ${{ steps.pr.outputs.number }}
+          RETRY: ${{ inputs.retry }}
         run: |
           set -euo pipefail
           if [ -n "$PR" ]; then
-            npm run --silent factory -- gather "$KEY" --stage "$STAGE" --pr "$PR"
+            npm run --silent factory -- gather "$KEY" --stage "$STAGE" --pr "$PR" --retry "$RETRY"
           else
             npm run --silent factory -- gather "$KEY" --stage "$STAGE"
           fi
@@ -392,6 +406,7 @@ jobs:
       validated: ${{ steps.validate.outcome }}
       pr: ${{ steps.describe.outputs.pr }}
       sha: ${{ steps.describe.outputs.sha }}
+      status: ${{ steps.describe.outputs.status }}
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
@@ -476,10 +491,17 @@ jobs:
       - name: Describe the turn
         id: describe
         if: always()
+        env:
+          VALIDATED: ${{ steps.validate.outcome }}
         run: |
           set -euo pipefail
           echo "pr=$(jq -r '.pr // empty' card/.agent/in/meta.json)" >> "$GITHUB_OUTPUT"
           echo "sha=$(git -C card rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Only read when the turn validated, which means the file is there
+          # and parsed against the schema.
+          if [ "$VALIDATED" = success ]; then
+            echo "status=$(jq -r '.status' card/.agent/out/result.json)" >> "$GITHUB_OUTPUT"
+          fi
 
       # Inputs as well as outputs. A turn is a pure function of .agent/in, so
       # shipping both is what makes a failed turn replayable locally.
@@ -653,12 +675,73 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # The gate between a finished build turn and In review. Waits for the
+  # checks main requires on the commit the turn pushed, beside the preview and
+  # the walkthrough rather than after them, and leaves its verdict for
+  # `report`. The card stays in Building, and locked, while it waits.
+  #
+  # Trusted, and the lightest job here: API calls, and nothing of the card's
+  # checked out at all. It reads the checks with its own token, granted read
+  # on them below; the App is given no access to checks and needs none. The
+  # App token is for the dispatch alone: it starts FACTORY_VERIFY_WORKFLOWS on
+  # the card's branch, for a repository whose expensive checks skip drafts
+  # until asked.
+  verify:
+    needs: [publish]
+    if: ${{ !cancelled() && inputs.stage == 'build' && needs.publish.outputs.validated == 'success' && needs.publish.outputs.pr != '' && needs.publish.outputs.status == 'ready_for_review' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60') }}
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+      actions: read
+    env:
+      PR: ${{ needs.publish.outputs.pr }}
+      SHA: ${{ needs.publish.outputs.sha }}
+      FACTORY_VERIFY_TIMEOUT_MINUTES: ${{ vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60' }}
+      FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
+      # Red is a verdict, not a failure: it exits 0 either way.
+      - name: Wait for the required checks
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_CHECKS_TOKEN: ${{ github.token }}
+        run: npm run --silent factory -- verify "$PR" --sha "$SHA" --out "$RUNNER_TEMP/verify/verify.json"
+
+      - name: Upload the verdict
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify/verify.json
+          retention-days: 14
+
   # Last, so that "In review" means there is something serving to review. A
   # rejected turn arrives here with no preview and still gets its comment and
   # its move to Blocked on engineer. Not on cancellation, which is a stop:
   # `factory stop` reports that itself.
   report:
-    needs: [prepare, agent, publish, preview, walkthrough]
+    needs: [prepare, agent, publish, preview, walkthrough, verify]
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -670,6 +753,7 @@ jobs:
       STAGE: ${{ inputs.stage }}
       PR: ${{ needs.publish.outputs.pr }}
       PREVIEW: ${{ needs.preview.outputs.url }}
+      RETRY: ${{ inputs.retry }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -710,6 +794,15 @@ jobs:
             cp "$f" "$FACTORY_REPO_ROOT/.agent/out/evidence/$f"
           done
 
+      # By the id `verify` reported. With no verdict, a build turn that ended
+      # ready for review goes to a person rather than to In review.
+      - name: Take the verdict
+        if: needs.verify.outputs.artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact }}
+          path: card/.agent/out
+
       # Raised after the turn was published, so not in what was published.
       - name: Record the preview
         if: env.PREVIEW != ''
@@ -745,7 +838,7 @@ jobs:
           # later when the app has long since scaled to zero, so it goes
           # through the launcher. meta.preview_url itself stays raw.
           AZURE_PREVIEW_LAUNCHER: ${{ vars.AZURE_PREVIEW_LAUNCHER }}
-        run: npm run --silent factory -- report --stage "$STAGE"
+        run: npm run --silent factory -- report --stage "$STAGE" --retry "$RETRY"
 
       - name: Fail the run if the turn was rejected
         if: needs.publish.outputs.validated != 'success'

@@ -4,7 +4,7 @@ name: factory build turn
 # is off by design: the agent never grants itself the next turn, so a runaway
 # loop costs one turn, not a night.
 #
-# One way in: `workflow_dispatch`, with the card's key. Three things send it:
+# One way in: `workflow_dispatch`, with the card's key. Four things send it:
 #
 #   build-comment.yml  a person commented on the pull request. The guards on
 #                      who may grant a turn live there, along with the lookup
@@ -15,6 +15,11 @@ name: factory build turn
 #                      was work for the build agent.
 #   refresh            main merged into the branch with a conflict, or merged
 #                      cleanly and then failed a check.
+#   report             the last turn ended ready for review, and main's
+#                      required checks then failed on what it pushed. Up to
+#                      two of these in a row, counted by `retry`; after that
+#                      the card goes to a person. The agent still grants
+#                      itself nothing: the checks do, and only twice.
 #
 # The turn reads the whole pull request conversation since the factory last
 # spoke, so a run that waits behind another on the same card loses nothing.
@@ -28,6 +33,12 @@ on:
       key:
         description: Jira issue key, e.g. DF-4
         required: true
+      retry:
+        description: >-
+          Which automatic turn this is, after required checks failed. Leave
+          it at 0 when starting a turn by hand.
+        required: false
+        default: '0'
 
 permissions:
   contents: read
@@ -52,9 +63,12 @@ jobs:
       id-token: write
       pull-requests: write
       actions: write
+      checks: read
+      statuses: read
     uses: ./.github/workflows/turn.yml
     with:
       key: ${{ inputs.key }}
       stage: build
       continues: true
+      retry: ${{ fromJSON(inputs.retry || '0') }}
     secrets: inherit
