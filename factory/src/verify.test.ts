@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_RETRIES,
   decide,
-  failureReport,
   readChecks,
   readVerdict,
   requiredChecks,
@@ -14,10 +13,7 @@ import {
   writeVerdict,
   type Verdict,
 } from './verify.ts'
-import { calls, rule, run, stub, tokens, useStubGh } from './verify.stub.ts'
-
-const SHA = 'b'.repeat(40)
-const FAST = { settleMs: 0, gapMs: 0, budgetMs: 50 }
+import { FAST, SHA, calls, failing, rule, run, stub, tokens, useStubGh } from './verify.stub.ts'
 
 useStubGh()
 
@@ -91,7 +87,10 @@ describe('verify', () => {
   })
 
   it('is red when everything has finished and something failed', async () => {
-    stub({ rules: [rule('ci', 'e2e')], runs: [run(1, 'ci', 'success'), run(2, 'e2e', 'failure')] })
+    stub({
+      rules: [rule('ci', 'e2e')],
+      runs: [run(1, 'ci', 'success'), run(2, 'e2e', 'failure')],
+    })
     const verdict = await verify({ pr: 7, sha: SHA, ...FAST })
     expect(verdict.outcome).toBe('red')
     expect(verdict.checks.find((c) => c.name === 'e2e')?.state).toBe('fail')
@@ -117,7 +116,7 @@ describe('verify', () => {
   })
 })
 
-describe('verify, starting the full suite', () => {
+describe('the workflows verify dispatches', () => {
   it("dispatches each workflow on the pull request's branch, with its number", async () => {
     stub({
       rules: [rule('ci')],
@@ -126,8 +125,32 @@ describe('verify, starting the full suite', () => {
     })
     await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml', 'slow.yml'] })
     expect(calls.filter((c) => c[0] === 'workflow')).toEqual([
-      ['workflow', 'run', 'e2e.yml', '--repo', 'o/r', '--ref', 'card/DF-1-thing', '-f', 'pr=7'],
-      ['workflow', 'run', 'slow.yml', '--repo', 'o/r', '--ref', 'card/DF-1-thing', '-f', 'pr=7'],
+      [
+        'workflow',
+        'run',
+        'e2e.yml',
+        '--repo',
+        'o/r',
+        '--ref',
+        'card/DF-1-thing',
+        '-f',
+        'pr=7',
+        '-f',
+        'tag=verify-55-1',
+      ],
+      [
+        'workflow',
+        'run',
+        'slow.yml',
+        '--repo',
+        'o/r',
+        '--ref',
+        'card/DF-1-thing',
+        '-f',
+        'pr=7',
+        '-f',
+        'tag=verify-55-1',
+      ],
     ])
   })
 
@@ -140,40 +163,9 @@ describe('verify, starting the full suite', () => {
     }
     expect(verifyWorkflows()).toEqual([])
   })
-
-  it('carries on when a workflow cannot be started, and lets the wait say so', async () => {
-    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'success')], workflows: [] })
-    expect((await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['gone.yml'] })).outcome).toBe(
-      'green',
-    )
-  })
-
-  it("reads the checks with GH_CHECKS_TOKEN, and leaves the dispatch to the App's own token", async () => {
-    process.env['GH_CHECKS_TOKEN'] = 'read-only'
-    try {
-      stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'success')] })
-      await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })
-    } finally {
-      delete process.env['GH_CHECKS_TOKEN']
-    }
-    expect(calls.some((c) => c[0] === 'workflow')).toBe(true)
-    calls.forEach((args, i) => {
-      expect(tokens[i]).toBe(args[0] === 'api' ? 'read-only' : undefined)
-    })
-  })
-
-  it('is green at once, and starts nothing, when main requires no checks', async () => {
-    stub({})
-    expect(await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })).toEqual({
-      outcome: 'green',
-      sha: SHA,
-      checks: [],
-    })
-    expect(calls.some((c) => c[0] === 'workflow' || c[0] === 'pr')).toBe(false)
-  })
 })
 
-describe('verify, and a run skipped before it asked', () => {
+describe('a run verify did not start', () => {
   it('does not take a run skipped before it asked as passing, and waits for the one it started', async () => {
     let polls = 0
     const before = { completed_at: '2026-01-01T00:00:00Z' }
@@ -202,7 +194,9 @@ describe('verify, and a run skipped before it asked', () => {
     stub({
       rules: [rule('e2e')],
       runs: () => [
-        run(2, 'e2e', 'skipped', { completed_at: new Date(Date.now() + 1000).toISOString() }),
+        run(2, 'e2e', 'skipped', {
+          completed_at: new Date(Date.now() + 1000).toISOString(),
+        }),
       ],
     })
     expect((await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })).outcome).toBe(
@@ -219,6 +213,56 @@ describe('verify, and a run skipped before it asked', () => {
     expect(verdict.outcome).toBe('timeout')
     expect(verdict.checks[0]?.state).toBe('stale')
   })
+
+  it('carries on when a workflow cannot be started, and does not call it green', async () => {
+    stub({
+      rules: [rule('ci')],
+      runs: [run(1, 'ci', 'success')],
+      workflows: ['e2e.yml'],
+    })
+    const verdict = await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['gone.yml', 'e2e.yml'] })
+    expect(verdict.outcome).toBe('timeout')
+    expect(verdict.workflows.map((r) => r.state)).toEqual(['missing', 'pass'])
+  })
+})
+
+describe('what verify reads checks with, and when main requires none', () => {
+  it("reads the checks with GH_CHECKS_TOKEN, and leaves the dispatch to the App's own token", async () => {
+    process.env['GH_CHECKS_TOKEN'] = 'read-only'
+    try {
+      stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'success')] })
+      await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })
+    } finally {
+      delete process.env['GH_CHECKS_TOKEN']
+    }
+    expect(calls.some((c) => c[0] === 'workflow')).toBe(true)
+    expect(calls.some((c) => c[0] === 'run')).toBe(true)
+    calls.forEach((args, i) => {
+      expect(tokens[i]).toBe(args[0] === 'workflow' || args[0] === 'pr' ? undefined : 'read-only')
+    })
+  })
+
+  it('is green at once, and starts nothing, when main requires no checks and nothing is dispatched', async () => {
+    stub({})
+    expect(await verify({ pr: 7, sha: SHA, ...FAST, workflows: [] })).toEqual({
+      outcome: 'green',
+      sha: SHA,
+      checks: [],
+      workflows: [],
+    })
+    expect(calls.some((c) => c[0] === 'workflow' || c[0] === 'pr')).toBe(false)
+  })
+
+  it('still waits for what it dispatched when main requires no checks', async () => {
+    stub({ outcome: failing({ failed: ['t1'], errors: 0 }) })
+    const verdict = await verify({ pr: 7, sha: SHA, ...FAST, workflows: ['e2e.yml'] })
+    expect(verdict.outcome).toBe('red')
+    expect(verdict.workflows[0]).toMatchObject({
+      workflow: 'e2e.yml',
+      state: 'fail',
+      failed: ['t1'],
+    })
+  })
 })
 
 describe('the verdict on disk', () => {
@@ -229,6 +273,7 @@ describe('the verdict on disk', () => {
       outcome: 'red',
       sha: SHA,
       checks: [{ name: 'ci', state: 'fail', conclusion: 'failure', url: null }],
+      workflows: [],
     }
     writeVerdict(verdict, join(dir, 'v.json'))
     expect(readVerdict(join(dir, 'v.json'))).toEqual(verdict)
@@ -239,10 +284,20 @@ describe('the verdict on disk', () => {
     writeFileSync(join(dir, 'odd.json'), '{"outcome":"maybe","checks":[]}')
     expect(readVerdict(join(dir, 'odd.json'))).toBeNull()
   })
+
+  it('reads one written before there were workflows as having none', () => {
+    writeFileSync(join(dir, 'old.json'), JSON.stringify({ outcome: 'green', sha: SHA, checks: [] }))
+    expect(readVerdict(join(dir, 'old.json'))?.workflows).toEqual([])
+  })
 })
 
 describe('what the factory does with a verdict', () => {
-  const verdict = (outcome: Verdict['outcome']): Verdict => ({ outcome, sha: SHA, checks: [] })
+  const verdict = (outcome: Verdict['outcome']): Verdict => ({
+    outcome,
+    sha: SHA,
+    checks: [],
+    workflows: [],
+  })
 
   it('hands a green turn over', () => {
     expect(decide(verdict('green'), 0)).toEqual({ action: 'ready' })
@@ -258,38 +313,5 @@ describe('what the factory does with a verdict', () => {
   it('asks a person when the checks did not finish, or could not be read', () => {
     expect(decide(verdict('timeout'), 0)).toMatchObject({ action: 'blocked' })
     expect(decide(null, 0)).toMatchObject({ action: 'blocked' })
-  })
-})
-
-describe('the failure report the next turn reads', () => {
-  it("gives the end of a failed Actions job's log, without the timestamps", () => {
-    const log = Array.from(
-      { length: 200 },
-      (_, i) => `2026-10-13T10:00:00.1234567Z line ${i}`,
-    ).join('\n')
-    stub({ rules: [rule('ci')], runs: [run(41, 'ci', 'failure')], logs: { 41: log } })
-    const text = failureReport(SHA).join('\n')
-    expect(text).toContain('### ci — failure')
-    expect(text).toContain('line 199')
-    expect(text).not.toContain('line 100\n')
-    expect(text).not.toContain('2026-10-13T')
-  })
-
-  it('gives what a check from another app said of itself', () => {
-    stub({
-      rules: [rule('Datadog')],
-      runs: [
-        run(9, 'Datadog', 'failure', {
-          app: { slug: 'datadog' },
-          output: { title: 'Path traversal', summary: 'in x.ts' },
-        }),
-      ],
-    })
-    expect(failureReport(SHA).join('\n')).toContain('Path traversal\n\nin x.ts')
-  })
-
-  it('is empty when nothing required is failing', () => {
-    stub({ rules: [rule('ci')], runs: [run(1, 'ci', 'success')] })
-    expect(failureReport(SHA)).toEqual([])
   })
 })

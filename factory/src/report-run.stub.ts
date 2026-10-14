@@ -88,6 +88,7 @@ export function verdict(outcome: Verdict['outcome']): void {
     outcome,
     sha: 'abc1234'.padEnd(40, '0'),
     checks: [{ name: 'ci', state, conclusion: null, url: null }],
+    workflows: [],
   })
 }
 

@@ -676,16 +676,19 @@ jobs:
           if-no-files-found: ignore
 
   # The gate between a finished build turn and In review. Waits for the
-  # checks main requires on the commit the turn pushed, beside the preview and
-  # the walkthrough rather than after them, and leaves its verdict for
-  # `report`. The card stays in Building, and locked, while it waits.
+  # checks main requires on the commit the turn pushed, and for the workflows
+  # it dispatches, beside the preview and the walkthrough rather than after
+  # them, and leaves its verdict for `report`. A dispatched run that fails is
+  # run again on main, to excuse what fails there too (ADR 0010). The card
+  # stays in Building, and locked, while it waits.
   #
   # Trusted, and the lightest job here: API calls, and nothing of the card's
   # checked out at all. It reads the checks with its own token, granted read
   # on them below; the App is given no access to checks and needs none. The
-  # App token is for the dispatch alone: it starts FACTORY_VERIFY_WORKFLOWS on
+  # App token is for the dispatches alone: it starts FACTORY_VERIFY_WORKFLOWS on
   # the card's branch, for a repository whose expensive checks skip drafts
-  # until asked.
+  # until asked, and again on main for the baseline. `actions: read` is for
+  # finding those runs and reading their failed-tests artifacts.
   verify:
     needs: [publish]
     if: ${{ !cancelled() && inputs.stage == 'build' && needs.publish.outputs.validated == 'success' && needs.publish.outputs.pr != '' && needs.publish.outputs.status == 'ready_for_review' }}

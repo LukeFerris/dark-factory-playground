@@ -9,7 +9,7 @@ import { readMeta } from './meta.ts'
 import { RESULT_PATH } from './meta.ts'
 import { handBackTarget, releaseCard, syncLinks, turnLinks } from './progress.ts'
 import { addressedTo, buildComment, fallbackComment, type Evidence } from './report-comment.ts'
-import { atTheGate, gated, startRetry, type Gate } from './report-gate.ts'
+import { atTheGate, gated, logDryRunGate, mainRed, startRetry, type Gate } from './report-gate.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
 
 export interface ReportOptions {
@@ -89,9 +89,7 @@ export async function report(options: ReportOptions): Promise<void> {
   // `publish` never ran — still links the PR a human needs to go and look at.
   const pr = options.prUrl ?? prUrl(meta.pr)
 
-  const gate = gated(options.stage, result)
-    ? atTheGate(meta.pr, options.retry ?? 0, options.dryRun === true)
-    : null
+  const gate = gated(options.stage, result) ? await gateFor(cfg, meta, pr, options) : null
   const retrying = gate?.decision.action === 'retry'
 
   const { evidence, evidenceNote } = await attachEvidence(cfg, meta.key, options.dryRun === true)
@@ -115,8 +113,7 @@ export async function report(options: ReportOptions): Promise<void> {
     console.log(JSON.stringify(comment, null, 2))
     console.log(`report --dry-run: ${evidenceNote}`)
     console.log(`report --dry-run: would move ${meta.key} to ${target}`)
-    if (gate !== null)
-      console.log(`report --dry-run: the gate says ${JSON.stringify(gate.decision)}`)
+    if (gate !== null) logDryRunGate(gate)
     return
   }
 
@@ -208,4 +205,19 @@ export function targetStatus(
     if (gate.decision.action === 'blocked') return STATUS_TRANSITIONS[stage].blocked
   }
   return STATUS_TRANSITIONS[stage][result.status]
+}
+
+/**
+ * The gate a finished build has to clear, with a card found or raised for
+ * each failure it excused because main has it too.
+ */
+async function gateFor(
+  cfg: jira.JiraConfig,
+  meta: { key: string; pr: number | null },
+  pr: string | null,
+  options: ReportOptions,
+): Promise<Gate> {
+  const gate = atTheGate(meta.pr, options.retry ?? 0, options.dryRun === true)
+  if (options.dryRun !== true) await mainRed(cfg, meta, pr, gate)
+  return gate
 }

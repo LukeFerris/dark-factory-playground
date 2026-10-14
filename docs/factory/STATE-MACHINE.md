@@ -384,12 +384,15 @@ preview and the walkthrough, and only on a build turn that validated and ended
 
 1. reads the required checks from main's rulesets and classic protection, both;
 2. dispatches each workflow named in `FACTORY_VERIFY_WORKFLOWS` on the PR's
-   branch, with the PR's number as `pr`. This is how a suite that skips drafts
-   gets its one full run;
+   branch, with the PR's number as `pr` and a `tag` naming this verify. This is
+   how a suite that skips drafts gets its one full run;
 3. waits for every required check on the pushed commit — the newest run of each
-   name, falling back to commit statuses — until all have finished or the budget
+   name, falling back to commit statuses — and for every run it dispatched,
+   found by its tag, until all have finished or the budget
    (`FACTORY_VERIFY_TIMEOUT_MINUTES`, 60 by default) runs out;
-4. writes a verdict: **green**, **red** or **timeout**.
+4. runs the failed tests of a dispatched run again on main, and excuses those
+   that fail there too (below);
+5. writes a verdict: **green**, **red** or **timeout**.
 
 `success`, `neutral` and `skipped` count as passing, as they do for branch
 protection, with one exception: once `verify` has dispatched something, a run
@@ -401,7 +404,35 @@ It is a dispatch rather than a label on purpose. A workflow listening for
 `pull_request: labeled` runs on _every_ label anyone adds to any PR, and on a
 label that is not the factory's it would skip — and a skipped run newer than a
 failed one passes branch protection. When main
-requires no checks at all, the verdict is green at once.
+requires no checks and nothing is dispatched, the verdict is green at once.
+
+**A dispatched workflow has to pass too, unless main fails the same way**
+([ADR 0010](../adr/0010-a-failure-main-already-has-is-not-the-cards.md)). GitHub
+does not require it; the factory does. When a dispatched run fails, `verify`
+reads the tests it failed from its `failed-tests` artifact, and dispatches the
+same workflow on main with `sha` (the commit the PR's branch left main at),
+`tests` (that list) and `tag`. A test that fails in both runs is main's: it is
+_excused_, and does not hold the card back. A test that fails only on the PR is
+the card's. The comparison is mechanical, and anything it cannot decide counts
+against the card: a run that left no list, a failure outside the tests, a
+baseline that never ran or could not be read. Required checks are never
+excused.
+
+`report` finds or raises a card for each excused failure, in the same space,
+in its first status, assigned to nobody — labelled `enki-main-red-<hash>` so
+the next PR that trips on it finds the open card instead of raising another.
+At most ten are raised in one report. The excused failures are listed in the
+report comment and in a section of the PR's body
+(`<!-- enki:main-red -->…<!-- /enki:main-red -->`), not a PR comment, which
+would start a turn.
+
+What a workflow has to provide to be compared with main, beyond the `pr` input:
+the inputs `sha` (check this out instead), `tests` (a JSON array of test ids to
+run, all of them when empty) and `tag` (put at the end of the run name), and an
+artifact `failed-tests` holding `failed-tests.json`,
+`{"failed": [ids], "errors": n}`. The ids are opaque to the factory. A workflow
+without them is started without a tag, found by commit and time, and has
+nothing excused.
 
 **`report` acts on the verdict:**
 
@@ -420,7 +451,10 @@ buys a fresh two.
 **The next turn reads the failures.** `gather` reads the PR's required checks
 afresh on every continuing build turn and, for each failing one, appends the
 last 80 lines of its job log (or, for a check from another app, its own title
-and summary) under _Required checks failing on the pull request_. Nothing about
+and summary) under _Checks failing on the pull request_. For each dispatched
+workflow it finds the newest dispatched run on the PR's commit and its baseline
+on main by tag, and lists the tests that are the agent's to fix apart from the
+ones main fails too, which it is told to leave alone. Nothing about
 the failure is posted on the PR, because `gather` counts the factory's PR
 comments as turns. The log text is marked as output to read, not instructions:
 it is printed by code in the PR, which the agent wrote.

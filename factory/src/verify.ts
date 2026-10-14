@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { dispatchWorkflow, gh, ghJson, repoSlug } from './github.ts'
+import { follow, type Follow, type WorkflowResult } from './baseline.ts'
+import { PASSING, reader, verifyTag } from './dispatched.ts'
+import { ghJson, repoSlug } from './github.ts'
 import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
 
 /**
@@ -24,6 +26,10 @@ import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
  * `pull_request: labeled` would also run, and skip, on every other label
  * anyone put on any pull request, and a skipped run newer than a failed one
  * passes branch protection.
+ *
+ * `verify` waits for what it dispatched as well as for what main requires, and
+ * a dispatched workflow has to pass as well (ADR 0010). One that fails only on
+ * tests that fail on main too is excused: see `baseline.ts`.
  */
 
 /** The workflows `verify` dispatches, from `FACTORY_VERIFY_WORKFLOWS`. */
@@ -32,18 +38,6 @@ export function verifyWorkflows(): string[] {
     .split(',')
     .map((w) => w.trim())
     .filter((w) => w !== '')
-}
-
-/**
- * The token the checks are read with: `GH_CHECKS_TOKEN` when it is set, which
- * in the workflows is the job's own GITHUB_TOKEN granted `checks`, `statuses`
- * and `actions` read. The App is given none of those. It needs none of them
- * for anything else, and everything here is a read, which GITHUB_TOKEN does as
- * well as the App does. Writes, the dispatch and the draft, stay with the App.
- */
-function reader(): Record<string, string> | undefined {
-  const token = process.env['GH_CHECKS_TOKEN']
-  return token === undefined || token === '' ? undefined : { GH_TOKEN: token }
 }
 
 /** Automatic turns after the first red verdict, before a person is asked. */
@@ -68,16 +62,19 @@ export interface CheckResult {
 
 export interface Verdict {
   /**
-   * `green` every required check passed; `red` all have finished and at least
-   * one failed; `timeout` the budget ran out with some still running or never
-   * reported.
+   * `green` every required check and dispatched workflow passed, or failed only
+   * where main fails too; `red` all have finished and at least one failed;
+   * `timeout` the budget ran out with some still running or never reported, or
+   * a workflow could not be started.
    */
   outcome: 'green' | 'red' | 'timeout'
   sha: string
   checks: CheckResult[]
+  /** The workflows `verify` dispatched. Absent from a verdict written before there were any. */
+  workflows: WorkflowResult[]
 }
 
-interface CheckRun {
+export interface CheckRun {
   id: number
   name: string
   status: string
@@ -132,7 +129,7 @@ function classicChecks(slug: string, branch: string): string[] {
   ]
 }
 
-function checkRuns(sha: string): CheckRun[] {
+export function checkRuns(sha: string): CheckRun[] {
   return (
     ghJson<CheckRun[]>(
       [
@@ -162,7 +159,7 @@ function commitStatuses(sha: string): CommitStatus[] {
  * draft's push can leave a skipped run of a check that `verify` then starts
  * again on the same commit, and the skipped one must not stand for it.
  */
-function newestRun(runs: CheckRun[], name: string): CheckRun | null {
+export function newestRun(runs: CheckRun[], name: string): CheckRun | null {
   return runs
     .filter((r) => r.name === name)
     .reduce<CheckRun | null>(
@@ -170,9 +167,6 @@ function newestRun(runs: CheckRun[], name: string): CheckRun | null {
       null,
     )
 }
-
-// What branch protection itself accepts as passing.
-const PASSING = new Set(['success', 'neutral', 'skipped'])
 
 /**
  * Where each required check stands on `sha`: its newest check run, or failing
@@ -216,11 +210,11 @@ function fromStatus(name: string, status: CommitStatus): CheckResult {
 
 /**
  * Starts each of `workflows` on the pull request's branch, with the pull
- * request's number as `pr`. A workflow that cannot be started is a warning,
- * not the end: its checks then go unanswered and the wait times out, which
- * says so on the card.
+ * request's number as `pr` and this verify's tag, and follows each to the end.
+ * A workflow that cannot be started is not the end of the others: it is
+ * `missing`, and the verdict says so.
  */
-function dispatch(pr: number, workflows: string[]): void {
+function dispatch(pr: number, sha: string, workflows: string[]): Follow[] {
   const branch = ghJson<{ headRefName: string }>([
     'pr',
     'view',
@@ -230,16 +224,8 @@ function dispatch(pr: number, workflows: string[]): void {
     '--json',
     'headRefName',
   ]).headRefName
-  for (const workflow of workflows) {
-    try {
-      dispatchWorkflow(workflow, { pr: String(pr) }, branch)
-      console.log(`verify: started ${workflow} on ${branch}`)
-    } catch (error) {
-      console.error(
-        `::warning::could not start ${workflow} on ${branch}: ${(error as Error).message}`,
-      )
-    }
-  }
+  const tag = verifyTag()
+  return workflows.map((workflow) => follow({ workflow, pr, sha, branch, tag }))
 }
 
 export interface VerifyOptions {
@@ -247,7 +233,7 @@ export interface VerifyOptions {
   sha: string
   /** Workflows to dispatch first. `verifyWorkflows()` by default. */
   workflows?: string[]
-  /** How long to wait for every required check to finish. */
+  /** How long to wait for every required check and dispatched workflow to finish. */
   budgetMs?: number
   /**
    * How long to give GitHub to start the runs the push and the dispatch set
@@ -265,42 +251,67 @@ export function budgetFromEnv(): number {
   return Math.max(1, (Number.isFinite(minutes) ? minutes : 60) - 5) * 60_000
 }
 
+function timings(
+  options: VerifyOptions,
+): Required<Pick<VerifyOptions, 'settleMs' | 'gapMs' | 'budgetMs'>> {
+  return {
+    settleMs: options.settleMs ?? 60_000,
+    gapMs: options.gapMs ?? 30_000,
+    budgetMs: options.budgetMs ?? budgetFromEnv(),
+  }
+}
+
 export async function verify(options: VerifyOptions): Promise<Verdict> {
-  const budgetMs = options.budgetMs ?? budgetFromEnv()
-  const settleMs = options.settleMs ?? 60_000
-  const gapMs = options.gapMs ?? 30_000
-
+  const { sha } = options
   const required = requiredChecks()
-  if (required.length === 0) {
-    console.log('verify: main requires no checks, so there is nothing to wait for.')
-    return { outcome: 'green', sha: options.sha, checks: [] }
-  }
-  console.log(`verify: main requires ${required.join(', ')}`)
-
   const workflows = options.workflows ?? verifyWorkflows()
-  let askedAt: number | undefined
-  if (workflows.length > 0) {
-    askedAt = Date.now()
-    dispatch(options.pr, workflows)
+  if (required.length === 0 && workflows.length === 0) {
+    console.log(
+      'verify: main requires no checks and nothing is dispatched, so there is nothing to wait for.',
+    )
+    return { outcome: 'green', sha, checks: [], workflows: [] }
   }
+  if (required.length > 0) console.log(`verify: main requires ${required.join(', ')}`)
 
+  const askedAt = workflows.length > 0 ? Date.now() : undefined
+  const followed = workflows.length > 0 ? dispatch(options.pr, sha, workflows) : []
+
+  const { settleMs, gapMs, budgetMs } = timings(options)
   await sleep(settleMs)
   const started = Date.now()
   for (;;) {
-    const checks = readChecks(options.sha, required, askedAt)
-    const waiting = checks.filter(
-      (c) => c.state === 'pending' || c.state === 'missing' || c.state === 'stale',
-    )
-    if (waiting.length === 0) {
-      const outcome = checks.some((c) => c.state === 'fail') ? 'red' : 'green'
-      return { outcome, sha: options.sha, checks }
-    }
+    const checks = required.length === 0 ? [] : readChecks(sha, required, askedAt)
+    const runs = followed.map((f) => f.step())
+    const waiting = waitingOn(checks, runs)
+    if (waiting.length === 0)
+      return { outcome: outcomeOf(checks, runs), sha, checks, workflows: runs }
     if (Date.now() - started >= budgetMs) {
-      return { outcome: 'timeout', sha: options.sha, checks }
+      return { outcome: 'timeout', sha, checks, workflows: runs }
     }
-    console.log(`verify: waiting on ${waiting.map((c) => c.name).join(', ')}`)
+    console.log(`verify: waiting on ${waiting.join(', ')}`)
     await sleep(gapMs)
   }
+}
+
+/** What has not finished yet, by name. */
+function waitingOn(checks: CheckResult[], runs: WorkflowResult[]): string[] {
+  return [
+    ...checks
+      .filter((c) => c.state === 'pending' || c.state === 'missing' || c.state === 'stale')
+      .map((c) => c.name),
+    ...runs
+      .filter((r) => r.state === 'pending')
+      .map((r) => `${r.workflow} (${r.note ?? 'pending'})`),
+  ]
+}
+
+/**
+ * Once everything has finished: red on any failure, a timeout when something
+ * could not even be started, and otherwise green.
+ */
+function outcomeOf(checks: CheckResult[], runs: WorkflowResult[]): Verdict['outcome'] {
+  if (checks.some((c) => c.state === 'fail') || runs.some((r) => r.state === 'fail')) return 'red'
+  return runs.some((r) => r.state === 'missing') ? 'timeout' : 'green'
 }
 
 export function writeVerdict(verdict: Verdict, path = VERIFY_PATH): void {
@@ -312,9 +323,9 @@ export function readVerdict(path = VERIFY_PATH): Verdict | null {
   if (!existsSync(path)) return null
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as Verdict
-    return ['green', 'red', 'timeout'].includes(parsed.outcome) && Array.isArray(parsed.checks)
-      ? parsed
-      : null
+    if (!['green', 'red', 'timeout'].includes(parsed.outcome) || !Array.isArray(parsed.checks))
+      return null
+    return { ...parsed, workflows: Array.isArray(parsed.workflows) ? parsed.workflows : [] }
   } catch {
     return null
   }
@@ -342,67 +353,13 @@ export function decide(verdict: Verdict | null, retry: number): Decision {
     return {
       action: 'blocked',
       why:
-        'Some required checks had not finished when the factory stopped waiting. Another agent turn ' +
-        'would not make them finish sooner.',
+        'Some checks had not finished when the factory stopped waiting, or could not be started. ' +
+        'Another agent turn would not make them finish sooner.',
     }
   }
   if (retry < MAX_RETRIES) return { action: 'retry', next: retry + 1 }
   return {
     action: 'blocked',
-    why: `Required checks still fail after ${MAX_RETRIES} automatic turns to fix them.`,
+    why: `Checks still fail after ${MAX_RETRIES} automatic turns to fix them.`,
   }
-}
-
-const LOG_LINES = 80
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z ?/
-
-/**
- * The end of a failed job's log, which is where a test runner prints what
- * failed. The id of a check run made by Actions is its job's id.
- */
-function logTail(run: CheckRun): string | null {
-  if (run.app?.slug !== 'github-actions') return null
-  try {
-    const log = gh(['api', `repos/${repoSlug()}/actions/jobs/${run.id}/logs`], undefined, reader())
-    return log
-      .split('\n')
-      .map((line) => line.replace(TIMESTAMP, ''))
-      .slice(-LOG_LINES)
-      .join('\n')
-      .trim()
-  } catch {
-    return null
-  }
-}
-
-/**
- * The failing required checks on `sha`, written up for the agent: which
- * failed, and the end of each one's log, or what the check said of itself when
- * it is not an Actions job.
- *
- * All of it is untrusted, as everything the agent reads is: a log is whatever
- * the pull request's code printed.
- */
-export function failureReport(sha: string): string[] {
-  const required = requiredChecks()
-  if (required.length === 0) return []
-  const failing = readChecks(sha, required).filter((c) => c.state === 'fail')
-  if (failing.length === 0) return []
-
-  const runs = checkRuns(sha)
-  return failing.flatMap((check) => [
-    `### ${check.name} — ${check.conclusion ?? 'failed'}`,
-    '',
-    ...whatItSaid(newestRun(runs, check.name)),
-  ])
-}
-
-/** The end of a failing run's log, or failing that what it said of itself. */
-function whatItSaid(run: CheckRun | null): string[] {
-  const tail = run === null ? null : logTail(run)
-  if (tail !== null && tail !== '') return ['The end of its log:', '', '~~~~', tail, '~~~~', '']
-  const said = [run?.output?.title, run?.output?.summary].filter(
-    (s): s is string => (s ?? '') !== '',
-  )
-  return [said.length > 0 ? said.join('\n\n').slice(0, 4000) : '_(it gave no detail)_', '']
 }
