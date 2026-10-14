@@ -795,13 +795,16 @@ jobs:
           done
 
       # By the id `verify` reported. With no verdict, a build turn that ended
-      # ready for review goes to a person rather than to In review.
+      # ready for review goes to a person rather than to In review. Downloads
+      # by id land in a folder named after the artifact unless merged, and
+      # `report` reads .agent/out/verify.json, not a folder below it.
       - name: Take the verdict
         if: needs.verify.outputs.artifact != ''
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.verify.outputs.artifact }}
           path: card/.agent/out
+          merge-multiple: true
 
       # Raised after the turn was published, so not in what was published.
       - name: Record the preview
