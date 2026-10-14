@@ -55,14 +55,14 @@ talked into adding, or one that was already in the tree, gets the same root.
 triggers and concurrency group, because the lock, triage and refresh dispatch
 them by name.
 
-| Job | Side | Holds | Does |
-| --- | --- | --- | --- |
-| `prepare` | trusted | App token, `JIRA_BOT_TOKEN` | gathers the card, announces, cuts the branch, `merge-begin` |
-| `agent` | untrusted | `ANTHROPIC_API_KEY` | merges main, resolves conflicts, `npm ci`, runs the agent, bundles the turn |
-| `publish` | trusted | App token, `JIRA_BOT_TOKEN` | `accept`, `validate`, `publish` |
-| `preview` | trusted | Azure (OIDC), `packages`/`deployments: write` | `preview-up` |
-| `walkthrough` | untrusted | nothing | the card's e2e spec against the preview, recorded |
-| `report` | trusted | App token, `JIRA_BOT_TOKEN` | kickoff and report |
+| Job           | Side      | Holds                                         | Does                                                                        |
+| ------------- | --------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| `prepare`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | gathers the card, announces, cuts the branch, `merge-begin`                 |
+| `agent`       | untrusted | `ANTHROPIC_API_KEY`                           | merges main, resolves conflicts, `npm ci`, runs the agent, bundles the turn |
+| `publish`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | `accept`, `validate`, `publish`                                             |
+| `preview`     | trusted   | Azure (OIDC), `packages`/`deployments: write` | `preview-up`                                                                |
+| `walkthrough` | untrusted | nothing                                       | the card's e2e spec against the preview, recorded                           |
+| `report`      | trusted   | App token, `JIRA_BOT_TOKEN`                   | kickoff and report                                                          |
 
 **Only data crosses from untrusted to trusted, and it is judged as data.**
 
@@ -83,7 +83,7 @@ them by name.
 - No untrusted job's outputs are read, with one exception: refresh's checks job
   reports which command failed. Its value is checked against a fixed list
   (`reportedChecks`), and it only decides whether the card goes back to
-  *Building*.
+  _Building_.
 
 **Refresh is split the same way.** `refresh.yml` plans and fans out to
 `refresh-card.yml` per card. Its `checks` job merges the planned commit of main

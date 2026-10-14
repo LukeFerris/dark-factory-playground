@@ -35,7 +35,7 @@ Read in full: `app/src/App.tsx`, `app/src/App.test.tsx`, `app/index.html`,
   runtime dependencies are `react` and `react-dom`.
 - "Deal Pipeline" appears in code in four places: the h1, the `<title>`, the
   first `App.test.tsx` case (`getByRole('heading', { level: 1, name: 'Deal
-  Pipeline' })`), and twice in `app/e2e/pipeline.spec.ts` (DF-11 walkthrough
+Pipeline' })`), and twice in `app/e2e/pipeline.spec.ts` (DF-11 walkthrough
   steps 3 and 20).
 - `index.css.test.ts` reads source files as text with `readFileSync`, because
   jsdom does not load `index.html` or apply the stylesheet. That is the
@@ -56,9 +56,17 @@ Read in full: `app/src/App.tsx`, `app/src/App.test.tsx`, `app/index.html`,
 
    ```tsx
    <h1 className="app__title">
-     <svg className="app__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
-          fill="none" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round">
+     <svg
+       className="app__icon"
+       viewBox="0 0 24 24"
+       aria-hidden="true"
+       focusable="false"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+     >
        <rect x="3" y="7" width="18" height="13" rx="2" />
        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
        <path d="M3 13h18" />
@@ -80,7 +88,7 @@ Read in full: `app/src/App.tsx`, `app/src/App.test.tsx`, `app/index.html`,
    else uses yet. If a second icon arrives, that is the point to extract one.
 
 3. **Layout.** `.app__header h1` becomes `display: flex; align-items: center;
-   gap: 10px;` and `.app__icon` is `width: 1em; height: 1em; flex: none;`. The
+gap: 10px;` and `.app__icon` is `width: 1em; height: 1em; flex: none;`. The
    icon then sizes with the heading's 2rem font (32px) and sits on the same
    line, to the left of the name. The existing h1 rules (size, weight, colour,
    margin) are unchanged. The `app__title` class is only a hook for the test
@@ -94,14 +102,14 @@ Read in full: `app/src/App.tsx`, `app/src/App.test.tsx`, `app/index.html`,
 
 ## Components affected
 
-| File | Change |
-| --- | --- |
-| `app/src/App.tsx` | h1 text becomes "Deal CRM", gains `className="app__title"`, and holds the inline briefcase SVG (decorative, `aria-hidden`) before the text |
-| `app/index.html` | `<title>` becomes "Deal CRM" |
-| `app/src/index.css` | `.app__header h1` gains `display: flex; align-items: center; gap: 10px`; new `.app__icon { width: 1em; height: 1em; flex: none; }` |
-| `app/src/App.test.tsx` | First case asserts the heading "Deal CRM", the decorative icon, and the absence of "Deal Pipeline" (below) |
-| `app/src/index.html.test.ts` (new) | Reads `app/index.html` as text and asserts the title is "Deal CRM", the same way `index.css.test.ts` reads the stylesheet |
-| `app/e2e/pipeline.spec.ts` | Replaced with DF-14's walkthrough, one `uatStep` per flattened step below |
+| File                               | Change                                                                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app/src/App.tsx`                  | h1 text becomes "Deal CRM", gains `className="app__title"`, and holds the inline briefcase SVG (decorative, `aria-hidden`) before the text |
+| `app/index.html`                   | `<title>` becomes "Deal CRM"                                                                                                               |
+| `app/src/index.css`                | `.app__header h1` gains `display: flex; align-items: center; gap: 10px`; new `.app__icon { width: 1em; height: 1em; flex: none; }`         |
+| `app/src/App.test.tsx`             | First case asserts the heading "Deal CRM", the decorative icon, and the absence of "Deal Pipeline" (below)                                 |
+| `app/src/index.html.test.ts` (new) | Reads `app/index.html` as text and asserts the title is "Deal CRM", the same way `index.css.test.ts` reads the stylesheet                  |
+| `app/e2e/pipeline.spec.ts`         | Replaced with DF-14's walkthrough, one `uatStep` per flattened step below                                                                  |
 
 Unchanged: every component under `app/src/components/`, everything under
 `app/src/crm/`, `package.json` (no new dependency), the stored data and its

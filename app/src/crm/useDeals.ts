@@ -42,7 +42,9 @@ export function useDeals() {
   const updateDeal = useCallback((id: string, changes: NewDeal) => {
     setDeals((current) =>
       current.map((deal) =>
-        deal.id === id ? { id: deal.id, stage: deal.stage, ...changes, company: changes.company.trim() } : deal,
+        deal.id === id
+          ? { id: deal.id, stage: deal.stage, ...changes, company: changes.company.trim() }
+          : deal,
       ),
     )
   }, [])

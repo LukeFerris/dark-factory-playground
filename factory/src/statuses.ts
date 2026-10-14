@@ -46,7 +46,9 @@ const ConfigSchema = z
   .object({
     jira: z
       .object({
-        statuses: z.record(z.enum(STATUS_NAMES), z.string().regex(/^\d+$/, 'a status id is all digits')).optional(),
+        statuses: z
+          .record(z.enum(STATUS_NAMES), z.string().regex(/^\d+$/, 'a status id is all digits'))
+          .optional(),
       })
       .passthrough()
       .optional(),
@@ -69,19 +71,27 @@ export function readStatusIds(file: string = configPath()): StatusIds | null {
   if (!existsSync(file)) return null
   const parsed = ConfigSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
   if (!parsed.success) {
-    throw new Error(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+    throw new Error(
+      `${file}: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+    )
   }
   const pinned = parsed.data.jira?.statuses
   if (pinned === undefined) return null
 
   const missing = STATUS_NAMES.filter((name) => pinned[name] === undefined)
   if (missing.length > 0) {
-    throw new Error(`${file}: jira.statuses has no id for ${missing.map((m) => `"${m}"`).join(', ')}. Pin all ten, or none.`)
+    throw new Error(
+      `${file}: jira.statuses has no id for ${missing.map((m) => `"${m}"`).join(', ')}. Pin all ten, or none.`,
+    )
   }
   const ids = pinned as StatusIds
-  const shared = STATUS_NAMES.filter((name, i) => STATUS_NAMES.findIndex((other) => ids[other] === ids[name]) !== i)
+  const shared = STATUS_NAMES.filter(
+    (name, i) => STATUS_NAMES.findIndex((other) => ids[other] === ids[name]) !== i,
+  )
   if (shared.length > 0) {
-    throw new Error(`${file}: jira.statuses gives ${shared.map((s) => `"${s}"`).join(', ')} an id already used by another status.`)
+    throw new Error(
+      `${file}: jira.statuses gives ${shared.map((s) => `"${s}"`).join(', ')} an id already used by another status.`,
+    )
   }
   return ids
 }

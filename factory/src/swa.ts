@@ -44,14 +44,17 @@ const RERUN_DELAY_SECONDS = 60
 function count(name: string, fallback: number): number {
   const raw = optional(name, String(fallback))
   const value = Number(raw)
-  if (!Number.isInteger(value) || value < 0) throw new Error(`${name} must be a whole number of 0 or more: ${raw}`)
+  if (!Number.isInteger(value) || value < 0)
+    throw new Error(`${name} must be a whole number of 0 or more: ${raw}`)
   return value
 }
 
 export function swaConfig(): SwaConfig {
   const urlTemplate = required('SWA_PREVIEW_URL')
   if (!urlTemplate.includes('{pr}')) {
-    throw new Error(`SWA_PREVIEW_URL must contain {pr} where the pull request number goes: ${urlTemplate}`)
+    throw new Error(
+      `SWA_PREVIEW_URL must contain {pr} where the pull request number goes: ${urlTemplate}`,
+    )
   }
   return {
     workflow: required('SWA_PREVIEW_WORKFLOW'),
@@ -83,7 +86,11 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * the marker in each. A site that does not answer is not "not ready" in this
  * sense; `waitUntilAwake` deals with that afterwards.
  */
-export async function bundleHasMarker(url: string, marker: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function bundleHasMarker(
+  url: string,
+  marker: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
   if (marker === '') return false
   const read = async (target: string): Promise<string> => {
     try {
@@ -119,10 +126,19 @@ export async function raiseSwa(
   const maxReruns = options.maxReruns ?? config.maxReruns
   const rerunDelayMs = options.rerunDelayMs ?? config.rerunDelayMs
 
-  let run = await waitForRun(config.workflow, () => findRun(config.workflow, sha, 'pull_request'), 1, options)
+  let run = await waitForRun(
+    config.workflow,
+    () => findRun(config.workflow, sha, 'pull_request'),
+    1,
+    options,
+  )
   console.log(`preview-up: ${config.workflow} deployed ${sha.slice(0, 7)} (${run.html_url})`)
 
-  for (let rerun = 1; await bundleHasMarker(url, config.notReadyMarker, options.fetchImpl); rerun++) {
+  for (
+    let rerun = 1;
+    await bundleHasMarker(url, config.notReadyMarker, options.fetchImpl);
+    rerun++
+  ) {
     if (rerun > maxReruns) {
       throw new Error(
         `The preview at ${url} still contains "${config.notReadyMarker}" after ${maxReruns} reruns of ` +

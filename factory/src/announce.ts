@@ -65,9 +65,12 @@ function intent(meta: Meta): string {
  * the stop instruction is written out rather than mentioned.
  */
 function lockParagraph(factoryAccountId: string | undefined): adf.AdfNode {
-  const who = factoryAccountId === undefined ? adf.text('@the factory') : adf.mention(factoryAccountId)
+  const who =
+    factoryAccountId === undefined ? adf.text('@the factory') : adf.mention(factoryAccountId)
   return adf.paragraph(
-    adf.text('Until then the card is locked: only the factory can move or reassign it. To stop the turn, '),
+    adf.text(
+      'Until then the card is locked: only the factory can move or reassign it. To stop the turn, ',
+    ),
     adf.text('comment '),
     who,
     adf.text(' stop'),
@@ -75,7 +78,11 @@ function lockParagraph(factoryAccountId: string | undefined): adf.AdfNode {
   )
 }
 
-export function startComment(meta: Meta, run: string | null, factoryAccountId?: string): adf.AdfDoc {
+export function startComment(
+  meta: Meta,
+  run: string | null,
+  factoryAccountId?: string,
+): adf.AdfDoc {
   const blocks: adf.AdfNode[] = [
     adf.heading(`${meta.stage} turn ${meta.turn} started`),
     adf.paragraph(adf.text(intent(meta))),

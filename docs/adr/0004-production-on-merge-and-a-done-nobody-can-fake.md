@@ -18,8 +18,8 @@ Nothing replaced that preview. Grepping the repository for "production" returned
 nothing at all; Azure was hosting three Container Apps, all of them previews.
 The end state of a card was code on the default branch, running nowhere.
 
-The card was in the same condition. Nothing moved a card to *Done* — not on
-merge, not ever. A human dragged it when they remembered to, which meant *Done*
+The card was in the same condition. Nothing moved a card to _Done_ — not on
+merge, not ever. A human dragged it when they remembered to, which meant _Done_
 recorded somebody's housekeeping rather than any fact about the software. The
 two halves were also independent: you could merge without the card moving, or
 move the card with nothing merged.
@@ -27,7 +27,7 @@ move the card with nothing merged.
 ## Decision
 
 **A merged pull request deploys production, and then the factory moves the card
-to *Done*. Nobody else can.**
+to _Done_. Nobody else can.**
 
 Three parts, and the order between the first two is the substance of the
 decision.
@@ -39,13 +39,13 @@ Same registry, same Container Apps environment, same managed identity, same
 assembled differently from the thing that was reviewed is not a preview of
 anything, so the differences are held to two:
 
-| | Preview | Production |
-| --- | --- | --- |
-| Name | `df-preview-pr-<n>`, one per PR | `df-production`, one forever |
-| `min-replicas` | 0 — costs nothing unvisited | **1** — never sleeps |
-| Image tag | `pr-<n>` | **`main-<sha>`**, immutable |
-| Torn down | on PR close | never |
-| Link | through the launcher | direct |
+|                | Preview                         | Production                   |
+| -------------- | ------------------------------- | ---------------------------- |
+| Name           | `df-preview-pr-<n>`, one per PR | `df-production`, one forever |
+| `min-replicas` | 0 — costs nothing unvisited     | **1** — never sleeps         |
+| Image tag      | `pr-<n>`                        | **`main-<sha>`**, immutable  |
+| Torn down      | on PR close                     | never                        |
+| Link           | through the launcher            | direct                       |
 
 `min-replicas: 1` removes the cold start, which is why production needs no
 launcher in front of it. It is also the first thing in this factory that costs
@@ -55,15 +55,15 @@ cost is unchanged.
 
 Tagging by commit rather than `latest` matters more than it looks:
 `az containerapp update --image` only creates a new revision when the image
-*reference* changes. Pushing new bytes to a fixed tag would leave the old
+_reference_ changes. Pushing new bytes to a fixed tag would leave the old
 revision serving — a deployment that appears to work indefinitely.
 
 ### Deploy, prove it answers, then move the card
 
 This is [0003](0003-the-turn-raises-its-own-preview.md)'s rule applied one
-column further right. There the argument was that a card must not read *In
-review* before there is something to review. Here it is that a card must not
-read *Done* before the thing is live.
+column further right. There the argument was that a card must not read _In
+review_ before there is something to review. Here it is that a card must not
+read _Done_ before the thing is live.
 
 So `production.yml` runs `production-up` first — which builds, deploys, and
 blocks until the URL answers — and only then runs `ship`, which comments the
@@ -88,16 +88,16 @@ ordering, and `pull_request` is the better owner:
 two run concurrently and touch different resources — teardown deletes
 `df-preview-pr-<n>` and its `pr-<n>` tag, production writes `df-production` and
 a `main-<sha>` tag — so there is nothing to serialise between them. A
-`factory-production` concurrency group serialises production against *itself*,
+`factory-production` concurrency group serialises production against _itself_,
 because two merges in quick succession would otherwise collide on one
 Container App and Azure would reject the second with
 `ContainerAppOperationInProgress`. That is not hypothetical: it is exactly how
 the old `pull_request`-triggered preview failed when it raced a turn.
 
-### Only the bot may set *Done*
+### Only the bot may set _Done_
 
 A Jira **transition condition** on the DF workflow restricts the transition into
-*Done* to the factory's bot account. A condition rather than a permission,
+_Done_ to the factory's bot account. A condition rather than a permission,
 because a condition hides the transition rather than rejecting it: the status
 stops being offered on the board, and `factory jira-transition` — which resolves
 a transition by destination before using it — fails with
@@ -105,13 +105,13 @@ a transition by destination before using it — fails with
 
 This is the first place the factory's Jira workflow is not fully connected.
 Everywhere else any status is reachable from any other, deliberately, so that a
-failed turn can always reach *Blocked on engineer*. *Done* is different because
+failed turn can always reach _Blocked on engineer_. _Done_ is different because
 it is the one status that asserts a fact about the world rather than a position
 in a process.
 
 ## Consequences
 
-**The board's guarantee gets stronger.** *Done* now means "merged, deployed, and
+**The board's guarantee gets stronger.** _Done_ now means "merged, deployed, and
 the deployment answered". Nobody can put a card there by dragging it, including
 a project administrator — conditions bind admins too.
 
@@ -127,7 +127,7 @@ turns out to be wrong in practice.
 **Two identity systems now have to agree.** The last human gate moved out of
 Jira and into GitHub: the architect's approval is a pull request review, not a
 card drag. GitHub's side of that is the existing `main protection` ruleset —
-one approval, `ci` green, branch up to date. Binding it to a *role* rather than
+one approval, `ci` green, branch up to date. Binding it to a _role_ rather than
 to "anyone" needs CODEOWNERS, and GitHub teams need an organisation, so on a
 personal repository that means individual usernames. Fine for now; it does not
 survive contact with a real org.

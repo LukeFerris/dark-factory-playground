@@ -12,9 +12,9 @@ fourth sender of `build-turn.yml` beside the three of
 ## Context
 
 A build turn that ended `ready_for_review` marked its PR ready and moved the
-card to *In review* the moment it had pushed. The checks main requires ran
+card to _In review_ the moment it had pushed. The checks main requires ran
 after that, and nothing in the factory read them. A reviewer could open a card
-in *In review* and find a red PR. Whether the agent ran the suite itself was up
+in _In review_ and find a red PR. Whether the agent ran the suite itself was up
 to the agent, and some suites cannot run inside its job: a full end-to-end
 suite against a database the agent is not allowed to hold keys for, for
 instance.
@@ -44,9 +44,9 @@ run newer than a failed one passes branch protection. Adding a label would have
 made a red PR mergeable.
 
 **`report` acts on the verdict.** Green marks the PR ready and moves the card to
-*In review*. Red starts another build turn, up to two in a row, and the next
+_In review_. Red starts another build turn, up to two in a row, and the next
 turn's `task.md` carries the failing checks' logs. After two, or on a timeout,
-or when the checks could not be read, the card goes to *Blocked on engineer*.
+or when the checks could not be read, the card goes to _Blocked on engineer_.
 
 **The retry count is a workflow input.** `report` dispatches `build-turn.yml`
 with `retry: n+1`. Nothing stores it, so any turn a person starts begins again
@@ -58,11 +58,11 @@ permission.
 
 ## Consequences
 
-- A card can sit in *Building* for up to `FACTORY_VERIFY_TIMEOUT_MINUTES` (60 by
+- A card can sit in _Building_ for up to `FACTORY_VERIFY_TIMEOUT_MINUTES` (60 by
   default) after its agent has finished. The card is locked and the turn's run
   is still in progress, so neither the orphan sweep nor a second turn can take
   it.
-- During an automatic retry, the card stays in *Building* and assigned to the
+- During an automatic retry, the card stays in _Building_ and assigned to the
   factory. `report` dispatches before its own run ends, and a queued run counts
   as unfinished for the orphan sweep.
 - Failing logs reach the agent. They are printed by the PR's code and its

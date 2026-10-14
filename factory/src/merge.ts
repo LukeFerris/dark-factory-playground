@@ -368,7 +368,9 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
   const allowed = new Set(state.conflicts)
   const strayed = dirtyPaths().filter((p) => !allowed.has(p))
   for (const path of strayed) {
-    problems.push(`${path} was changed while resolving the merge, and it was not one of the conflicts.`)
+    problems.push(
+      `${path} was changed while resolving the merge, and it was not one of the conflicts.`,
+    )
   }
 
   for (const path of state.conflicts) {
@@ -398,8 +400,10 @@ export function finishMerge(state: MergeState, result: MergeResult): FinishOutco
 
   identifyAsBot()
   // --no-edit takes the merge message git already wrote into MERGE_MSG, so the
-  // commit reads like any other merge rather than like an agent artefact.
-  git(['commit', '--no-edit'])
+  // commit reads like any other merge rather than like an agent artefact. No
+  // hooks: the factory's commits run no card code (ADR 0008), and the Commit
+  // gates check runs the pre-commit gates on the pull request instead.
+  git(['commit', '--no-verify', '--no-edit'])
   return { ok: true, problems: [], sha: headSha() }
 }
 

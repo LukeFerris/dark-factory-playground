@@ -26,16 +26,28 @@ import { RESULT_PATH, readMeta, writeMeta } from './meta.ts'
  * one to the other as a bundle, as the workflow does.
  */
 
-const IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false']
+const IDENTITY = [
+  '-c',
+  'user.name=t',
+  '-c',
+  'user.email=t@example.com',
+  '-c',
+  'commit.gpgsign=false',
+]
 const run = (cwd: string, ...args: string[]): string =>
-  execFileSync('git', [...IDENTITY, ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  execFileSync('git', [...IDENTITY, ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
 const write = (dir: string, path: string, body: string | Buffer): void => {
   mkdirSync(join(dir, path, '..'), { recursive: true })
   writeFileSync(join(dir, path), body)
 }
 // Tools that watch git, such as git-ai, can still be writing into a repository
 // just after a commit, so deleting one retries until they have finished.
-const remove = (dir: string): void => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+const remove = (dir: string): void =>
+  rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 const commit = (dir: string, message: string): string => {
   run(dir, 'add', '-A')
   run(dir, 'commit', '-q', '--allow-empty', '-m', message)
@@ -70,7 +82,15 @@ beforeEach(() => {
   run(scratch, 'clone', '-q', ROOT, agent)
   run(agent, 'checkout', '-q', BRANCH)
 
-  writeMeta({ key: 'DF-9', stage: 'build', turn: 2, branch: BRANCH, base_sha: before, pr: 9, preview_url: null })
+  writeMeta({
+    key: 'DF-9',
+    stage: 'build',
+    turn: 2,
+    branch: BRANCH,
+    base_sha: before,
+    pr: 9,
+    preview_url: null,
+  })
 })
 
 afterEach(() => {
@@ -113,7 +133,10 @@ describe('a turn after a clean merge from main', () => {
 
     expect(outcome.state).toBe('accepted')
     expect(run(ROOT, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(BRANCH)
-    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([before, main])
+    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([
+      before,
+      main,
+    ])
     expect(readMeta().base_sha).toBe(run(ROOT, 'rev-parse', 'HEAD'))
     expect(status()).toBe('M app/src/greeting.ts')
     expect(readFileSync(join(ROOT, 'app/src/colour.ts'), 'utf8')).toContain('blue')
@@ -149,7 +172,11 @@ describe('a turn on a branch that already had main', () => {
   beforeEach(() => mergeState({ state: 'up-to-date', behind: 0 }))
 
   it('takes new files, deletions and binary files', () => {
-    write(agent, 'app/public/logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x00, 0x01]))
+    write(
+      agent,
+      'app/public/logo.png',
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x00, 0x01]),
+    )
     rmSync(join(agent, 'app/src/colour.ts'))
     bundleTurn()
 
@@ -182,7 +209,11 @@ describe('a turn on a branch that already had main', () => {
     write(ROOT, '.agent/out/result.json', '')
     writeFileSync(
       RESULT_PATH,
-      JSON.stringify({ status: 'ready_for_review', summary: 'Said hello', acceptance_criteria: [] }),
+      JSON.stringify({
+        status: 'ready_for_review',
+        summary: 'Said hello',
+        acceptance_criteria: [],
+      }),
     )
     expect(acceptTurn('build', join(scratch, 'missing.bundle')).state).toBe('rejected')
     expect(JSON.parse(readFileSync(RESULT_PATH, 'utf8')).status).toBe('failed')
@@ -198,7 +229,15 @@ describe('a turn after a conflicted merge', () => {
     remove(agent)
     run(scratch, 'clone', '-q', ROOT, agent)
     run(agent, 'checkout', '-q', BRANCH)
-    writeMeta({ key: 'DF-9', stage: 'build', turn: 2, branch: BRANCH, base_sha: before, pr: 9, preview_url: null })
+    writeMeta({
+      key: 'DF-9',
+      stage: 'build',
+      turn: 2,
+      branch: BRANCH,
+      base_sha: before,
+      pr: 9,
+      preview_url: null,
+    })
     mergeState({ state: 'conflicted', conflicts: ['app/src/colour.ts'] })
   })
 
@@ -221,12 +260,17 @@ describe('a turn after a conflicted merge', () => {
 
     expect(acceptTurn('build', bundle).state).toBe('accepted')
     expect(run(ROOT, 'show', 'HEAD:app/src/colour.ts')).toBe('export const colour = "teal"')
-    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([before, main])
+    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([
+      before,
+      main,
+    ])
     expect(status()).toBe('M app/src/greeting.ts')
   })
 
   it('puts a resolution with markers in it back on the card as a question', () => {
-    resolve('<<<<<<< HEAD\nexport const colour = "green"\n=======\nexport const colour = "blue"\n>>>>>>> main\n')
+    resolve(
+      '<<<<<<< HEAD\nexport const colour = "green"\n=======\nexport const colour = "blue"\n>>>>>>> main\n',
+    )
     bundleTurn()
 
     expect(acceptTurn('build', bundle).state).toBe('merge-unresolved')
@@ -236,7 +280,10 @@ describe('a turn after a conflicted merge', () => {
   })
 
   it('asks the question the resolving agent could not answer, without needing a turn', () => {
-    writeFileSync(MERGE_RESULT_PATH, JSON.stringify({ status: 'unresolved', summary: 'Green or blue?' }))
+    writeFileSync(
+      MERGE_RESULT_PATH,
+      JSON.stringify({ status: 'unresolved', summary: 'Green or blue?' }),
+    )
 
     expect(acceptTurn('build', join(scratch, 'missing.bundle')).state).toBe('merge-unresolved')
     expect(JSON.parse(readFileSync(RESULT_PATH, 'utf8')).status).toBe('question')
@@ -255,7 +302,10 @@ describe('merging a given commit of main', () => {
     const state = attemptMerge(BRANCH, main)
 
     expect(state).toMatchObject({ state: 'merged', behind: 1, before, main })
-    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([before, main])
+    expect(run(ROOT, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice(1)).toEqual([
+      before,
+      main,
+    ])
     expect(existsSync(join(ROOT, 'app/src/later.ts'))).toBe(false)
   })
 })

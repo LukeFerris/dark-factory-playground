@@ -25,7 +25,11 @@ export interface WorkflowRun {
  * `pull_request` for a preview, which runs on the PR's head commit; `push` for
  * production, which runs on the merge commit once it is on the default branch.
  */
-export function findRun(workflow: string, sha: string, event: 'pull_request' | 'push'): WorkflowRun | null {
+export function findRun(
+  workflow: string,
+  sha: string,
+  event: 'pull_request' | 'push',
+): WorkflowRun | null {
   const runs = ghJson<WorkflowRun[]>([
     'api',
     `repos/${repoSlug()}/actions/workflows/${encodeURIComponent(workflow)}/runs?head_sha=${sha}&event=${event}&per_page=10`,

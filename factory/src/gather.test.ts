@@ -114,6 +114,56 @@ describe('the branch a turn publishes to', () => {
   })
 })
 
+/** `gh`, for a pull request whose `ci` check ended as given. */
+function pullRequest(conclusion: string): void {
+  const json = (out: unknown) => ({ status: 0, stdout: JSON.stringify(out), stderr: '' })
+  const logs = {
+    status: 0,
+    stdout: '2026-10-13T10:00:00.0Z FAIL src/app.test.ts > greets Ada\n',
+    stderr: '',
+  }
+  const pr = (field: string) => (args: string[]) => args[0] === 'pr' && args.includes(field)
+  const api = (test: (path: string) => boolean) => (args: string[]) => test(args[1] ?? '')
+  // The first that matches answers, so the more specific paths come first.
+  const answers: Array<[(args: string[]) => boolean, ReturnType<Runner>]> = [
+    [pr('comments'), json({ comments: [] })],
+    [pr('body,headRefName'), json({ body: '', headRefName: 'card/DF-1-x' })],
+    [pr('headRefOid'), json({ headRefOid: 'a'.repeat(40) })],
+    [
+      api((p) => p.endsWith('/rules/branches/main')),
+      json([
+        {
+          type: 'required_status_checks',
+          parameters: { required_status_checks: [{ context: 'ci' }] },
+        },
+      ]),
+    ],
+    [api((p) => p.endsWith('/branches/main')), json({})],
+    [
+      api((p) => p.includes('/check-runs')),
+      json([
+        {
+          id: 3,
+          name: 'ci',
+          status: 'completed',
+          conclusion,
+          html_url: null,
+          app: { slug: 'github-actions' },
+        },
+      ]),
+    ],
+    [api((p) => p.includes('/status')), json([])],
+    [api((p) => p.endsWith('/actions/jobs/3/logs')), logs],
+  ]
+  const runner: Runner = (args) =>
+    answers.find(([matches]) => matches(args))?.[1] ?? {
+      status: 1,
+      stdout: '',
+      stderr: `unexpected: ${args.join(' ')}`,
+    }
+  setRunner(runner)
+}
+
 describe('a build turn on a pull request whose required checks fail', () => {
   const repository = process.env['GITHUB_REPOSITORY']
   beforeEach(() => {
@@ -124,30 +174,6 @@ describe('a build turn on a pull request whose required checks fail', () => {
     if (repository === undefined) delete process.env['GITHUB_REPOSITORY']
     else process.env['GITHUB_REPOSITORY'] = repository
   })
-
-  /** `gh`, for a pull request whose `ci` check ended as given. */
-  function pullRequest(conclusion: string): void {
-    const runner: Runner = (args) => {
-      const json = (out: unknown) => ({ status: 0, stdout: JSON.stringify(out), stderr: '' })
-      const path = args[1] ?? ''
-      if (args[0] === 'pr' && args.includes('comments')) return json({ comments: [] })
-      if (args[0] === 'pr' && args.includes('body,headRefName')) return json({ body: '', headRefName: 'card/DF-1-x' })
-      if (args[0] === 'pr' && args.includes('headRefOid')) return json({ headRefOid: 'a'.repeat(40) })
-      if (path.endsWith('/rules/branches/main')) {
-        return json([{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'ci' }] } }])
-      }
-      if (path.endsWith('/branches/main')) return json({})
-      if (path.includes('/check-runs')) {
-        return json([{ id: 3, name: 'ci', status: 'completed', conclusion, html_url: null, app: { slug: 'github-actions' } }])
-      }
-      if (path.includes('/status')) return json([])
-      if (path.endsWith('/actions/jobs/3/logs')) {
-        return { status: 0, stdout: '2026-10-13T10:00:00.0Z FAIL src/app.test.ts > greets Ada\n', stderr: '' }
-      }
-      return { status: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` }
-    }
-    setRunner(runner)
-  }
 
   it('tells the agent what failed and that this is an automatic turn', async () => {
     card([])

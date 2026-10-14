@@ -14,7 +14,7 @@ exits. One rule, the stop, posts to `stop.yml` instead. Nothing is up between ev
 rules; this document is what they are and why.
 
 **Nothing about the poller's logic changed** when the triggers arrived. It
-still sweeps both *Ready for …* columns, runs comment triage across the
+still sweeps both _Ready for …_ columns, runs comment triage across the
 statuses in `TRIAGE_STATUSES` (`factory/src/triage.ts`), and claims a card by
 moving it before dispatching, which is the only thing stopping a card reaching
 two agents (`poller.yml`, the `dispatch()` function). The cron is commented out
@@ -30,36 +30,36 @@ the rules below are written around it.
 The board is shared. People keep cards on it that the factory should never
 touch, so a column alone does not hand a card over.
 
-| To | Do this |
-| --- | --- |
-| Start a design | Drag the card to *Ready for design* **and** assign it to the factory |
-| Start a build | Drag the card to *Ready for build* **and** assign it to the factory |
-| Answer a question | Comment on the card. Nothing else is needed |
-| Ask for more on a card in review | Comment on the card and **@mention the factory** |
-| Send a reviewed card back without a comment | Drag it to a *Ready for …* column **and** assign it to the factory |
+| To                                          | Do this                                                              |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| Start a design                              | Drag the card to _Ready for design_ **and** assign it to the factory |
+| Start a build                               | Drag the card to _Ready for build_ **and** assign it to the factory  |
+| Answer a question                           | Comment on the card. Nothing else is needed                          |
+| Ask for more on a card in review            | Comment on the card and **@mention the factory**                     |
+| Send a reviewed card back without a comment | Drag it to a _Ready for …_ column **and** assign it to the factory   |
 
 Either half can come first; a rule fires on each, and the poller takes a card
 only when both are true (`assignee = currentUser()` in its JQL, since it runs as
 the factory's account).
 
-**Questions.** When the factory stops to ask something, the card goes to *Blocked
-on architect* or *Blocked on engineer*. A comment there from anyone but the
+**Questions.** When the factory stops to ask something, the card goes to _Blocked
+on architect_ or _Blocked on engineer_. A comment there from anyone but the
 factory is read by triage, which takes the card back if the comment answers the
 question. The commenter does not need to reassign it.
 
-**Reviews.** *Design review* and *In review* mean the factory thinks it is done,
+**Reviews.** _Design review_ and _In review_ mean the factory thinks it is done,
 and most comments there are conversation between people. A comment that
 @mentions the factory is for it: triage reads it, and if it asks for work the
 factory takes the card back, exactly as for an answered question. A comment
 without the mention is left alone. Comments on the pull request in GitHub are
-different: they still start a build turn, as they always have (RUNBOOK, *A
-build turn will not start from a comment*).
+different: they still start a build turn, as they always have (RUNBOOK, _A
+build turn will not start from a comment_).
 
 **The hand-back.** At the end of a turn the factory assigns the card back, and
 the report comment starts by mentioning that person, so Jira notifies them even
 if they are not watching the card. The card goes back to:
 
-- after a *Ready for …* column, whoever dragged the card into it (from the
+- after a _Ready for …_ column, whoever dragged the card into it (from the
   card's history), or, if nobody did, whoever assigned it to the factory;
 - after a comment — an answer, or a mention in review — whoever wrote it.
 
@@ -79,21 +79,21 @@ in Jira. It is how little that credential can be allowed to do.
 
 **A fine-grained PAT with `Actions: write` on one repository, and nothing else.**
 
-| It can | It cannot |
-| --- | --- |
-| Start a workflow run | Push code |
-| Cancel or re-run one | Read secrets or variables |
-| Disable or enable a workflow | Modify a workflow file |
-| Delete runs, their logs, artifacts and caches | Merge anything |
-| | Touch any other repository |
+| It can                                        | It cannot                  |
+| --------------------------------------------- | -------------------------- |
+| Start a workflow run                          | Push code                  |
+| Cancel or re-run one                          | Read secrets or variables  |
+| Disable or enable a workflow                  | Modify a workflow file     |
+| Delete runs, their logs, artifacts and caches | Merge anything             |
+|                                               | Touch any other repository |
 
-There is no narrower permission. *Create a workflow dispatch event* requires
+There is no narrower permission. _Create a workflow dispatch event_ requires
 `Actions: write`, and `Actions: write` is all of the left-hand column.
 
 The reason `Actions: write` is enough is that **the PAT does not give the run its
 power.** It only starts the run. Once running, the poller mints its own App token
-(`poller.yml`, *Mint App token*) and that is what does the work. A dispatch runs
-the workflow file as it exists on the ref, so changing what a run *does* needs
+(`poller.yml`, _Mint App token_) and that is what does the work. A dispatch runs
+the workflow file as it exists on the ref, so changing what a run _does_ needs
 `Contents: write` to push a new workflow file — which this token does not have.
 
 That is also why this uses `POST .../actions/workflows/{id}/dispatches` rather
@@ -116,17 +116,17 @@ merged — the output still faces CI, the validator's path allowlist in
 **Settings → Developer settings → Personal access tokens → Fine-grained
 tokens → Generate new token.**
 
-| Field | Value |
-| --- | --- |
-| Resource owner | the account that owns the repository |
-| Repository access | **Only select repositories** → this one |
-| Repository permissions | **Actions: Read and write**. Nothing else. |
-| Expiration | 90 days. Put the date in your calendar; see *Rotation* below. |
+| Field                  | Value                                                         |
+| ---------------------- | ------------------------------------------------------------- |
+| Resource owner         | the account that owns the repository                          |
+| Repository access      | **Only select repositories** → this one                       |
+| Repository permissions | **Actions: Read and write**. Nothing else.                    |
+| Expiration             | 90 days. Put the date in your calendar; see _Rotation_ below. |
 
 Metadata: read-only is granted implicitly and is fine. Grant no account
 permissions at all.
 
-The token acts as *you*, so every factory run will show as triggered by your
+The token acts as _you_, so every factory run will show as triggered by your
 account rather than by a bot. That is cosmetic, but it is worth knowing before
 you go looking for the cause of a run.
 
@@ -147,7 +147,7 @@ curl -i -X POST \
 
 `204 No Content` is success and there is no body. A `404` here almost always
 means the token cannot see the repository — the endpoint hides permission
-failures as not-found — so check *Repository access* before you check anything
+failures as not-found — so check _Repository access_ before you check anything
 else. A `422` means the ref is wrong or the workflow has no `workflow_dispatch`
 trigger.
 
@@ -196,29 +196,29 @@ project and the volume question never arises.
 Every rule's action is the same **Send web request**, except the stop rule's
 (Rule 2c):
 
-| Field | Value |
-| --- | --- |
-| Web request URL | `https://api.github.com/repos/<owner>/<repo>/actions/workflows/poller.yml/dispatches` |
-| HTTP method | `POST` |
-| Web request body | Custom data |
-| Custom data | `{"ref":"main"}` |
-| Headers | `Authorization: Bearer <the PAT>` · `Accept: application/vnd.github+json` · `X-GitHub-Api-Version: 2022-11-28` |
-| Delay execution | **off** |
+| Field            | Value                                                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| Web request URL  | `https://api.github.com/repos/<owner>/<repo>/actions/workflows/poller.yml/dispatches`                          |
+| HTTP method      | `POST`                                                                                                         |
+| Web request body | Custom data                                                                                                    |
+| Custom data      | `{"ref":"main"}`                                                                                               |
+| Headers          | `Authorization: Bearer <the PAT>` · `Accept: application/vnd.github+json` · `X-GitHub-Api-Version: 2022-11-28` |
+| Delay execution  | **off**                                                                                                        |
 
-Leave *Wait for response* on while you are setting up — a 204 with an empty body
+Leave _Wait for response_ on while you are setting up — a 204 with an empty body
 is a pass, and the rule audit log will show you the status code. It is the only
 place a failed call is visible.
 
 ### Rule 1 — a card became ready
 
-| | |
-| --- | --- |
-| Name | `Factory: card ready` |
-| Trigger | **Work item transitioned** |
-| From status | *(blank — any)* |
-| To status | `Ready for design`, `Ready for build` |
-| Condition | **JQL condition** → `assignee = "<factory account id>"` |
-| Action | Send web request |
+|             |                                                         |
+| ----------- | ------------------------------------------------------- |
+| Name        | `Factory: card ready`                                   |
+| Trigger     | **Work item transitioned**                              |
+| From status | _(blank — any)_                                         |
+| To status   | `Ready for design`, `Ready for build`                   |
+| Condition   | **JQL condition** → `assignee = "<factory account id>"` |
+| Action      | Send web request                                        |
 
 Both columns in one rule. The poller sweeps both anyway, so there is nothing to
 be gained by telling it which one moved. The condition keeps a card somebody
@@ -226,12 +226,12 @@ else is working on from starting a run that would find nothing.
 
 ### Rule 1b — a ready card was given to the factory
 
-| | |
-| --- | --- |
-| Name | `Factory: card assigned` |
-| Trigger | **Work item assigned** |
+|           |                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------- |
+| Name      | `Factory: card assigned`                                                                                      |
+| Trigger   | **Work item assigned**                                                                                        |
 | Condition | **JQL condition** → `status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>"` |
-| Action | Send web request |
+| Action    | Send web request                                                                                              |
 
 The other order: the card was already in the column and is then given to the
 factory. Without this rule it would wait for the sweep.
@@ -243,13 +243,13 @@ the flow fired three seconds after an assignment.
 
 ### Rule 2 — somebody answered a question
 
-| | |
-| --- | --- |
-| Name | `Factory: new comment` |
-| Trigger | **Work item commented** |
-| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Blocked on architect`, `Blocked on engineer` |
-| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
-| Action | Send web request |
+|           |                                                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Name      | `Factory: new comment`                                                                                                                  |
+| Trigger   | **Work item commented**                                                                                                                 |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → _is one of_ → `Blocked on architect`, `Blocked on engineer` |
+| Condition | **User condition** → `{{initiator}}` → _is not_ → the factory bot account                                                               |
+| Action    | Send web request                                                                                                                        |
 
 Both conditions are there to stop paying for runs that cannot do anything.
 
@@ -274,14 +274,14 @@ run for every comment the factory writes, which is most of them.
 
 ### Rule 2b — somebody mentioned the factory in review
 
-| | |
-| --- | --- |
-| Name | `Factory: mentioned` |
-| Trigger | **Work item commented** |
-| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → *is one of* → `Design review`, `In review` |
-| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
-| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
-| Action | Send web request |
+|           |                                                                                                                        |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Name      | `Factory: mentioned`                                                                                                   |
+| Trigger   | **Work item commented**                                                                                                |
+| Condition | **Work item fields condition** (formerly Issue fields condition) → Status → _is one of_ → `Design review`, `In review` |
+| Condition | **User condition** → `{{initiator}}` → _is not_ → the factory bot account                                              |
+| Condition | **Advanced compare condition** → `{{comment.body}}` _contains_ `[~accountid:<factory account id>]`                     |
+| Action    | Send web request                                                                                                       |
 
 Mirrors `REVIEW_STATUSES`, pinned the same way. `{{comment.body}}` renders as
 wiki markup, where an @mention is `[~accountid:…]`, so the last condition is
@@ -291,16 +291,16 @@ test itself, so the condition saves money rather than deciding anything.
 
 ### Rule 2c — somebody told the factory to stop
 
-| | |
-| --- | --- |
-| Name | `Factory: stop` |
-| Trigger | **Work item commented** |
-| Condition | **JQL condition** → `status in ("Designing", "Building")` |
-| Condition | **User condition** → `{{initiator}}` → *is not* → the factory bot account |
-| Condition | **Advanced compare condition** → `{{comment.body}}` *contains* `[~accountid:<factory account id>]` |
-| Action | Send web request to `…/actions/workflows/stop.yml/dispatches`, custom data `{"ref":"main","inputs":{"key":"{{issue.key}}"}}` |
+|           |                                                                                                                              |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Name      | `Factory: stop`                                                                                                              |
+| Trigger   | **Work item commented**                                                                                                      |
+| Condition | **JQL condition** → `status in ("Designing", "Building")`                                                                    |
+| Condition | **User condition** → `{{initiator}}` → _is not_ → the factory bot account                                                    |
+| Condition | **Advanced compare condition** → `{{comment.body}}` _contains_ `[~accountid:<factory account id>]`                           |
+| Action    | Send web request to `…/actions/workflows/stop.yml/dispatches`, custom data `{"ref":"main","inputs":{"key":"{{issue.key}}"}}` |
 
-*Designing* and *Building* are locked to the factory while a turn runs
+_Designing_ and _Building_ are locked to the factory while a turn runs
 ([ADR 0007](../adr/0007-cards-lock-while-the-factory-works-them.md)): nobody
 else can move or reassign the card. A comment such as "@Enki stop" is how a
 person gets it back. The status list mirrors `LOCKED_STATUSES`
@@ -314,15 +314,15 @@ end, and `stop.yml` is not in the card's concurrency group.
 
 ### Rule 3 — the backstop
 
-| | |
-| --- | --- |
-| Name | `Factory: sweep` |
-| Trigger | **Scheduled**, every 30 minutes (the script writes cron `0 0/30 * * * ?`) |
-| JQL | `project = <KEY> AND ((status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>") OR status in ("Designing", "Building"))` |
-| Action | Send web request |
+|         |                                                                                                                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name    | `Factory: sweep`                                                                                                                                         |
+| Trigger | **Scheduled**, every 30 minutes (the script writes cron `0 0/30 * * * ?`)                                                                                |
+| JQL     | `project = <KEY> AND ((status in ("Ready for design", "Ready for build") AND assignee = "<factory account id>") OR status in ("Designing", "Building"))` |
+| Action  | Send web request                                                                                                                                         |
 
 The second half of the JQL is for cards left locked. A run that dies without
-reporting leaves its card in *Designing* or *Building*, which only the factory
+reporting leaves its card in _Designing_ or _Building_, which only the factory
 can move it out of. Every poller pass looks for locked cards with no run working
 on them and lets them go (`factory release-orphans`). Without this half, on a
 quiet board, no pass would ever run to find them. A card that is locked because
@@ -337,12 +337,12 @@ low-frequency GitHub cron: **when the JQL matches nothing, no action runs, so no
 GitHub run is filed and nothing is billed.** A GitHub cron cannot make that
 distinction — it has to start a job to find out there was no work.
 
-It only covers cards in the two *Ready for …* columns that are assigned to the
+It only covers cards in the two _Ready for …_ columns that are assigned to the
 factory, which is what the poller takes. A dropped comment event is not
 covered, because a JQL cannot express "has a comment newer than the factory's
 own" — that question is the whole of `factory triage` and it needs the factory's
 own account to answer. In practice a stalled comment is visible on the board (a
-card sitting in *Blocked on architect* with an answer on it) and one
+card sitting in _Blocked on architect_ with an answer on it) and one
 `gh workflow run poller.yml` fixes it. If that turns out to happen often, widen
 the JQL to the `TRIAGE_STATUSES` and accept sweeping on a timer instead.
 
@@ -350,11 +350,11 @@ the JQL to the `TRIAGE_STATUSES` and accept sweeping on a timer instead.
 
 ## What it costs
 
-| | Billed minutes | Latency |
-| --- | --- | --- |
-| Old: continuous window | ~43,200/month | ~30s |
-| Old: `*/15` cron, single pass | ~2,880/month | up to 5 hours in practice |
-| **Jira triggers** | **one per board event** | **~30s** |
+|                               | Billed minutes          | Latency                   |
+| ----------------------------- | ----------------------- | ------------------------- |
+| Old: continuous window        | ~43,200/month           | ~30s                      |
+| Old: `*/15` cron, single pass | ~2,880/month            | up to 5 hours in practice |
+| **Jira triggers**             | **one per board event** | **~30s**                  |
 
 A run is one billed minute because GitHub rounds every job up to the minute, and
 the pass itself is a few seconds — the minute goes on checkout, `npm ci` and
@@ -414,8 +414,8 @@ and mint a one-hour token per call, and nothing long-lived sits in Jira at all.
 
 Work outward from the board.
 
-1. **Did the rule fire?** Space settings → Automation → *Audit
-   log*. This is the only place a failed web request is recorded.
+1. **Did the rule fire?** Space settings → Automation → _Audit
+   log_. This is the only place a failed web request is recorded.
 2. **Did it get a 204?** Anything else is the token or the URL. Re-run the curl
    from Checkpoint 2.
 3. **Did a run appear?** `gh run list --workflow poller.yml --limit 5`. If the
@@ -423,7 +423,7 @@ Work outward from the board.
    `gh workflow list --all` — since a previously scheduled workflow can have
    been auto-disabled before the cron was removed.
 4. **Did the run find the card?** Read the log. `none waiting in Ready for
-   design` with a card sitting in that column means the card is not assigned to
+design` with a card sitting in that column means the card is not assigned to
    the factory, or the JQL and the board disagree on a status name. Neither is
    a trigger problem.
 

@@ -98,7 +98,10 @@ export async function waitForExternalProduction(
   production: ExternalProduction,
   options: RunWaitOptions & { fetchImpl?: typeof fetch } = {},
 ): Promise<string> {
-  const ordered = [...production.workflows.filter((w) => !w.ifRan), ...production.workflows.filter((w) => w.ifRan)]
+  const ordered = [
+    ...production.workflows.filter((w) => !w.ifRan),
+    ...production.workflows.filter((w) => w.ifRan),
+  ]
   for (const { file, ifRan } of ordered) {
     if (ifRan && findRun(file, sha, 'push') === null) {
       console.log(`production-up: ${file} did not run for ${sha.slice(0, 7)}; nothing to wait for.`)
@@ -108,7 +111,10 @@ export async function waitForExternalProduction(
     console.log(`production-up: ${file} deployed ${sha.slice(0, 7)} (${run.html_url})`)
   }
 
-  const elapsed = await waitUntilAwake(production.url, options.fetchImpl ? { fetchImpl: options.fetchImpl } : {})
+  const elapsed = await waitUntilAwake(
+    production.url,
+    options.fetchImpl ? { fetchImpl: options.fetchImpl } : {},
+  )
   console.log(`production-up: ${production.url} answered after ${(elapsed / 1000).toFixed(1)}s.`)
   return production.url
 }
@@ -140,8 +146,12 @@ export async function productionUp(sha: string, dryRun = false): Promise<string>
   const external = externalProduction()
   if (external !== null) {
     if (dryRun) {
-      const files = external.workflows.map((w) => `${w.file}${w.ifRan ? ' (if it ran)' : ''}`).join(', ')
-      console.log(`production-up --dry-run: would wait for ${files} on ${sha}, then for ${external.url}`)
+      const files = external.workflows
+        .map((w) => `${w.file}${w.ifRan ? ' (if it ran)' : ''}`)
+        .join(', ')
+      console.log(
+        `production-up --dry-run: would wait for ${files} on ${sha}, then for ${external.url}`,
+      )
       return external.url
     }
     return waitForExternalProduction(sha, external)
