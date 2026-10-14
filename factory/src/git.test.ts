@@ -120,7 +120,11 @@ describe('the files a turn changed', () => {
     const MOVED = 'app/src/turn.yml'
 
     beforeEach(() => {
-      commitIn(root.path, { path: PROTECTED, body: 'name: factory turn\n'.repeat(20), message: 'base' })
+      commitIn(root.path, {
+        path: PROTECTED,
+        body: 'name: factory turn\n'.repeat(20),
+        message: 'base',
+      })
       sh(root.path, 'push', '--quiet', 'origin', 'main')
       sh(root.path, 'checkout', '--quiet', '-b', 'card/DF-1-x')
       mkdirSync(join(root.path, 'app/src'), { recursive: true })
