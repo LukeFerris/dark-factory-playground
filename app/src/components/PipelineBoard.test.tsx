@@ -68,6 +68,14 @@ describe('PipelineBoard columns', () => {
     ])
   })
 
+  it('recounts when the deals change', () => {
+    const moved = deals.map((deal) => (deal.stage === 'Sourcing' ? { ...deal, stage: 'Screening' as const } : deal))
+    const { rerender } = render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    rerender(<PipelineBoard deals={moved} onMove={vi.fn()} onUpdate={vi.fn()} />)
+    expect(within(column('Sourcing')).getByRole('heading', { level: 2 })).toHaveTextContent(/^Sourcing0$/)
+    expect(within(column('Screening')).getByRole('heading', { level: 2 })).toHaveTextContent(/^Screening2$/)
+  })
+
   it('places each deal under its stage with its details', () => {
     render(<PipelineBoard deals={deals} onMove={vi.fn()} onUpdate={vi.fn()} />)
     const sourcing = within(screen.getByRole('region', { name: 'Sourcing' }))
