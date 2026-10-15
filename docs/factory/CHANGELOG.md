@@ -7,6 +7,19 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-15
+
+### A sharded verify workflow gathers its shards into one list
+
+Workbench's E2E suite runs one worker at a time, because its specs share one
+database, and took about 19 minutes on one runner. It now runs in three shards,
+each with a database of its own, in about 10. `verify` reads one
+`failed-tests` artifact from a run, so the menu in
+[ADR 0010](../adr/0010-a-failure-main-already-has-is-not-the-cards.md) now
+says how a sharded workflow keeps that: a last job merges the shards' lists,
+counts a shard that left none as an error, and keeps the check's name. The
+factory itself is unchanged.
+
 ## 2026-10-14
 
 ### A failure main already has is not the card's

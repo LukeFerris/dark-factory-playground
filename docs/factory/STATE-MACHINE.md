@@ -432,7 +432,8 @@ run, all of them when empty) and `tag` (put at the end of the run name), and an
 artifact `failed-tests` holding `failed-tests.json`,
 `{"failed": [ids], "errors": n}`. The ids are opaque to the factory. A workflow
 without them is started without a tag, found by commit and time, and has
-nothing excused.
+nothing excused. A workflow that runs its tests in parallel jobs gathers their
+lists into that one artifact, and counts a job that left no list as an error.
 
 **`report` acts on the verdict:**
 
