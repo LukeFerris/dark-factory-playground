@@ -89,6 +89,15 @@ Points to settle when adapting it:
 - **The runner has to report failures by test.** A runner that cannot gives no
   list, and the workflow's failures are never excused. They still count, as
   they did before this decision.
+- **A sharded suite gathers its shards into one list.** `verify` reads one
+  artifact from the run, so a last job merges the shards' lists into
+  `failed-tests.json` and counts a shard that left none as an error.
+  Otherwise a run whose other failures main shares is excused, and that
+  shard's tests never ran. That job keeps the check's name.
+  Give each shard a database of its own, and a baseline a single shard: it
+  runs a handful of tests, and every shard pays the setup. Workbench's
+  `e2e-tests.yml` runs three, which took its suite from about 19 minutes to
+  about 10.
 
 A workflow that offers none of this still works. If its dispatch is refused
 with "Unexpected inputs", `verify` starts it without a tag and finds its run by
