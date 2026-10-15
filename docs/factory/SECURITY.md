@@ -44,15 +44,15 @@ Every job is on one side or the other:
 A turn is `turn.yml`, called by `design.yml`, `build-start.yml` and
 `build-turn.yml`:
 
-| Job                                                            | Side      | Holds                                                              |
-| -------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
-| `prepare`: gather, announce, cut the branch, `merge-begin`     | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
-| `agent`: merge main, resolve conflicts, `npm ci`, the agent    | untrusted | `ANTHROPIC_API_KEY`                                                |
-| `publish`: `accept`, `validate`, `publish`                     | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
-| `preview`: `preview-up`                                        | trusted   | Azure (OIDC), `packages`/`deployments: write`                      |
-| `walkthrough`: the card's e2e spec against the preview         | untrusted | nothing                                                            |
-| `verify`: wait for main's required checks on the pushed commit | trusted   | App token, `GITHUB_TOKEN` with `checks`/`statuses`/`actions: read` |
-| `report`: kickoff and report                                   | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| Job                                                                                      | Side      | Holds                                                              |
+| ---------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
+| `prepare`: gather, announce, cut the branch, `merge-begin`                               | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| `agent`: merge main, resolve conflicts, `npm ci`, the agent, Prettier on what it changed | untrusted | `ANTHROPIC_API_KEY`                                                |
+| `publish`: `accept`, `validate`, `publish`                                               | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| `preview`: `preview-up`                                                                  | trusted   | Azure (OIDC), `packages`/`deployments: write`                      |
+| `walkthrough`: the card's e2e spec against the preview                                   | untrusted | nothing                                                            |
+| `verify`: wait for main's required checks on the pushed commit                           | trusted   | App token, `GITHUB_TOKEN` with `checks`/`statuses`/`actions: read` |
+| `report`: kickoff and report                                                             | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
 
 Only data crosses from an untrusted job to a trusted one. The turn arrives as a
 git bundle, and `factory accept` does not take its history: it merges main

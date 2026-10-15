@@ -7,6 +7,18 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-15
+
+### A turn's changes are formatted before it is committed
+
+The turn's commit uses `--no-verify`, because the pre-commit hook needs tools
+the runner does not have, and that skipped lint-staged's `prettier --write`.
+Whatever the agent left unformatted failed `format:check` in the required `ci`
+check. The agent job now runs Prettier on the files the turn changed, with the
+patterns `format:check` covers and the version the lockfile pins, just before
+the turn is packaged. It only formats, and a failure there leaves the files as
+they were.
+
 ## 2026-10-14
 
 ### A failure main already has is not the card's

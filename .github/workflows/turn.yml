@@ -371,6 +371,27 @@ jobs:
             --max-budget-usd "$budget" \
             --output-format json > .agent/out/transcript.json
 
+      # The turn's commit skips the pre-commit hook, and with it lint-staged's
+      # `prettier --write`, so the required `ci` check failed `format:check` on
+      # whatever the agent left unformatted. What the turn changed since the
+      # merge is formatted here instead: the patterns `format:check` covers,
+      # with the Prettier the lockfile pins, since a design turn has not
+      # installed the app. Formatting only, and a failure here never costs the
+      # turn its work.
+      - name: Format what the turn changed
+        if: steps.go.outputs.run == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git add -A
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done < <(
+            git diff --cached --name-only --diff-filter=ACMR -z HEAD -- \
+              '*.ts' '*.tsx' '*.js' '*.mjs' '*.json' '*.md' '*.yml' '*.yaml' '*.css' '*.html')
+          if [ "${#files[@]}" -eq 0 ]; then exit 0; fi
+          version="$(jq -r '.packages["node_modules/prettier"].version // empty' package-lock.json)"
+          npx -y --package "prettier@${version:-3}" -- prettier --write --ignore-unknown -- "${files[@]}"
+
       # Everything the turn wrote, as one commit on top of the merge, bundled
       # with nothing the publishing job does not already have.
       - name: Package the turn
