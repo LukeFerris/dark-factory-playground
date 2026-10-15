@@ -1,6 +1,8 @@
 import * as adf from './adf.ts'
-import { dispatchWorkflow, markReady } from './github.ts'
+import type { WorkflowResult } from './baseline.ts'
+import { dispatchWorkflow, markReady, prBodyAndBranch, updatePrBody } from './github.ts'
 import * as jira from './jira.ts'
+import { raiseMainRed, withMainRed, type Raised } from './mainred.ts'
 import { releaseCard } from './progress.ts'
 import type { Result, Stage } from './schema.ts'
 import {
@@ -14,20 +16,23 @@ import {
 
 /**
  * What `report` does at the gate a finished build has to clear (ADR 0009):
- * main's required checks on the commit it pushed, read by `verify`.
+ * main's required checks on the commit it pushed, and the workflows `verify`
+ * dispatched there, less any test main fails as well (ADR 0010).
  *
  * Kept apart from `report` and `report-comment` so that both can use it
  * without either reaching into the other.
  */
 
 /**
- * What became of a finished build turn at the gate: main's required checks on
- * the commit it pushed, and what the factory does about them. Only a build turn
- * that ends `ready_for_review` has one.
+ * What became of a finished build turn at the gate: main's required checks and
+ * the dispatched workflows on the commit it pushed, and what the factory does
+ * about them. Only a build turn that ends `ready_for_review` has one.
  */
 export interface Gate {
   decision: Decision
   verdict: Verdict | null
+  /** The cards for failures excused because main fails them too. */
+  raised?: Raised[]
 }
 
 /** Whether a turn has to clear the gate before it can be handed over. */
@@ -39,8 +44,8 @@ export function gated(stage: Stage, result: Result): boolean {
 export function gateHeadline(stage: Stage, gate: Gate): string {
   const headlines: Record<Decision['action'], string> = {
     ready: `${stage} turn finished — ready for review`,
-    retry: `${stage} turn finished — required checks failed, trying again`,
-    blocked: `${stage} turn finished — required checks not passing`,
+    retry: `${stage} turn finished — checks failed, trying again`,
+    blocked: `${stage} turn finished — checks not passing`,
   }
   return headlines[gate.decision.action]
 }
@@ -52,39 +57,79 @@ const NOT_PASSING: Record<Exclude<CheckResult['state'], 'pass' | 'fail'>, string
   stale: 'skipped on the push, and never run again when asked',
 }
 
+const details = (url: string | null): adf.AdfNode[] =>
+  url === null || url === '' ? [] : [adf.text(' ('), adf.link('details', url), adf.text(')')]
+
 function checkInline(c: CheckResult): adf.AdfNode[] {
   const said =
     c.state === 'pass' || c.state === 'fail' ? (c.conclusion ?? 'failed') : NOT_PASSING[c.state]
-  const inline: adf.AdfNode[] = [adf.strong(c.name), adf.text(` — ${said}`)]
-  if (c.url !== null && c.url !== '') {
-    inline.push(adf.text(' ('), adf.link('details', c.url), adf.text(')'))
-  }
-  return inline
+  return [adf.strong(c.name), adf.text(` — ${said}`), ...details(c.url)]
+}
+
+function runInline(r: WorkflowResult): adf.AdfNode[] {
+  let said: string
+  if (r.state === 'missing') said = 'could not be started'
+  else if (r.state === 'pending')
+    said = (r.note ?? 'still running').replace(/\.$/, '').toLowerCase()
+  else if (r.failed.length > 0) {
+    const where = r.baseline === null ? '' : ' that pass on main'
+    said = `${r.failed.length} test(s) failed${where}: ${shortList(r.failed)}`
+  } else said = r.note ?? r.conclusion ?? 'failed'
+  return [adf.strong(r.workflow), adf.text(` — ${said}`), ...details(r.url)]
+}
+
+/** A few test names, then how many more. */
+function shortList(tests: string[], shown = 5): string {
+  const head = tests.slice(0, shown).join('; ')
+  return tests.length > shown ? `${head}; and ${tests.length - shown} more` : head
 }
 
 /**
- * The required checks, as the gate found them. A green gate says so in a line;
- * otherwise every check that did not pass is listed, linked to its run.
+ * The checks, as the gate found them: main's required checks and the
+ * workflows `verify` dispatched. A green gate says so in a line; otherwise
+ * everything that did not pass is listed, linked to its run. Failures excused
+ * because main fails them too are listed either way, with their cards.
  */
 export function gateSection(gate: Gate): adf.AdfNode[] {
-  const heading = adf.heading('Required checks', 4)
+  const blocks: adf.AdfNode[] = [adf.heading('Checks', 4)]
   const { verdict } = gate
   if (verdict === null) {
-    return [heading, adf.paragraph(adf.text('The factory could not read them.'))]
+    return [...blocks, adf.paragraph(adf.text('The factory could not read them.'))]
   }
   const commit = verdict.sha.slice(0, 7)
-  const notPassing = verdict.checks.filter((c) => c.state !== 'pass')
-  if (notPassing.length === 0) {
-    const said =
-      verdict.checks.length === 0
-        ? 'Main requires none.'
-        : `All ${verdict.checks.length} passed on commit ${commit}.`
-    return [heading, adf.paragraph(adf.text(said))]
+  const checks = verdict.checks.filter((c) => c.state !== 'pass')
+  const runs = verdict.workflows.filter((r) => r.state !== 'pass' && r.state !== 'excused')
+  if (checks.length === 0 && runs.length === 0) {
+    const total = verdict.checks.length + verdict.workflows.length
+    const how = verdict.workflows.some((r) => r.state === 'excused')
+      ? 'passed or were excused'
+      : 'passed'
+    const said = total === 0 ? 'Main requires none.' : `All ${total} ${how} on commit ${commit}.`
+    blocks.push(adf.paragraph(adf.text(said)))
+  } else {
+    blocks.push(
+      adf.paragraph(adf.text(`On commit ${commit}:`)),
+      adf.bulletList([...checks.map(checkInline), ...runs.map(runInline)]),
+    )
   }
+  return [...blocks, ...excusedSection(gate, verdict)]
+}
+
+/** The tests main fails as well, each with its card. */
+function excusedSection(gate: Gate, verdict: Verdict): adf.AdfNode[] {
+  const excused = verdict.workflows.flatMap((r) =>
+    r.excused.map((test) => ({ workflow: r.workflow, test })),
+  )
+  if (excused.length === 0) return []
   return [
-    heading,
-    adf.paragraph(adf.text(`On commit ${commit}:`)),
-    adf.bulletList(notPassing.map(checkInline)),
+    adf.paragraph(adf.text('Failing on main as well, so not held against this card:')),
+    adf.bulletList(
+      excused.map(({ workflow, test }) => {
+        const card =
+          gate.raised?.find((r) => r.workflow === workflow && r.test === test)?.key ?? null
+        return [adf.text(test), adf.text(card === null ? ' — no card raised' : ` — ${card}`)]
+      }),
+    ),
   ]
 }
 
@@ -130,6 +175,42 @@ export function atTheGate(pr: number | null, retry: number, dryRun: boolean): Ga
     }
   }
   return { decision, verdict }
+}
+
+/**
+ * Finds or raises a card for each failure the gate excused, and lists them in
+ * the pull request's body. Whatever goes wrong here is logged and passed over:
+ * the turn's own hand-off matters more.
+ */
+export async function mainRed(
+  cfg: jira.JiraConfig,
+  card: { key: string; pr: number | null },
+  pr: string | null,
+  gate: Gate,
+): Promise<void> {
+  const workflows = gate.verdict?.workflows ?? []
+  gate.raised = await raiseMainRed(cfg, card.key, workflows, pr)
+  const number = card.pr
+  if (number === null) return
+  try {
+    const { body } = prBodyAndBranch(number)
+    const base = workflows.find((r) => r.excused.length > 0)?.baseline?.sha ?? null
+    const next = withMainRed(body, gate.raised, base)
+    if (next.trimEnd() !== body.trimEnd()) updatePrBody(number, next)
+  } catch (error) {
+    console.error(
+      `report: could not list the failures main has on the pull request: ${(error as Error).message}`,
+    )
+  }
+}
+
+/** What `report --dry-run` says of the gate, beyond the comment it would post. */
+export function logDryRunGate(gate: Gate): void {
+  console.log(`report --dry-run: the gate says ${JSON.stringify(gate.decision)}`)
+  const excused = gate.verdict?.workflows.flatMap((r) => r.excused) ?? []
+  if (excused.length > 0) {
+    console.log(`report --dry-run: would find or raise a card for each of ${excused.join(', ')}`)
+  }
 }
 
 /**

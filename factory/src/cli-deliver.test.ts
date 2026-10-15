@@ -148,6 +148,7 @@ describe('verify', () => {
         { name: 'ci', state: 'pass' as const, conclusion: 'success', url: null },
         { name: 'e2e', state: 'fail' as const, conclusion: 'failure', url: null },
       ],
+      workflows: [],
     }
     vi.mocked(verify).mockResolvedValue(verdict)
     await run('verify', '7', '--sha', 'abc', '--out', 'v.json')

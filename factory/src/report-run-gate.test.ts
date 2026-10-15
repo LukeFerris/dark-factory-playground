@@ -73,7 +73,7 @@ describe('a finished build at the gate', () => {
     await report({ stage: 'build', retry: 2 })
 
     expect(dispatchWorkflow).not.toHaveBeenCalled()
-    expect(adfToText(seen.comments[0])).toContain('required checks not passing')
+    expect(adfToText(seen.comments[0])).toContain('checks not passing')
     expect(seen.assigned).toEqual([HUMAN])
     expect(seen.moved).toEqual(['32'])
   })

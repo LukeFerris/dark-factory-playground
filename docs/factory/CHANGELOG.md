@@ -9,6 +9,24 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-14
 
+### A failure main already has is not the card's
+
+`verify` dispatched the workflows in `FACTORY_VERIFY_WORKFLOWS` and then waited
+only for the checks main requires, so a suite that skips drafts but is not
+required was started and never read. It now waits for each run it dispatched,
+found by a `tag` in the run's name.
+
+A dispatched run that fails is compared with main
+([ADR 0010](../adr/0010-a-failure-main-already-has-is-not-the-cards.md)).
+`verify` reads the run's `failed-tests` artifact and runs those tests again on
+main, at the commit the branch was merged from. A test that fails there too is
+excused, and `report` finds or raises a card for it, labelled
+`enki-main-red-<hash>`, unassigned. A test that fails only on the PR sends the
+card back to build as before, and the next turn is told which failures are its
+own. Anything that cannot be compared counts against the card. Required checks
+are never excused. A workflow that does not take the new inputs still works,
+but its failures are never excused.
+
 ### A card waits for a preview slot rather than failing for want of one
 
 Some preview hosts have a hard cap: Azure Static Web Apps holds 10 staging

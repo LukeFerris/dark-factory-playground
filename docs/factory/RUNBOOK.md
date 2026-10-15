@@ -446,7 +446,7 @@ intended: up to two automatic turns, each reading the failing logs. Do nothing.
 The run for it is a `build-turn.yml` dispatch with `retry` set; if the card
 already has a run in progress, it queues behind it.
 
-**The card went to _Blocked on engineer_ with "required checks not passing".**
+**The card went to _Blocked on engineer_ with "checks not passing".**
 Two automatic turns did not fix it, or the checks did not finish in time, or
 `verify` could not read them. The comment lists which. Reply on the card to
 start another turn — a human-granted turn starts the retry count again — or fix
@@ -458,6 +458,19 @@ in `FACTORY_VERIFY_WORKFLOWS` (a repository variable, comma-separated file
 names), and has to accept `workflow_dispatch` with a `pr` input and run when
 dispatched. Otherwise `verify` waits for a run that never starts, and times
 out. The `verify` job's log says whether each dispatch was accepted.
+
+**A card went to _In review_ with "Failing on main as well".** Some of the
+suite's failures fail on main too, so they were not held against the card
+(ADR 0010). Each gets a card of its own in the space, labelled
+`enki-main-red-…`, in the first status and unassigned: at most ten a report,
+and none when the card is a subtask. The rest are listed without one. Fix main, or hand the
+card to Enki. While it is open, the next PR that fails the same test finds it
+rather than raising another. The PR body lists them as well.
+
+**Every card's verify takes twice as long as the suite.** A dispatched run that
+fails runs its failed tests again on main, after it finishes. If main is red,
+that is every card. Fix main; meanwhile raise `FACTORY_VERIFY_TIMEOUT_MINUTES`
+if the two together outrun it.
 
 ---
 

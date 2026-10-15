@@ -3,6 +3,7 @@ import { textOf } from './jira.stub.ts'
 import { targetStatus } from './report.ts'
 import { buildComment } from './report-comment.ts'
 import { CRITERIA, NO_LINKS, result } from './report-comment.stub.ts'
+import type { WorkflowResult } from './baseline.ts'
 import { gated, type Gate } from './report-gate.ts'
 import { MAX_RETRIES } from './verify.ts'
 
@@ -30,6 +31,7 @@ const red: Gate['verdict'] = {
       url: 'https://github.com/o/r/runs/9',
     },
   ],
+  workflows: [],
 }
 const comment = (gate: Gate) =>
   buildComment('build', result({ acceptance_criteria: CRITERIA }), { ...NO_LINKS, gate })
@@ -50,6 +52,7 @@ describe('the gate on a finished build', () => {
         outcome: 'green',
         sha: SHA,
         checks: red!.checks.map((c) => ({ ...c, state: 'pass' as const })),
+        workflows: [],
       },
     }
     expect(targetStatus('build', result(), gate)).toBe('In review')
@@ -62,7 +65,7 @@ describe('the gate on a finished build', () => {
   it('says so when main requires no checks at all', () => {
     const gate: Gate = {
       decision: { action: 'ready' },
-      verdict: { outcome: 'green', sha: SHA, checks: [] },
+      verdict: { outcome: 'green', sha: SHA, checks: [], workflows: [] },
     }
     expect(textOf(comment(gate))).toContain('Main requires none.')
   })
@@ -72,7 +75,7 @@ describe('the gate on a finished build', () => {
     expect(targetStatus('build', result(), gate)).toBeNull()
     const doc = comment(gate)
     const text = textOf(doc)
-    expect(text).toContain('required checks failed, trying again')
+    expect(text).toContain('checks failed, trying again')
     expect(text).toContain('E2E Tests (Playwright)')
     expect(text).not.toContain('ci —')
     expect(text).toContain(`automatic turn 1 of ${MAX_RETRIES}`)
@@ -87,9 +90,89 @@ describe('the gate on a finished build', () => {
     }
     expect(targetStatus('build', result(), gate)).toBe('Blocked on engineer')
     const text = textOf(comment(gate))
-    expect(text).toContain('required checks not passing')
+    expect(text).toContain('checks not passing')
     expect(text).toContain('Still failing after 2.')
     expect(text).toContain('stays a draft')
+  })
+})
+
+const workflow = (over: Partial<WorkflowResult>): WorkflowResult => ({
+  workflow: 'e2e-tests.yml',
+  state: 'pass',
+  conclusion: 'success',
+  url: 'https://github.com/o/r/actions/runs/100',
+  failed: [],
+  excused: [],
+  baseline: null,
+  note: null,
+  ...over,
+})
+
+describe('what the gate says of the workflows verify dispatched (ADR 0010)', () => {
+  it('counts them among what passed', () => {
+    const gate: Gate = {
+      decision: { action: 'ready' },
+      verdict: { outcome: 'green', sha: SHA, checks: [], workflows: [workflow({})] },
+    }
+    expect(textOf(comment(gate))).toContain('All 1 passed on commit c0ffee0')
+  })
+
+  it("lists a workflow's own failures, and those main has too with their cards", () => {
+    const gate: Gate = {
+      decision: { action: 'retry', next: 1 },
+      verdict: {
+        outcome: 'red',
+        sha: SHA,
+        checks: [],
+        workflows: [
+          workflow({
+            state: 'fail',
+            conclusion: 'failure',
+            failed: ['b'],
+            excused: ['a'],
+            baseline: { sha: 'm'.repeat(40), url: null },
+          }),
+        ],
+      },
+      raised: [{ workflow: 'e2e-tests.yml', test: 'a', key: 'DF-50', created: true }],
+    }
+    const doc = comment(gate)
+    const text = textOf(doc)
+    expect(text).toContain('e2e-tests.yml')
+    expect(text).toContain('1 test(s) failed that pass on main: b')
+    expect(text).toContain('Failing on main as well, so not held against this card:')
+    expect(text).toContain('a  — DF-50')
+    expect(hrefs(doc)).toContain('https://github.com/o/r/actions/runs/100')
+  })
+})
+
+describe('what the gate says of the workflows verify dispatched, when main fails them too', () => {
+  it('hands over a build whose only failures main has too, and says which they are', () => {
+    const gate: Gate = {
+      decision: { action: 'ready' },
+      verdict: {
+        outcome: 'green',
+        sha: SHA,
+        checks: [],
+        workflows: [workflow({ state: 'excused', conclusion: 'failure', excused: ['a'] })],
+      },
+    }
+    const text = textOf(comment(gate))
+    expect(text).toContain('All 1 passed or were excused on commit c0ffee0')
+    expect(text).toContain('a  — no card raised')
+  })
+
+  it('says a workflow that could not be started could not be', () => {
+    const gate: Gate = {
+      decision: { action: 'blocked', why: 'x' },
+      verdict: {
+        outcome: 'timeout',
+        sha: SHA,
+        checks: [],
+        workflows: [workflow({ state: 'missing', conclusion: null, url: null })],
+      },
+    }
+    expect(textOf(comment(gate))).toContain('e2e-tests.yml  — could not be started')
   })
 })
 
@@ -107,6 +190,7 @@ describe('what the gate says of checks that did not pass', () => {
           { name: 'skipped', state: 'stale', conclusion: 'skipped', url: null },
           { name: 'odd', state: 'fail', conclusion: null, url: null },
         ],
+        workflows: [],
       },
     }
     const text = textOf(comment(gate), '')

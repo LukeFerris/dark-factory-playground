@@ -316,6 +316,18 @@ export async function addComment(cfg: JiraConfig, key: string, body: AdfDoc): Pr
   await call(cfg, 'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body })
 }
 
+/**
+ * Creates a work item and gives back its key. `fields` is Jira's own shape:
+ * `project`, `issuetype` and `summary` at least.
+ */
+export async function createIssue(
+  cfg: JiraConfig,
+  fields: Record<string, unknown>,
+): Promise<string> {
+  const created = (await call(cfg, 'POST', '/rest/api/3/issue', { fields })) as { key: string }
+  return created.key
+}
+
 /** What Jira gives back for a file it has taken: enough to embed it. */
 export interface JiraAttachment {
   id: string

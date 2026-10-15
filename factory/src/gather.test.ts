@@ -180,7 +180,7 @@ describe('a build turn on a pull request whose required checks fail', () => {
     pullRequest('failure')
     await gather({ key: 'DF-1', stage: 'build', pr: 5, retry: 1 })
     const task = readFileSync(TASK_PATH, 'utf8')
-    expect(task).toContain('## Required checks failing on the pull request')
+    expect(task).toContain('## Checks failing on the pull request')
     expect(task).toContain('automatic turn 1 of 2')
     expect(task).toContain('### ci — failure')
     expect(task).toContain('FAIL src/app.test.ts > greets Ada')
@@ -190,6 +190,16 @@ describe('a build turn on a pull request whose required checks fail', () => {
     card([])
     pullRequest('success')
     await gather({ key: 'DF-1', stage: 'build', pr: 5 })
-    expect(readFileSync(TASK_PATH, 'utf8')).not.toContain('Required checks')
+    expect(readFileSync(TASK_PATH, 'utf8')).not.toContain('Checks failing')
+  })
+})
+
+describe('the job gather runs in', () => {
+  // gather reads the failures of the workflows verify dispatches from the same
+  // variable verify does. Unset, its report covers the required checks alone.
+  it('is given the workflows verify dispatches', () => {
+    const turn = readFileSync(new URL('../../.github/workflows/turn.yml', import.meta.url), 'utf8')
+    const prepare = turn.slice(turn.indexOf('\n  prepare:\n'), turn.indexOf('\n  agent:\n'))
+    expect(prepare).toContain('FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}')
   })
 })
