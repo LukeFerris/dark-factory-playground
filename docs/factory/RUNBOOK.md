@@ -22,7 +22,8 @@ Every turn uploads `.agent/in/` and `.agent/out/` as an artifact, retained 14
 days. `out/` holds `result.json` (what the agent decided) and `transcript.json`
 (what it actually did); `in/` holds the card, the design and `meta.json` — the
 exact inputs the agent was handed. The Jira comment always links the Actions run
-that produced it.
+that produced it, and says how long the agent worked and what Claude Code says
+it spent, from the transcripts.
 
 ```bash
 gh run view <run-id> --repo "$GH_OWNER/$GH_REPO" --log-failed

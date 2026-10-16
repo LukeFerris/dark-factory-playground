@@ -3,6 +3,7 @@ import * as adf from './adf.ts'
 import { SLIDES_FILENAME } from './evidence.ts'
 import { gateHeadline, gateNext, gateSection, type Gate } from './report-gate.ts'
 import type { Criterion, Question, Result, Stage } from './schema.ts'
+import { formatCost, formatDuration, type Spend } from './spend.ts'
 
 /**
  * The comments `report` posts, built and nothing more.
@@ -38,6 +39,8 @@ export interface CommentOptions {
   evidence?: Evidence
   /** Where a finished build stands at the gate, when it reached it. */
   gate?: Gate | null
+  /** What the turn's agents took, when a transcript says. */
+  spend?: Spend | null
 }
 
 /**
@@ -77,6 +80,7 @@ export function buildComment(stage: Stage, result: Result, options: CommentOptio
     ...failureSection(result),
     ...(gate === null ? [] : gateSection(gate)),
     ...nextSection(stage, result, gate),
+    ...spendSection(options.spend ?? null),
     ...linksSection(options),
   )
 }
@@ -204,6 +208,25 @@ function nextSection(stage: Stage, result: Result, gate: Gate | null): adf.AdfNo
   const next = whatNext(stage, result, gate)
   if (next === null) return []
   return [adf.heading('What happens next', 4), adf.paragraph(adf.text(next))]
+}
+
+/**
+ * How long the agents worked and what they cost, for whoever is weighing up
+ * what a card was worth. Last before the links, because it is about the turn
+ * and not the work.
+ */
+function spendSection(spend: Spend | null): adf.AdfNode[] {
+  if (spend === null) return []
+  const model = spend.modelMs > 0 ? `, ${formatDuration(spend.modelMs)} of it on the model,` : ''
+  return [
+    adf.heading('Time and cost', 4),
+    adf.paragraph(
+      adf.text(
+        `The agent worked for ${formatDuration(spend.workingMs)}${model} and spent about ` +
+          `${formatCost(spend.costUsd)} at API list prices.`,
+      ),
+    ),
+  ]
 }
 
 /** The pull request, the preview and the run, in that order, on one line. */

@@ -10,6 +10,7 @@ import {
   card,
   logs,
   server,
+  transcript,
   turn,
   useReportRun,
 } from './report-run.stub.ts'
@@ -44,6 +45,18 @@ describe('reporting a finished turn', () => {
     expect(logs).toContain('report: DF-7 -> In review')
     expect(logs).toContain('report: evidence — nothing was captured')
     expect(process.exitCode).toBeUndefined()
+  })
+
+  it('says what the agent took, from its transcript', async () => {
+    turn({}, {})
+    transcript(125_000, 0.4)
+    const seen = card()
+
+    await report({ stage: 'build' })
+
+    expect(adfToText(seen.comments[0])).toContain(
+      'The agent worked for 2m 05s and spent about $0.40 at API list prices.',
+    )
   })
 
   it('prefers a PR URL passed in over the one in meta', async () => {

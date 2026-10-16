@@ -47,6 +47,26 @@ describe('addressedTo', () => {
   })
 })
 
+describe('buildComment: time and cost', () => {
+  it('says how long the agent worked and what it spent, before the links', () => {
+    const doc = buildComment('build', result(), {
+      ...NO_LINKS,
+      run: 'https://gh/run/9',
+      spend: { workingMs: 1955386, modelMs: 656087, costUsd: 7.92 },
+    })
+    expect(sectionHeadings(doc).at(-1)).toBe('Time and cost')
+    expect(textOf(doc)).toContain(
+      'The agent worked for 32m 35s, 10m 56s of it on the model, and spent about $7.92 at API list prices.',
+    )
+    expect(textOf(doc.content.at(-1))).toBe('Actions run')
+  })
+
+  it('leaves the section out when no transcript said', () => {
+    const doc = buildComment('build', result(), { ...NO_LINKS, spend: null })
+    expect(sectionHeadings(doc)).not.toContain('Time and cost')
+  })
+})
+
 describe('buildComment: links, questions and failures', () => {
   it('always links the Actions run that produced it', () => {
     const doc = buildComment('design', result(), {

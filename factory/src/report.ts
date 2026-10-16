@@ -11,6 +11,7 @@ import { handBackTarget, releaseCard, syncLinks, turnLinks } from './progress.ts
 import { addressedTo, buildComment, fallbackComment, type Evidence } from './report-comment.ts'
 import { atTheGate, gated, logDryRunGate, mainRed, startRetry, type Gate } from './report-gate.ts'
 import { ResultSchema, STATUS_TRANSITIONS, type Result, type Stage } from './schema.ts'
+import { readSpend } from './spend.ts'
 
 export interface ReportOptions {
   stage: Stage
@@ -105,6 +106,7 @@ export async function report(options: ReportOptions): Promise<void> {
     run: runUrl(),
     evidence,
     gate,
+    spend: readSpend(),
   })
   const comment = retrying ? built : addressedTo(built, await handBackTarget(cfg, meta.key))
   const target = targetStatus(options.stage, result, gate)

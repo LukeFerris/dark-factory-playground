@@ -9,6 +9,16 @@ PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
 ## 2026-10-16
 
+### The card says what a turn took
+
+The comment `report` posts ends with a "Time and cost" section: how long the
+agent worked, how much of that was the model, and what it spent. The figures
+are Claude Code's own, from `transcript.json` and, when main would not merge,
+`merge-transcript.json`, added together. The cost is worked out on the runner
+at API list prices, so it is an estimate of the bill. The transcripts come from
+the untrusted agent job, so nothing acts on these numbers; a transcript that is
+missing or does not parse leaves the section out.
+
 ### The agent commits through the hooks
 
 A turn was committed with `--no-verify`, twice: once in the agent job to bundle
