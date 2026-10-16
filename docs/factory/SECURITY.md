@@ -61,8 +61,9 @@ git bundle of the agent's commits, and `factory accept` does not take its
 merge: it merges main itself, from the commit `prepare` recorded, takes only the
 conflicted files from the agent's merge, and remakes the agent's commits on top
 of its own merge, unchanged. It refuses a turn built on anything else, a turn
-that is not a straight line of commits, a commit not signed as the factory, and
-a turn that left work uncommitted. `validate` then judges the whole change as it
+that is not a straight line of commits, a commit not signed as the factory, a
+commit that touches a path the stage may not write, even one a later commit
+undoes, and a turn that left work uncommitted. `validate` then judges the whole change as it
 always has. `result.json`, `merge-result.json`, `uncommitted.txt` and the
 transcripts are copied in by name if they are regular files, and parsed against
 the schema. Untrusted artifacts are

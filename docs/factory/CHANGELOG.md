@@ -36,6 +36,14 @@ unchanged, or takes them exactly as they are when there was nothing to merge.
 `verify` also waits for the checks in the new `FACTORY_VERIFY_CHECKS`, which
 main does not require and which are never excused. Set it to `Commit gates`.
 
+Review of the Workbench port found three holes, fixed here too. `accept` judged
+scope only where the branch ends up, but `publish` pushes every commit, so a
+change to a denied path that a later commit undid got through; each commit is
+now judged on its own. The guard did not refuse edits to its own directory
+under `$RUNNER_TEMP`, which the agent can reach by absolute path; it does now.
+And the harness installer ran before git-ai was on PATH, so it skipped the
+capture hook and `check-tools.sh` would have refused every commit.
+
 ## 2026-10-14
 
 ### A failure main already has is not the card's
