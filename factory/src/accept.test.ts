@@ -174,6 +174,22 @@ describe('a turn on a branch that already had main, refused', () => {
     expect(run(ROOT, 'rev-parse', 'HEAD')).toBe(card.before)
   })
 
+  it('refuses a change it may not make, even when a later commit undoes it', () => {
+    write(card.agent, '.github/workflows/sneak.yml', 'on: push\n')
+    const sneak = agentCommit('DF-9: a workflow')
+    rmSync(join(card.agent, '.github/workflows/sneak.yml'))
+    agentCommit('DF-9: no workflow after all')
+    packageTurn()
+
+    expect(acceptTurn('build', card.bundle)).toMatchObject({
+      state: 'rejected',
+      problems: [
+        `Commit ${sneak.slice(0, 12)} changes what a build turn may not write: .github/workflows/sneak.yml.`,
+      ],
+    })
+    expect(run(ROOT, 'rev-parse', 'HEAD')).toBe(card.before)
+  })
+
   it('refuses a commit made as somebody else', () => {
     write(card.agent, 'app/src/a.ts', 'a\n')
     agentCommit('DF-9: a', 'a-person')

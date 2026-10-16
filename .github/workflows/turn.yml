@@ -371,6 +371,9 @@ jobs:
         if: steps.go.outputs.run == 'true'
         run: |
           set -euo pipefail
+          # On PATH before the installer runs, or it finds no git-ai, skips the
+          # capture hook, and check-tools refuses every commit.
+          export PATH="$HOME/.git-ai/bin:$HOME/.local/bin:$PATH"
           bash scripts/install-harness-tools.sh
           echo "$HOME/.git-ai/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -379,8 +382,9 @@ jobs:
       # Outside the checkout, so the agent cannot edit it. `Bash(git commit:*)`
       # would let a commit skip the hooks, so this refuses any command that
       # would. It is `--no-v` because git takes any unambiguous abbreviation of
-      # `--no-verify`. It also refuses edits to the hooks, and to the agent's
-      # own settings, which could widen its allow-list. Commit gates runs the
+      # `--no-verify`. It also refuses edits to the hooks, to the agent's own
+      # settings, which could widen its allow-list, and to the guard itself,
+      # which is outside the checkout but not out of reach. Commit gates runs the
       # same checks on the pull request, so this is a guard, not the gate.
       - name: Guard the hooks
         if: steps.go.outputs.run == 'true'
@@ -393,13 +397,13 @@ jobs:
           input="$(cat)"
           cmd="$(jq -r '.tool_input.command // empty' <<<"$input")"
           file="$(jq -r '.tool_input.file_path // empty' <<<"$input")"
-          if [ -n "$cmd" ] && grep -Eq -- '--no-v|HUSKY=|STAGED_COVERAGE_SKIP|hooksPath|(^|[[:space:];&|])git[[:space:]].*commit.*[[:space:]]-[a-zA-Z]*n' <<<"$cmd"; then
-            echo "Commits go through the repository's hooks. --no-verify, -n, HUSKY, STAGED_COVERAGE_SKIP and hooksPath are not allowed." >&2
+          if [ -n "$cmd" ] && grep -Eq -- '--no-v|HUSKY=|STAGED_COVERAGE_SKIP|hooksPath|enki-guard|(^|[[:space:];&|])git[[:space:]].*commit.*[[:space:]]-[a-zA-Z]*n' <<<"$cmd"; then
+            echo "Commits go through the repository's hooks. --no-verify, -n, HUSKY, STAGED_COVERAGE_SKIP, hooksPath and the guard are not allowed." >&2
             exit 2
           fi
           case "$file" in
-            */.husky/*|.husky/*|*/scripts/check-*|scripts/check-*|*/scripts/install-harness-tools.sh|scripts/install-harness-tools.sh|*/.claude/*|.claude/*)
-              echo "The commit hooks, and the agent's own settings, are not the turn's to change." >&2
+            */.husky/*|.husky/*|*/scripts/check-*|scripts/check-*|*/scripts/install-harness-tools.sh|scripts/install-harness-tools.sh|*/.claude/*|.claude/*|*/enki-guard/*)
+              echo "The commit hooks, the agent's own settings and this guard are not the turn's to change." >&2
               exit 2 ;;
           esac
           exit 0

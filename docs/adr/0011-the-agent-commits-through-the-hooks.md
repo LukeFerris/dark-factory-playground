@@ -52,7 +52,8 @@ allow `-n`, `--no-verify` and `HUSKY=0`, and `check-staged-coverage.mjs` honours
 `STAGED_COVERAGE_SKIP=1`, so a `PreToolUse` hook refuses any command carrying
 those or `hooksPath`, and any edit to `.husky/`, the gate
 scripts, or `.claude/`. The workflow writes that hook to `$RUNNER_TEMP`, outside
-the checkout, and passes it with `--settings`, so the agent cannot edit it.
+the checkout, and passes it with `--settings`. The hook refuses edits to
+itself as well, since outside the checkout is not out of reach.
 The job sets git's identity to the factory's bot before the agent runs.
 
 **The bundle is the agent's commits.** The job packages a turn by listing what
@@ -68,7 +69,11 @@ commits, which must be:
   commit it was given when there was nothing to merge;
 - signed as the factory, author and committer both, which no person's commit
   is;
-- everything the turn wrote, with `uncommitted.txt` empty.
+- everything the turn wrote, with `uncommitted.txt` empty;
+- each within the stage's paths, judged commit by commit. `publish` pushes
+  every commit, so a change to a denied path that a later commit undoes is
+  refused here, although `validate`, which judges where the branch ends up,
+  would let it through.
 
 Anything else is refused, as is a turn with no `uncommitted.txt`, because that
 job never got as far as packaging. With no merge, the agent's commits are taken
@@ -95,8 +100,8 @@ required checks, and never excuses one. Set it to `Commit gates`.
 - A turn that runs out of budget before its last commit loses what it did not
   commit. The build manual allows committing as the work goes.
 - The guard is not a seal. A build agent runs `npm run` scripts it can edit, so
-  it can run anything a shell can. `validate` still refuses changes outside the
-  agent's paths, which include the hooks, and `Commit gates` runs the gates
+  it can run anything a shell can. `accept` and `validate` still refuse changes outside
+  the agent's paths, which include the hooks, and `Commit gates` runs the gates
   again where the agent cannot reach.
 - The merge commits the agent job makes stay `--no-verify`. They hand the merge
   over, `accept` makes its own, and they are never pushed.

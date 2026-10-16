@@ -13,7 +13,7 @@ import {
 } from './merge.ts'
 import { AGENT_OUT, RESULT_PATH, readMeta, updateMeta, writeFileEnsuringDir } from './meta.ts'
 import type { Stage } from './schema.ts'
-import { rejection } from './validate.ts'
+import { checkScope, rejection } from './validate.ts'
 
 /**
  * Taking an agent's turn into a job that holds tokens, without running any of
@@ -73,7 +73,7 @@ export interface Turn {
   commits: string[]
 }
 
-type Expected = { before: string; main: string; merged: boolean }
+type Expected = { before: string; main: string; merged: boolean; stage: Stage }
 
 /**
  * The agent's turn, if its history has the shape it was given.
@@ -81,8 +81,9 @@ type Expected = { before: string; main: string; merged: boolean }
  * `before` is where the branch was when the turn started. On top of it there
  * is a merge of `main` into `before`, if the turn was told to merge, and then
  * the agent's commits in a line: no merges of its own, nothing rewritten, and
- * every one made as the factory. Anything else is history the factory did not
- * hand out and will not push.
+ * every one made as the factory, and none touching a path the stage may not
+ * write. Anything else is history the factory did not hand out and will not
+ * push.
  */
 export function readTurn(bundle: string, expected: Expected): Turn | { problem: string } {
   const left = uncommittedProblem()
@@ -110,7 +111,37 @@ export function readTurn(bundle: string, expected: Expected): Turn | { problem: 
       problem: `The turn has commits not made as the factory: ${strangers.map((s) => s.slice(0, 12)).join(', ')}.`,
     }
   }
+  const outside = outOfScope(expected.stage, commits)
+  if (outside !== null) return { problem: outside }
   return { merge: at, commits }
+}
+
+/**
+ * Why a commit in the turn is out of the stage's scope, or `null` when none
+ * is. `validate` judges only where the branch ends up, and `publish` pushes
+ * every commit, so a change to a denied path that a later commit undoes would
+ * pass it and still be pushed. Each commit is judged on its own here.
+ */
+function outOfScope(stage: Stage, commits: string[]): string | null {
+  for (const sha of commits) {
+    const touched = git([
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      '--no-renames',
+      `${sha}^`,
+      sha,
+    ])
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l !== '')
+    const violations = checkScope(stage, touched)
+    if (violations.length > 0) {
+      return `Commit ${sha.slice(0, 12)} changes what a ${stage} turn may not write: ${violations.map((v) => v.path).join(', ')}.`
+    }
+  }
+  return null
 }
 
 /** Why what the agent left uncommitted refuses the turn, or `null` when it left nothing. */
@@ -218,7 +249,7 @@ export function acceptTurn(stage: Stage, bundle: string): AcceptOutcome {
   git(['checkout', '--quiet', '-B', meta.branch, state.before])
 
   const merged = state.state === 'merged' || state.state === 'conflicted'
-  const turn = readTurn(bundle, { before: state.before, main: state.main, merged })
+  const turn = readTurn(bundle, { before: state.before, main: state.main, merged, stage })
   // An unresolved conflict is the one failure worth more than "rejected": it
   // goes on the card as a question, as it did before the agent had a job of
   // its own. So the resolving agent's answer is read before the bundle is.
