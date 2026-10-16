@@ -66,7 +66,8 @@ commit that touches a path the stage may not write, even one a later commit
 undoes, and a turn that left work uncommitted. `validate` then judges the whole change as it
 always has. `result.json`, `merge-result.json`, `uncommitted.txt` and the
 transcripts are copied in by name if they are regular files, and parsed against
-the schema. Untrusted artifacts are
+the schema. The transcripts' time and cost go on the card for a person to
+read, and nothing acts on them. Untrusted artifacts are
 downloaded outside the card's checkout, and trusted ones by the id a trusted
 job reported, so an untrusted job cannot stand in for a trusted one by
 uploading under its name.

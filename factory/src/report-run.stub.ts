@@ -5,8 +5,9 @@ import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import type { AdfDoc } from './adf.ts'
 import { EVIDENCE_DIR, SLIDES_PATH } from './evidence.ts'
-import { RESULT_PATH, writeFileEnsuringDir, writeMeta, type Meta } from './meta.ts'
+import { AGENT_OUT, RESULT_PATH, writeFileEnsuringDir, writeMeta, type Meta } from './meta.ts'
 import type { Result } from './schema.ts'
+import { TRANSCRIPTS } from './spend.ts'
 import { VERIFY_PATH, writeVerdict, type Verdict } from './verify.ts'
 
 /**
@@ -41,6 +42,7 @@ export function useReportRun(): void {
     delete process.env['AZURE_PREVIEW_LAUNCHER']
     rmSync(EVIDENCE_DIR, { recursive: true, force: true })
     rmSync(VERIFY_PATH, { force: true })
+    for (const name of TRANSCRIPTS) rmSync(resolve(AGENT_OUT, name), { force: true })
     logs.length = 0
     const record = (...args: unknown[]): void => void logs.push(args.join(' '))
     vi.spyOn(console, 'log').mockImplementation(record)
@@ -90,6 +92,14 @@ export function verdict(outcome: Verdict['outcome']): void {
     checks: [{ name: 'ci', state, conclusion: null, url: null }],
     workflows: [],
   })
+}
+
+/** Leaves the transcript Claude Code writes when the agent finishes. */
+export function transcript(durationMs: number, costUsd: number): void {
+  writeFileEnsuringDir(
+    resolve(AGENT_OUT, 'transcript.json'),
+    JSON.stringify({ duration_ms: durationMs, total_cost_usd: costUsd }),
+  )
 }
 
 /** Leaves screenshots for the given steps, and the walkthrough if asked. */
