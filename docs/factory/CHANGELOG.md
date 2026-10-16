@@ -22,7 +22,7 @@ installs what the dev container does (`scripts/install-harness-tools.sh`,
 `npx husky`), signs commits as the factory's bot, and gives the agent
 `git add`/`commit`/`status`/`diff`/`log`, `npx lint-staged`, `/check-patterns`
 and `sha256sum`. A `PreToolUse` hook, written outside the checkout, refuses
-`-n`, `--no-verify`, `HUSKY=` and `hooksPath`, and edits to the hooks and to
+`-n`, `--no-verify`, `HUSKY=`, `STAGED_COVERAGE_SKIP` and `hooksPath`, and edits to the hooks and to
 `.claude/`. The manuals say "You must commit at the end of your work - you may
 never use --no-verify".
 

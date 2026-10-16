@@ -145,7 +145,7 @@ To commit:
 5. If the hook fails, the failure is the work. Fix the cause, even in a file
    you did not write, and commit again, re-running `/check-patterns` if the
    staged diff changed. Never skip the hook, disable it or edit it: `-n`,
-   `--no-verify`, `HUSKY=0` and changes to `.husky/` or `scripts/` are refused.
+   `--no-verify`, `HUSKY=0`, `STAGED_COVERAGE_SKIP` and changes to `.husky/` or `scripts/` are refused.
    If a gate cannot pass without a change outside your allowed paths, the turn
    is `blocked`: say which gate and why, and leave that work uncommitted. The
    pipeline takes none of the turn, and your `reason` goes on the card.

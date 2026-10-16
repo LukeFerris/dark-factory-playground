@@ -48,8 +48,9 @@ so a runner that is not equipped cannot commit at all. A design turn gets
 `git add`, `git commit`, `git status`, `git diff` and `git log`,
 `npx lint-staged`, the `/check-patterns` skill and `sha256sum`, for the audit's
 stamp. A design turn can run nothing else. `Bash(git commit:*)` would also
-allow `-n`, `--no-verify` and `HUSKY=0`, so a `PreToolUse` hook refuses any
-command carrying those or `hooksPath`, and any edit to `.husky/`, the gate
+allow `-n`, `--no-verify` and `HUSKY=0`, and `check-staged-coverage.mjs` honours
+`STAGED_COVERAGE_SKIP=1`, so a `PreToolUse` hook refuses any command carrying
+those or `hooksPath`, and any edit to `.husky/`, the gate
 scripts, or `.claude/`. The workflow writes that hook to `$RUNNER_TEMP`, outside
 the checkout, and passes it with `--settings`, so the agent cannot edit it.
 The job sets git's identity to the factory's bot before the agent runs.

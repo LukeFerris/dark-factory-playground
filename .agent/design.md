@@ -87,7 +87,7 @@ formatting, and the pattern audit. To commit:
    from `meta.json`. Pass each paragraph of the message as its own `-m`, in
    plain text; `$(...)` is refused.
 5. If the hook fails, fix the cause and commit again. Never skip the hook,
-   disable it or edit it: `-n`, `--no-verify`, `HUSKY=0` and changes to
+   disable it or edit it: `-n`, `--no-verify`, `HUSKY=0`, `STAGED_COVERAGE_SKIP` and changes to
    `.husky/` or `scripts/` are refused. If a gate cannot pass, the turn is
    `blocked`: say which gate and why.
 6. Check `git status` is clean. `.agent/out/` is ignored, so `result.json` is

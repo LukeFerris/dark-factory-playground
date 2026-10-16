@@ -393,8 +393,8 @@ jobs:
           input="$(cat)"
           cmd="$(jq -r '.tool_input.command // empty' <<<"$input")"
           file="$(jq -r '.tool_input.file_path // empty' <<<"$input")"
-          if [ -n "$cmd" ] && grep -Eq -- '--no-v|HUSKY=|hooksPath|(^|[[:space:];&|])git[[:space:]].*commit.*[[:space:]]-[a-zA-Z]*n' <<<"$cmd"; then
-            echo "Commits go through the repository's hooks. --no-verify, -n, HUSKY and hooksPath are not allowed." >&2
+          if [ -n "$cmd" ] && grep -Eq -- '--no-v|HUSKY=|STAGED_COVERAGE_SKIP|hooksPath|(^|[[:space:];&|])git[[:space:]].*commit.*[[:space:]]-[a-zA-Z]*n' <<<"$cmd"; then
+            echo "Commits go through the repository's hooks. --no-verify, -n, HUSKY, STAGED_COVERAGE_SKIP and hooksPath are not allowed." >&2
             exit 2
           fi
           case "$file" in
