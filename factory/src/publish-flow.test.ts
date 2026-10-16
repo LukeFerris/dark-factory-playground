@@ -69,10 +69,10 @@ function result(over: Partial<Result> = {}): void {
   writeFileEnsuringDir(RESULT_PATH, JSON.stringify(full))
 }
 
-/** git as publish sees it: something staged, and a branch checked out. */
-function stage(staged: string, current = BRANCH): void {
+/** git as publish sees it: what the lockfile's status is, and a branch checked out. */
+function stage(lockfile: string, current = BRANCH): void {
   gitCalls.mockImplementation((args) => {
-    if (args[0] === 'diff') return staged
+    if (args[0] === 'status') return lockfile
     if (args[0] === 'branch') return `${current}\n`
     return ''
   })
@@ -110,7 +110,7 @@ beforeEach(() => {
   bodies = []
   meta()
   result()
-  stage('app/src/App.tsx\n')
+  stage('')
   vi.spyOn(console, 'log').mockImplementation(() => {})
 })
 afterEach(() => {
@@ -120,38 +120,36 @@ afterEach(() => {
 })
 
 describe('committing the turn', () => {
-  it('commits as the bot, within the stage’s paths, under the card key and first line', () => {
+  // The agent made its own commits, through the hook, and accept put them on
+  // the branch (ADR 0011). publish has nothing of the turn's to commit.
+  it('commits nothing of a design turn', () => {
     github(null)
     publish({ stage: 'design', cardSummary: 'Add a close date', dryRun: true })
 
-    expect(identifyAsBot).toHaveBeenCalled()
-    expect(gitCalls).toHaveBeenCalledWith(['add', '--', 'docs/design/**'], true)
-    expect(gitCalls).toHaveBeenCalledWith([
-      'commit',
-      '--no-verify',
-      '-m',
-      'DF-9: Added the close date.',
-    ])
-  })
-
-  it('keeps the subject to 72 characters', () => {
-    result({ summary: 'x'.repeat(100) })
-    publish({ stage: 'design', cardSummary: 'Add a close date', dryRun: true })
-    expect(gitCalls).toHaveBeenCalledWith([
-      'commit',
-      '--no-verify',
-      '-m',
-      `DF-9: ${'x'.repeat(72)}`,
-    ])
-  })
-
-  it('says so, and commits nothing, when nothing in scope changed', () => {
-    stage('')
-    publish({ stage: 'design', cardSummary: 'Add a close date', dryRun: true })
-
-    expect(console.log).toHaveBeenCalledWith(
-      "publish: nothing to commit within the stage's allowed paths.",
+    expect(identifyAsBot).not.toHaveBeenCalled()
+    expect(gitCalls.mock.calls.some(([args]) => args[0] === 'add' || args[0] === 'commit')).toBe(
+      false,
     )
+  })
+
+  it('commits the lockfile, as the bot, when regenerating it changed it', () => {
+    stage(' M package-lock.json\n')
+    publish({ stage: 'build', cardSummary: 'Add a close date', dryRun: true })
+
+    expect(identifyAsBot).toHaveBeenCalled()
+    expect(gitCalls).toHaveBeenCalledWith(['add', '--', 'package-lock.json'])
+    expect(gitCalls).toHaveBeenCalledWith([
+      'commit',
+      '--no-verify',
+      '-m',
+      'DF-9: Bring the lockfile up to date',
+    ])
+  })
+
+  it('commits nothing when the lockfile was already up to date', () => {
+    stage('')
+    publish({ stage: 'build', cardSummary: 'Add a close date', dryRun: true })
+
     expect(gitCalls.mock.calls.some(([args]) => args[0] === 'commit')).toBe(false)
   })
 

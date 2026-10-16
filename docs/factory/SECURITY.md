@@ -36,31 +36,36 @@ Every job is on one side or the other:
   the card's branch checked out beside it in `card/`, and read the card as data.
   They never run `npm ci` in it, its tests or its app. `factory publish`
   regenerates the lockfile with `--ignore-scripts` for the same reason, and
-  commits with `--no-verify`, as `merge-finish` does: the pre-commit hook runs
-  the card's lint, tests and coverage. The hook's gates run on the PR instead,
-  in `commit-gates.yml`, which holds a read-only `GITHUB_TOKEN` and nothing
-  else.
+  commits it with `--no-verify`, as `merge-finish` does: the pre-commit hook runs
+  the card's lint, tests and coverage. The agent's own work is committed in the
+  agent job, through the hook, by the agent
+  ([ADR 0011](../adr/0011-the-agent-commits-through-the-hooks.md)). The hook's
+  gates run again on the PR in `commit-gates.yml`, which holds a read-only
+  `GITHUB_TOKEN` and nothing else.
 
 A turn is `turn.yml`, called by `design.yml`, `build-start.yml` and
 `build-turn.yml`:
 
-| Job                                                            | Side      | Holds                                                              |
-| -------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
-| `prepare`: gather, announce, cut the branch, `merge-begin`     | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
-| `agent`: merge main, resolve conflicts, `npm ci`, the agent    | untrusted | `ANTHROPIC_API_KEY`                                                |
-| `publish`: `accept`, `validate`, `publish`                     | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
-| `preview`: `preview-up`                                        | trusted   | Azure (OIDC), `packages`/`deployments: write`                      |
-| `walkthrough`: the card's e2e spec against the preview         | untrusted | nothing                                                            |
-| `verify`: wait for main's required checks on the pushed commit | trusted   | App token, `GITHUB_TOKEN` with `checks`/`statuses`/`actions: read` |
-| `report`: kickoff and report                                   | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| Job                                                                                        | Side      | Holds                                                              |
+| ------------------------------------------------------------------------------------------ | --------- | ------------------------------------------------------------------ |
+| `prepare`: gather, announce, cut the branch, `merge-begin`                                 | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| `agent`: merge main, resolve conflicts, `npm ci`, the hooks' tools, the agent, its commits | untrusted | `ANTHROPIC_API_KEY`                                                |
+| `publish`: `accept`, `validate`, `publish`                                                 | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
+| `preview`: `preview-up`                                                                    | trusted   | Azure (OIDC), `packages`/`deployments: write`                      |
+| `walkthrough`: the card's e2e spec against the preview                                     | untrusted | nothing                                                            |
+| `verify`: wait for main's required checks on the pushed commit                             | trusted   | App token, `GITHUB_TOKEN` with `checks`/`statuses`/`actions: read` |
+| `report`: kickoff and report                                                               | trusted   | App token, `JIRA_BOT_TOKEN`                                        |
 
 Only data crosses from an untrusted job to a trusted one. The turn arrives as a
-git bundle, and `factory accept` does not take its history: it merges main
-itself, from the commit `prepare` recorded, takes only the conflicted files
-from the agent's merge, refuses a turn built on anything else, and applies the
-work as an uncommitted patch for `validate` to judge as it always has.
-`result.json`, `merge-result.json` and the transcripts are copied in by name if
-they are regular files, and parsed against the schema. Untrusted artifacts are
+git bundle of the agent's commits, and `factory accept` does not take its
+merge: it merges main itself, from the commit `prepare` recorded, takes only the
+conflicted files from the agent's merge, and remakes the agent's commits on top
+of its own merge, unchanged. It refuses a turn built on anything else, a turn
+that is not a straight line of commits, a commit not signed as the factory, and
+a turn that left work uncommitted. `validate` then judges the whole change as it
+always has. `result.json`, `merge-result.json`, `uncommitted.txt` and the
+transcripts are copied in by name if they are regular files, and parsed against
+the schema. Untrusted artifacts are
 downloaded outside the card's checkout, and trusted ones by the id a trusted
 job reported, so an untrusted job cannot stand in for a trusted one by
 uploading under its name.

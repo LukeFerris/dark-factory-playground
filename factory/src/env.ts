@@ -58,6 +58,14 @@ export function optional(name: string, fallback = ''): string {
   return value === undefined || value === '' ? fallback : value
 }
 
+/** A comma-separated list from the environment, trimmed, without the blanks. */
+export function optionalList(name: string): string[] {
+  return optional(name)
+    .split(',')
+    .map((w) => w.trim())
+    .filter((w) => w !== '')
+}
+
 /** The Actions run that is executing right now, for "where did this come from" links. */
 export function runUrl(): string | null {
   const server = optional('GITHUB_SERVER_URL', 'https://github.com')

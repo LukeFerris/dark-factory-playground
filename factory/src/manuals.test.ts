@@ -70,6 +70,14 @@ function containmentRules(stage: (typeof MANUALS)[number]): void {
   it('tells the agent to write result.json even when the turn fails', () => {
     expect(manual(stage)).toContain('including when you fail')
   })
+
+  // The turn is what the agent commits, through the hooks (ADR 0011).
+  it('tells the agent to commit, and never past the hooks', () => {
+    expect(manual(stage)).toContain(
+      '**You must commit at the end of your work - you may never use --no-verify.**',
+    )
+    expect(manual(stage)).toContain('/check-patterns')
+  })
 }
 
 /** The acceptance criteria and the steps that prove them, as the card comment needs them. */
@@ -179,8 +187,11 @@ describe('agent manuals', () => {
     expect(manual('build')).toContain('cannot run `npm install`')
   })
 
-  it('tells the design agent it has no shell at all', () => {
-    expect(manual('design')).toMatch(/no shell/)
+  it('tells the design agent it can run only what commits its work', () => {
+    expect(unwrapped('design')).toContain('Only what commits your work')
+    expect(unwrapped('design')).toContain(
+      'You cannot run the tests, start the app, or install anything.',
+    )
   })
 
   // Only the build stage has a "last time": a design turn's reader is seeing

@@ -31,16 +31,26 @@ export function currentBranch(): string {
  * Gives this checkout the factory's git identity.
  *
  * Any command that writes a commit needs one, and three of them do: `publish`
- * commits the turn's output, `prepare-branch` commits a merge from main, and
- * `merge-finish` commits a resolved one. They all have to agree — a commit
+ * commits a regenerated lockfile, `prepare-branch` commits a merge from main,
+ * and `merge-finish` commits a resolved one. They all have to agree — a commit
  * authored by "runner" is a commit no reviewer can attribute — so the spelling
  * of the address lives here rather than three times over.
  */
 export function identifyAsBot(): string {
+  const { name, email } = botIdentity()
+  git(['config', 'user.name', name])
+  git(['config', 'user.email', email])
+  return name
+}
+
+/**
+ * The name and address the factory's commits carry. The agent job spells the
+ * same thing in turn.yml, because the agent commits there, and `accept` takes
+ * no commit that is not this.
+ */
+export function botIdentity(): { name: string; email: string } {
   const login = optional('FACTORY_BOT_LOGIN', 'factory[bot]')
-  git(['config', 'user.name', login])
-  git(['config', 'user.email', `${login.replace(/\[bot\]$/, '')}[bot]@users.noreply.github.com`])
-  return login
+  return { name: login, email: `${login.replace(/\[bot\]$/, '')}[bot]@users.noreply.github.com` }
 }
 
 export function headSha(): string {

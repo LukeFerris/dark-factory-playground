@@ -1,4 +1,4 @@
-import { optional, runUrl } from './env.ts'
+import { optional, optionalList, runUrl } from './env.ts'
 import * as adf from './adf.ts'
 import * as jira from './jira.ts'
 import {
@@ -57,11 +57,10 @@ export function externalProduction(): ExternalProduction | null {
   if (!url.startsWith('https://')) {
     throw new Error(`FACTORY_PRODUCTION_URL must be an https:// URL, not "${url}".`)
   }
-  const workflows = optional('FACTORY_PRODUCTION_WORKFLOWS')
-    .split(',')
-    .map((w) => w.trim())
-    .filter((w) => w !== '')
-    .map((w) => ({ file: w.replace(/\?$/, ''), ifRan: w.endsWith('?') }))
+  const workflows = optionalList('FACTORY_PRODUCTION_WORKFLOWS').map((w) => ({
+    file: w.replace(/\?$/, ''),
+    ifRan: w.endsWith('?'),
+  }))
   if (!workflows.some((w) => !w.ifRan)) {
     throw new Error(
       'FACTORY_PRODUCTION_WORKFLOWS must name at least one workflow that always deploys main, ' +

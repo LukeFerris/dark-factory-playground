@@ -46,8 +46,8 @@ machinery that makes the loop run.
 
 Two stages and an ending, one card:
 
-1. **Design.** The card reaches _Ready for design_. An agent with no shell reads
-   the card and the code, and writes `docs/design/<KEY>/design.md` on a new
+1. **Design.** The card reaches _Ready for design_. An agent that can commit but run
+   nothing else reads the card and the code, and writes `docs/design/<KEY>/design.md` on a new
    `card/<KEY>` branch, opening a pull request for it. Anything it cannot decide
    goes on the card as a question and the card stops at _Blocked on architect_;
    once someone answers, the poller starts another design turn on the same

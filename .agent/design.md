@@ -36,7 +36,8 @@ Exactly two things:
 2. **A result file** at `.agent/out/result.json`, conforming to
    `.agent/result.schema.json`.
 
-Write `result.json` last, and write it every time, including when you fail. It
+Commit the design document (see "Committing your work"). Then write
+`result.json` last, and write it every time, including when you fail. It
 is the only thing the pipeline reads to decide what happens next; a turn that
 ends without it is reported as a failure.
 
@@ -58,8 +59,39 @@ Routine choices belong in the design document.
 
 ## What you may run
 
-Nothing. You have read, search, and write tools only — no shell. You cannot run
-the tests, start the app, or install anything. Design from reading the code.
+Only what commits your work: `git add`, `git commit`, `git status`, `git diff`
+and `git log`, `npx lint-staged`, `/check-patterns` and `sha256sum`. You cannot
+run the tests, start the app, or install anything. Design from reading the
+code.
+
+## Committing your work
+
+**You must commit at the end of your work - you may never use --no-verify.**
+
+Your commits are the turn. The pipeline pushes them to the pull request as you
+made them, and a turn that leaves anything uncommitted is rejected whole.
+
+Each commit runs the repository's pre-commit hook, the same gates a person's
+commit meets: whitespace and merge markers, secrets, known vulnerabilities,
+formatting, and the pattern audit. To commit:
+
+1. Stage the design document, and any ADR you wrote, with `git add`.
+2. Run `npx lint-staged`, so Prettier has settled the formatting before you
+   audit it.
+3. Run `/check-patterns` on what is staged. Nobody is there to answer its
+   questions: fix what it finds, stage the fix, and run it again. When it
+   passes it writes the hash of the staged diff to `.patterns-checked`. If the
+   shell refuses that, run `git diff --cached | sha256sum` and write the hash,
+   the first word, to `.patterns-checked` with your write tool.
+4. Run `git commit -m "<KEY>: <what the design decides>"`, with the card's key
+   from `meta.json`. Pass each paragraph of the message as its own `-m`, in
+   plain text; `$(...)` is refused.
+5. If the hook fails, fix the cause and commit again. Never skip the hook,
+   disable it or edit it: `-n`, `--no-verify`, `HUSKY=0`, `STAGED_COVERAGE_SKIP` and changes to
+   `.husky/` or `scripts/` are refused. If a gate cannot pass, the turn is
+   `blocked`: say which gate and why.
+6. Check `git status` is clean. `.agent/out/` is ignored, so `result.json` is
+   never committed; write it after your last commit.
 
 ## Choosing a status
 
