@@ -1,10 +1,11 @@
 name: Commit gates
 
 # The pre-commit hook's gates (.husky/pre-commit), run on the whole pull
-# request as if it were one staged commit. The factory commits a turn's work
-# with --no-verify, because the job that commits holds tokens and must not run
-# the card's code (ADR 0008), so this is where an agent's work meets the same
-# gates a person's commit does. It runs on every PR, people's included.
+# request as if it were one staged commit. The agent commits its own work
+# through the hook (ADR 0011), so this is the backstop: it catches what the hook
+# does not see, such as lint over files a commit did not stage, and a commit
+# that got past the hook. `verify` waits for it when FACTORY_VERIFY_CHECKS names
+# it. It runs on every PR, people's included.
 #
 # What it runs, in the hook's order:
 #   1. git diff --check

@@ -33,10 +33,11 @@ the human's response to what you did last time. Address that response first.
 2. **Tests** covering it, passing.
 3. **An appended entry** in `docs/design/<KEY>/build-log.md` — one short section
    per turn: what you changed, what you ran, what is still outstanding.
-4. **A result file** at `.agent/out/result.json`, conforming to
+4. **Your commits**, holding all of the above. See "Committing your work".
+5. **A result file** at `.agent/out/result.json`, conforming to
    `.agent/result.schema.json`.
 
-Write `result.json` last, and write it every time, including when you fail. It is
+Write `result.json` last, after your last commit, and write it every time, including when you fail. It is
 the only thing the pipeline reads to decide what happens next.
 
 ## What you may change
@@ -81,6 +82,9 @@ You may run, and only run:
 - `npm run build`
 - `npm run preview`
 - `curl` (against the preview URL in `meta.json`, to check the built app responds)
+- `git add`, `git commit`, `git status`, `git diff` and `git log`, `npx lint-staged`,
+  `/check-patterns` and `sha256sum`, to commit your work (see "Committing your
+  work")
 
 You **cannot run `npm install`**. It is not in your tool allow-list and it will
 fail. To add a dependency, edit `app/package.json` and say so in `summary` and in
@@ -88,34 +92,68 @@ the build log — the pipeline regenerates `package-lock.json` for you when it
 publishes. Keep new dependencies rare and justify each one.
 
 Before you finish any turn, run lint, typecheck, test, e2e and build, in that
-order. Report what you ran and what it said. Do not claim a turn is
+order, and then commit. Report what you ran and what it said. Do not claim a turn is
 `ready_for_review` on code you have not seen pass.
 
-## The commit gates
+## Committing your work
 
-The pipeline commits your work without running the pre-commit hook, and the
-`Commit gates` check then runs the same gates a person's commit goes through
-over the whole PR. A PR that fails them is not ready for review, so check for
-them yourself before you finish:
+**You must commit at the end of your work - you may never use --no-verify.**
 
-- **Complexity**, which `npm run lint` reports. No file over 300 lines and no
-  function over 60, not counting blank lines and comments. Cyclomatic complexity
-  at most 12, cognitive complexity at most 15, nesting at most 4 deep, at most 4
-  parameters and 25 statements to a function. These apply to test files too.
-  Split a component or a test the way a reader would want it split. Do not just
-  move lines around until the number fits.
+Your commits are the turn. The pipeline pushes them to the pull request as you
+made them, and a turn that leaves anything uncommitted is rejected whole. Commit
+once at the end, or as you go; the turn is every commit you make.
+
+Each commit runs the repository's pre-commit hook, the same gates a person's
+commit meets:
+
+- **Tooling.** The pinned scanners must be installed. They are; if the hook
+  says otherwise, the turn is `blocked`.
+- **Whitespace and merge markers** in what you staged.
+- **Secrets.** Anything that looks like a credential is refused.
+- **Known vulnerabilities.** A new dependency with a published vulnerability
+  is refused.
+- **Lint and formatting.** lint-staged runs ESLint's fixes and Prettier on what
+  you staged, and stages the result.
 - **Coverage.** Every source file you add or change needs, from its tests, at
   least 75% of its statements, functions and lines and 60% of its branches.
   Run `npm run test:coverage` and read your files' rows.
-- **Known vulnerabilities.** A new dependency with a published vulnerability is
-  refused.
-- **Secrets.** Anything that looks like a credential is refused.
+- **The pattern audit**, below.
 
-The hook also audits an agent's diff for two things, and neither the pipeline
-nor the check can do that for you, so do it yourself before you finish. Look for code that duplicates
-something the app already has, where it should use the existing thing. And look
-for fallbacks that paper over a mistake in our own code, where the fix belongs
-at the source. Fix what you find, rather than reporting it.
+Lint enforces complexity, and the hook only lints what you staged, so run
+`npm run lint` over the whole change before you commit. No file over 300 lines
+and no function over 60, not counting blank lines and comments. Cyclomatic
+complexity at most 12, cognitive complexity at most 15, nesting at most 4 deep,
+at most 4 parameters and 25 statements to a function. These apply to test files
+too. Split a component or a test the way a reader would want it split. Do not
+just move lines around until the number fits.
+
+To commit:
+
+1. Stage what you changed with `git add`, and only paths you may change.
+2. Run `npx lint-staged`, so the formatting is settled before you audit it.
+3. Run `/check-patterns` on what is staged. It looks for code that duplicates
+   something the app already has, where it should use the existing thing, and
+   for fallbacks that paper over a mistake in our own code, where the fix
+   belongs at the source. Nobody is there to answer its questions: fix what it
+   finds, stage the fix, and run it again. When it passes it writes the hash of
+   the staged diff to `.patterns-checked`. If the shell refuses that, run
+   `git diff --cached | sha256sum` and write the hash, the first word, to
+   `.patterns-checked` with your write tool.
+4. Run `git commit -m "<KEY>: <what now works>"`, with the card's key from
+   `meta.json`. Pass each paragraph of the message as its own `-m`, in plain
+   text; `$(...)` is refused.
+5. If the hook fails, the failure is the work. Fix the cause, even in a file
+   you did not write, and commit again, re-running `/check-patterns` if the
+   staged diff changed. Never skip the hook, disable it or edit it: `-n`,
+   `--no-verify`, `HUSKY=0` and changes to `.husky/` or `scripts/` are refused.
+   If a gate cannot pass without a change outside your allowed paths, the turn
+   is `blocked`: say which gate and why, and leave that work uncommitted. The
+   pipeline takes none of the turn, and your `reason` goes on the card.
+6. Check `git status` is clean. `.agent/out/` is ignored, so `result.json` is
+   never committed; write it after your last commit.
+
+The `Commit gates` check runs the same gates again over the whole pull request,
+and a pull request that fails them is not ready for review.
 
 ## Choosing a status
 

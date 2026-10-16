@@ -374,11 +374,13 @@ whatever the allow list says.
 
 ## A PR's "Commit gates" check is red
 
-The factory commits a turn's work with `--no-verify`: the job that commits
-holds tokens and must not run the card's code
-([ADR 0008](../adr/0008-code-the-agent-touched-never-shares-a-job-with-a-token.md)),
-and the pre-commit hook runs it. `commit-gates.yml` runs the hook's gates over
-the whole PR instead, on every PR. The failing step's name says which gate:
+The agent commits its own work through the pre-commit hook
+([ADR 0011](../adr/0011-the-agent-commits-through-the-hooks.md)), so a red
+`Commit gates` usually means a gate the hook does not cover: lint over files
+the turn did not stage, or a hook the agent got past. `commit-gates.yml` runs
+the hook's gates over the whole PR, on every PR, and `verify` holds a turn
+back on it when `FACTORY_VERIFY_CHECKS` names it. The failing step's name says
+which gate:
 
 - **1. Whitespace errors and merge markers.** Usually a conflict marker the
   merge agent left in a file the scope check did not cover.
@@ -458,6 +460,11 @@ in `FACTORY_VERIFY_WORKFLOWS` (a repository variable, comma-separated file
 names), and has to accept `workflow_dispatch` with a `pr` input and run when
 dispatched. Otherwise `verify` waits for a run that never starts, and times
 out. The `verify` job's log says whether each dispatch was accepted.
+
+**A check that is not required should still hold a card back.** Name it in
+`FACTORY_VERIFY_CHECKS` (a repository variable, comma-separated check names).
+`verify` waits for it as it does for a required check, and never excuses it.
+Set it to `Commit gates`, the backstop for the agent's commits (ADR 0011).
 
 **A card went to _In review_ with "Failing on main as well".** Some of the
 suite's failures fail on main too, so they were not held against the card

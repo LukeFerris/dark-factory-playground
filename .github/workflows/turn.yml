@@ -21,10 +21,11 @@ name: factory turn
 # Nothing crosses from an untrusted job to a trusted one but data, and the
 # trusted side treats it as data:
 #
-#   - the turn, as a git bundle. `factory accept` merges main again itself,
-#     takes only the files that conflicted from the agent's merge, refuses a
-#     turn built on anything else, and leaves the work uncommitted for
-#     `validate` and `publish` to judge exactly as they always have;
+#   - the turn, as a git bundle of the commits the agent made through the
+#     repository's hooks (ADR 0011). `factory accept` merges main again
+#     itself, takes only the files that conflicted from the agent's merge,
+#     refuses a turn built on anything else or left uncommitted, and puts the
+#     agent's commits on top for `validate` to judge and `publish` to push;
 #   - result.json and merge-result.json, which the factory parses against its
 #     schema, as it always has, and the transcripts;
 #   - the walkthrough's screenshots and video, which go on the card as files.
@@ -78,8 +79,9 @@ jobs:
       ENKI_CONFIG: ${{ github.workspace }}/enki.json
       KEY: ${{ inputs.key }}
       STAGE: ${{ inputs.stage }}
-      # So gather's failure report covers the workflows verify dispatches.
+      # So gather's failure report covers what verify waits for.
       FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
+      FACTORY_VERIFY_CHECKS: ${{ vars.FACTORY_VERIFY_CHECKS }}
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
       branch: ${{ steps.describe.outputs.branch }}
@@ -275,8 +277,20 @@ jobs:
           path: card/.agent
           merge-multiple: true
 
-      # Commits made here are never pushed. They are how the turn is handed
-      # over, and `accept` makes its own.
+      # The agent commits its own work, through the repository's hooks, and
+      # signs it as the factory: `accept` refuses a commit signed as anyone
+      # else (ADR 0011).
+      - name: Sign commits as the factory
+        env:
+          BOT: ${{ vars.FACTORY_BOT_LOGIN || 'factory[bot]' }}
+        run: |
+          set -euo pipefail
+          git config user.name "$BOT"
+          git config user.email "${BOT%\[bot\]}[bot]@users.noreply.github.com"
+
+      # Commits made here are never pushed. They are how the merge is handed
+      # over, and `accept` makes its own. So they skip the hooks, which are not
+      # installed yet in any case.
       - name: Merge main
         if: env.MERGE == 'merged' || env.MERGE == 'conflicted'
         env:
@@ -284,9 +298,11 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -q -B "$BRANCH"
-          git config user.name 'enki'
-          git config user.email 'enki@factory.invalid'
           git merge --no-ff --no-edit "$MAIN" || echo "Main conflicts, as expected."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: card/.nvmrc
 
       # Pinned deliberately, and the version and the model are pinned together.
       #
@@ -329,20 +345,76 @@ jobs:
           fi
           echo "run=$([ "$status" = resolved ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-      # After the merge, which may have brought a new lockfile across. The
-      # agent runs the checks and the walkthrough before it finishes a turn,
-      # and `npx playwright install` is not on its allow-list.
+      # After the merge, which may have brought a new lockfile across. A design
+      # turn needs the packages too: its commits run the hooks, and the hooks
+      # run lint-staged. A build agent also runs the checks and the walkthrough
+      # before it finishes a turn, and `npx playwright install` is not on its
+      # allow-list.
       - name: Install the app
-        if: steps.go.outputs.run == 'true' && inputs.stage == 'build'
+        if: steps.go.outputs.run == 'true'
+        env:
+          STAGE: ${{ inputs.stage }}
         run: |
           set -euo pipefail
           npm ci
-          npx --workspace @factory/app playwright install --with-deps chromium
+          if [ "$STAGE" = build ]; then
+            npx --workspace @factory/app playwright install --with-deps chromium
+          fi
+
+      # What the dev container's post-create.sh sets up, so a commit here meets
+      # the same hooks as one made in the container: the pinned gitleaks and
+      # osv-scanner, git-ai and its capture hook, and husky. check-tools.sh, the
+      # hook's first step, fails closed if any of it is missing. After the
+      # agent is installed, because the script installs the Claude CLI when it
+      # finds none.
+      - name: Install the commit hooks
+        if: steps.go.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          bash scripts/install-harness-tools.sh
+          echo "$HOME/.git-ai/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          npx husky
+
+      # Outside the checkout, so the agent cannot edit it. `Bash(git commit:*)`
+      # would let a commit skip the hooks, so this refuses any command that
+      # would. It is `--no-v` because git takes any unambiguous abbreviation of
+      # `--no-verify`. It also refuses edits to the hooks, and to the agent's
+      # own settings, which could widen its allow-list. Commit gates runs the
+      # same checks on the pull request, so this is a guard, not the gate.
+      - name: Guard the hooks
+        if: steps.go.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          guard="$RUNNER_TEMP/enki-guard"
+          mkdir -p "$guard"
+          cat > "$guard/no-bypass.sh" <<'SH'
+          #!/usr/bin/env bash
+          input="$(cat)"
+          cmd="$(jq -r '.tool_input.command // empty' <<<"$input")"
+          file="$(jq -r '.tool_input.file_path // empty' <<<"$input")"
+          if [ -n "$cmd" ] && grep -Eq -- '--no-v|HUSKY=|hooksPath|(^|[[:space:];&|])git[[:space:]].*commit.*[[:space:]]-[a-zA-Z]*n' <<<"$cmd"; then
+            echo "Commits go through the repository's hooks. --no-verify, -n, HUSKY and hooksPath are not allowed." >&2
+            exit 2
+          fi
+          case "$file" in
+            */.husky/*|.husky/*|*/scripts/check-*|scripts/check-*|*/scripts/install-harness-tools.sh|scripts/install-harness-tools.sh|*/.claude/*|.claude/*)
+              echo "The commit hooks, and the agent's own settings, are not the turn's to change." >&2
+              exit 2 ;;
+          esac
+          exit 0
+          SH
+          chmod +x "$guard/no-bypass.sh"
+          jq -n --arg hook "$guard/no-bypass.sh" \
+            '{hooks: {PreToolUse: [{matcher: "Bash|Write|Edit|MultiEdit", hooks: [{type: "command", command: $hook}]}]}}' \
+            > "$guard/settings.json"
 
       # The Bash allow-list for a build is the four checks plus preview and
       # curl. npm install is deliberately absent: to add a dependency the agent
-      # edits package.json and `factory publish` regenerates the lockfile. A
-      # design turn cannot run anything at all.
+      # edits package.json and `factory publish` regenerates the lockfile. Both
+      # stages may stage and commit, run lint-staged, audit with
+      # /check-patterns, and hash the staged diff for its stamp. A design turn
+      # can run nothing else.
       - name: Agent
         if: steps.go.outputs.run == 'true'
         continue-on-error: true
@@ -352,37 +424,41 @@ jobs:
           STAGE: ${{ inputs.stage }}
           BUILD_BUDGET: ${{ vars.FACTORY_BUILD_BUDGET_USD || '10' }}
           DESIGN_BUDGET: ${{ vars.FACTORY_DESIGN_BUDGET_USD || '5' }}
+          # The pattern audit only binds an agent's commits, and this is how
+          # the hook knows one is committing.
+          AI_AGENT: enki
         run: |
           set -euo pipefail
+          commit="Skill,Bash(git add:*),Bash(git commit:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(npx lint-staged:*),Bash(sha256sum:*)"
           if [ "$STAGE" = build ]; then
-            allowed="Read,Glob,Grep,Write,Edit,Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run test:coverage:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)"
-            denied="WebFetch,WebSearch,Task,NotebookEdit"
+            allowed="Read,Glob,Grep,Write,Edit,${commit},Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm test:*),Bash(npm run test:coverage:*),Bash(npm run e2e:*),Bash(npm run build:*),Bash(npm run preview:*),Bash(curl:*)"
             budget="$BUILD_BUDGET"
           else
-            allowed="Read,Glob,Grep,Write,Edit"
-            denied="Bash,WebFetch,WebSearch,Task,NotebookEdit"
+            allowed="Read,Glob,Grep,Write,Edit,${commit}"
             budget="$DESIGN_BUDGET"
           fi
           claude -p "$(cat ".agent/${STAGE}.md")" \
             --model "$AGENT_MODEL" \
+            --settings "$RUNNER_TEMP/enki-guard/settings.json" \
             --allowedTools "$allowed" \
-            --disallowedTools "$denied" \
+            --disallowedTools "WebFetch,WebSearch,Task,NotebookEdit" \
             --strict-mcp-config \
             --max-budget-usd "$budget" \
             --output-format json > .agent/out/transcript.json
 
-      # Everything the turn wrote, as one commit on top of the merge, bundled
-      # with nothing the publishing job does not already have.
+      # The agent's commits, bundled with nothing the publishing job does not
+      # already have, and whatever it left uncommitted. `accept` refuses a turn
+      # that left anything, and reads a missing list as a job that never got
+      # this far. No new commits means no bundle: an empty turn.
       - name: Package the turn
         if: steps.go.outputs.run == 'true'
         run: |
           set -euo pipefail
-          git config user.name 'enki'
-          git config user.email 'enki@factory.invalid'
-          git add -A
-          git commit -q --no-verify --allow-empty -m 'turn'
+          git status --porcelain --untracked-files=all > .agent/out/uncommitted.txt
           git branch -f enki-turn
-          git bundle create .agent/out/turn.bundle enki-turn "^${BEFORE}"
+          if [ "$(git rev-parse HEAD)" != "$BEFORE" ]; then
+            git bundle create .agent/out/turn.bundle enki-turn "^${BEFORE}"
+          fi
 
       - name: Upload the turn
         if: always()
@@ -404,6 +480,9 @@ jobs:
       FACTORY_REPO_ROOT: ${{ github.workspace }}/card
       ENKI_CONFIG: ${{ github.workspace }}/enki.json
       STAGE: ${{ inputs.stage }}
+      # Who the agent's commits must be signed as, for `accept`, and who signs
+      # the factory's own.
+      FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
     outputs:
       validated: ${{ steps.validate.outcome }}
       pr: ${{ steps.describe.outputs.pr }}
@@ -448,7 +527,7 @@ jobs:
         run: |
           set -euo pipefail
           turn="$RUNNER_TEMP/turn"
-          for f in result.json merge-result.json transcript.json merge-transcript.json; do
+          for f in result.json merge-result.json transcript.json merge-transcript.json uncommitted.txt; do
             if [ -f "$turn/$f" ] && [ ! -L "$turn/$f" ]; then
               cp "$turn/$f" "card/.agent/out/$f"
             fi
@@ -480,7 +559,6 @@ jobs:
         if: steps.validate.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FACTORY_BOT_LOGIN: ${{ vars.FACTORY_BOT_LOGIN }}
           JIRA_BASE: ${{ vars.JIRA_BASE }}
           JIRA_USER: ${{ vars.JIRA_BOT_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_BOT_TOKEN }}
@@ -706,6 +784,9 @@ jobs:
       SHA: ${{ needs.publish.outputs.sha }}
       FACTORY_VERIFY_TIMEOUT_MINUTES: ${{ vars.FACTORY_VERIFY_TIMEOUT_MINUTES || '60' }}
       FACTORY_VERIFY_WORKFLOWS: ${{ vars.FACTORY_VERIFY_WORKFLOWS }}
+      # Checks main does not require that a turn must still pass, such as
+      # Commit gates, the backstop for the agent's own hooks (ADR 0011).
+      FACTORY_VERIFY_CHECKS: ${{ vars.FACTORY_VERIFY_CHECKS }}
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:

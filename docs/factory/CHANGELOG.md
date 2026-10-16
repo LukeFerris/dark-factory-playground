@@ -7,6 +7,35 @@ the reason goes here — not into a silent workaround.
 Application changes made by build agents are not recorded here; they are in the
 PRs and in each card's `docs/design/<KEY>/build-log.md`.
 
+## 2026-10-16
+
+### The agent commits through the hooks
+
+A turn was committed with `--no-verify`, twice: once in the agent job to bundle
+it, and again by `publish`. The pre-commit hook never ran, so `Commit gates`
+went red on every Workbench card for formatting alone, and nothing waited for
+it.
+
+Now the agent commits its own work through the hooks, in both stages
+([ADR 0011](../adr/0011-the-agent-commits-through-the-hooks.md)). The agent job
+installs what the dev container does (`scripts/install-harness-tools.sh`,
+`npx husky`), signs commits as the factory's bot, and gives the agent
+`git add`/`commit`/`status`/`diff`/`log`, `npx lint-staged`, `/check-patterns`
+and `sha256sum`. A `PreToolUse` hook, written outside the checkout, refuses
+`-n`, `--no-verify`, `HUSKY=` and `hooksPath`, and edits to the hooks and to
+`.claude/`. The manuals say "You must commit at the end of your work - you may
+never use --no-verify".
+
+`Package the turn` no longer commits. It bundles the agent's commits and lists
+what was left uncommitted in `uncommitted.txt`. `accept` refuses a turn that
+left anything, that is not a straight line of commits, or that has a commit not
+signed as the factory. It remakes the commits on its own merge of main,
+unchanged, or takes them exactly as they are when there was nothing to merge.
+`publish` pushes them, and commits only a regenerated lockfile.
+
+`verify` also waits for the checks in the new `FACTORY_VERIFY_CHECKS`, which
+main does not require and which are never excused. Set it to `Commit gates`.
+
 ## 2026-10-14
 
 ### A failure main already has is not the card's

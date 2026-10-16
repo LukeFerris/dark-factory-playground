@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { follow, type Follow, type WorkflowResult } from './baseline.ts'
 import { PASSING, reader, verifyTag } from './dispatched.ts'
+import { optionalList } from './env.ts'
 import { ghJson, repoSlug } from './github.ts'
 import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
 
@@ -30,14 +31,22 @@ import { AGENT_OUT, writeFileEnsuringDir } from './meta.ts'
  * `verify` waits for what it dispatched as well as for what main requires, and
  * a dispatched workflow has to pass as well (ADR 0010). One that fails only on
  * tests that fail on main too is excused: see `baseline.ts`.
+ *
+ * `FACTORY_VERIFY_CHECKS` names checks the factory's pull requests have to
+ * pass that main does not require of everyone's, such as Commit gates: the
+ * agent commits through the pre-commit hook, and that check is the hook run
+ * again where the agent cannot reach it (ADR 0011). They are waited for and
+ * judged as a required check is, and never excused.
  */
 
 /** The workflows `verify` dispatches, from `FACTORY_VERIFY_WORKFLOWS`. */
 export function verifyWorkflows(): string[] {
-  return (process.env['FACTORY_VERIFY_WORKFLOWS'] ?? '')
-    .split(',')
-    .map((w) => w.trim())
-    .filter((w) => w !== '')
+  return optionalList('FACTORY_VERIFY_WORKFLOWS')
+}
+
+/** The checks `verify` waits for: those main requires, and `FACTORY_VERIFY_CHECKS`. */
+export function checksToWaitFor(): string[] {
+  return [...new Set([...requiredChecks(), ...optionalList('FACTORY_VERIFY_CHECKS')])].sort()
 }
 
 /** Automatic turns after the first red verdict, before a person is asked. */
@@ -263,15 +272,15 @@ function timings(
 
 export async function verify(options: VerifyOptions): Promise<Verdict> {
   const { sha } = options
-  const required = requiredChecks()
+  const required = checksToWaitFor()
   const workflows = options.workflows ?? verifyWorkflows()
   if (required.length === 0 && workflows.length === 0) {
     console.log(
-      'verify: main requires no checks and nothing is dispatched, so there is nothing to wait for.',
+      'verify: main requires no checks, none are named and nothing is dispatched, so there is nothing to wait for.',
     )
     return { outcome: 'green', sha, checks: [], workflows: [] }
   }
-  if (required.length > 0) console.log(`verify: main requires ${required.join(', ')}`)
+  if (required.length > 0) console.log(`verify: waiting for ${required.join(', ')}`)
 
   const askedAt = workflows.length > 0 ? Date.now() : undefined
   const followed = workflows.length > 0 ? dispatch(options.pr, sha, workflows) : []

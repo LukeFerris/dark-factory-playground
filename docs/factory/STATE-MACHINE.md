@@ -386,8 +386,10 @@ preview and the walkthrough, and only on a build turn that validated and ended
 2. dispatches each workflow named in `FACTORY_VERIFY_WORKFLOWS` on the PR's
    branch, with the PR's number as `pr` and a `tag` naming this verify. This is
    how a suite that skips drafts gets its one full run;
-3. waits for every required check on the pushed commit — the newest run of each
-   name, falling back to commit statuses — and for every run it dispatched,
+3. waits for every required check on the pushed commit, and for every check
+   named in `FACTORY_VERIFY_CHECKS` (such as `Commit gates`, ADR 0011) — the
+   newest run of each name, falling back to commit statuses — and for every
+   run it dispatched,
    found by its tag, until all have finished or the budget
    (`FACTORY_VERIFY_TIMEOUT_MINUTES`, 60 by default) runs out;
 4. runs the failed tests of a dispatched run again on main, and excuses those

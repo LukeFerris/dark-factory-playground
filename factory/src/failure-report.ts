@@ -3,9 +3,9 @@ import { failedJobs, reader, runId } from './dispatched.ts'
 import { gh, repoSlug } from './github.ts'
 import {
   checkRuns,
+  checksToWaitFor,
   newestRun,
   readChecks,
-  requiredChecks,
   verifyWorkflows,
   type CheckRun,
 } from './verify.ts'
@@ -37,16 +37,17 @@ function logTail(job: number): string | null {
 }
 
 /**
- * What is failing on `sha`, written up for the agent: each failing required
- * check with the end of its log, or what the check said of itself when it is
- * not an Actions job; and each dispatched workflow that failed, split into the
- * tests that are the pull request's to fix and those that fail on main too.
+ * What is failing on `sha`, written up for the agent: each failing check that
+ * `verify` waits for, with the end of its log, or what the check said of itself
+ * when it is not an Actions job; and each dispatched workflow that failed,
+ * split into the tests that are the pull request's to fix and those that fail
+ * on main too.
  *
  * All of it is untrusted, as everything the agent reads is: a log is whatever
  * the pull request's code printed.
  */
 export function failureReport(sha: string, workflows = verifyWorkflows()): string[] {
-  const required = requiredChecks()
+  const required = checksToWaitFor()
   const failing =
     required.length === 0 ? [] : readChecks(sha, required).filter((c) => c.state === 'fail')
   const runs = failing.length === 0 ? [] : checkRuns(sha)

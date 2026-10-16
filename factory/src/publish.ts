@@ -15,7 +15,6 @@ import {
   type PullRequest,
 } from './github.ts'
 import { readMeta, updateMeta, RESULT_PATH, type Meta } from './meta.ts'
-import { allowedPaths } from './paths.ts'
 import { ResultSchema, type Result, type Stage } from './schema.ts'
 
 function readResult(): Result {
@@ -133,23 +132,17 @@ function regenerateLockfile(): void {
   }
 }
 
-/** Stages what the stage may write, as the bot, and commits it if there is anything. */
-function commitTurn(stage: Stage, key: string, result: Result): void {
+/**
+ * Commits the lockfile, as the bot, if regenerating it changed it. Everything
+ * else on the branch is the agent's own commits, which `accept` put there.
+ */
+function commitLockfile(key: string): void {
+  if (git(['status', '--porcelain', '--', 'package-lock.json']).trim() === '') return
   identifyAsBot()
-
-  for (const pattern of allowedPaths(stage)) {
-    git(['add', '--', pattern], true)
-  }
-
-  const staged = git(['diff', '--cached', '--name-only']).trim()
-  if (staged === '') {
-    console.log("publish: nothing to commit within the stage's allowed paths.")
-  } else {
-    const subject = (result.summary.split('\n')[0] ?? 'factory turn').slice(0, 72)
-    // No hooks: this job holds tokens and runs no card code (ADR 0008). The
-    // Commit gates check runs the pre-commit gates on the pull request instead.
-    git(['commit', '--no-verify', '-m', `${key}: ${subject}`])
-  }
+  git(['add', '--', 'package-lock.json'])
+  // No hooks: this job holds tokens and runs no card code (ADR 0008). The
+  // Commit gates check runs the pre-commit gates on the pull request instead.
+  git(['commit', '--no-verify', '-m', `${key}: Bring the lockfile up to date`])
 }
 
 /** The branch's open pull request, given this title and body — created as a draft if there is none. */
@@ -186,13 +179,13 @@ function prContent(
 }
 
 /**
- * Commits whatever the turn produced (within scope), pushes, and creates or
- * updates the draft PR.
+ * Pushes the branch as `accept` left it, with the agent's own commits on top
+ * (ADR 0011), and creates or updates the draft PR.
  *
- * The commit is authored as the App's bot identity so the history shows plainly
- * that a machine wrote it. For a build turn we run `npm install` first: the
- * agent may have edited a package.json to add a dependency, and the lockfile
- * has to be regenerated here — CI's `npm ci` is what catches it if it is not.
+ * For a build turn we run `npm install` first: the agent may have edited a
+ * package.json to add a dependency, and the lockfile has to be regenerated
+ * here — CI's `npm ci` is what catches it if it is not. That is the one commit
+ * the factory adds, authored as the App's bot identity, as the agent's are.
  */
 export function publish(options: PublishOptions): PullRequest | null {
   const meta = readMeta()
@@ -202,8 +195,10 @@ export function publish(options: PublishOptions): PullRequest | null {
   const branch = meta.branch !== '' ? meta.branch : git(['branch', '--show-current'], true).trim()
   const result = readResult()
 
-  if (options.stage === 'build') regenerateLockfile()
-  commitTurn(options.stage, meta.key, result)
+  if (options.stage === 'build') {
+    regenerateLockfile()
+    commitLockfile(meta.key)
+  }
 
   if (options.dryRun === true) {
     console.log(`publish --dry-run: would push ${branch}`)

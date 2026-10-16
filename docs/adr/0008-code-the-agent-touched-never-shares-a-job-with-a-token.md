@@ -9,6 +9,11 @@ Accepted. Changes the job shape that [0001](0001-factory-architecture.md) and
 path of [0007](0007-cards-lock-while-the-factory-works-them.md). The decisions
 in those records stand.
 
+What the turn's bundle holds, and who commits it, is superseded by
+[0011](0011-the-agent-commits-through-the-hooks.md): the agent commits its own
+work through the repository's hooks, and `publish` pushes those commits. The
+boundary below stands.
+
 ## Context
 
 Rule 1 of `docs/factory/SECURITY.md` was "the agent holds no credentials", and
@@ -55,14 +60,14 @@ talked into adding, or one that was already in the tree, gets the same root.
 triggers and concurrency group, because the lock, triage and refresh dispatch
 them by name.
 
-| Job           | Side      | Holds                                         | Does                                                                        |
-| ------------- | --------- | --------------------------------------------- | --------------------------------------------------------------------------- |
-| `prepare`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | gathers the card, announces, cuts the branch, `merge-begin`                 |
-| `agent`       | untrusted | `ANTHROPIC_API_KEY`                           | merges main, resolves conflicts, `npm ci`, runs the agent, bundles the turn |
-| `publish`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | `accept`, `validate`, `publish`                                             |
-| `preview`     | trusted   | Azure (OIDC), `packages`/`deployments: write` | `preview-up`                                                                |
-| `walkthrough` | untrusted | nothing                                       | the card's e2e spec against the preview, recorded                           |
-| `report`      | trusted   | App token, `JIRA_BOT_TOKEN`                   | kickoff and report                                                          |
+| Job           | Side      | Holds                                         | Does                                                                                                                   |
+| ------------- | --------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `prepare`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | gathers the card, announces, cuts the branch, `merge-begin`                                                            |
+| `agent`       | untrusted | `ANTHROPIC_API_KEY`                           | merges main, resolves conflicts, `npm ci`, runs the agent, which commits through the hooks (0011), bundles its commits |
+| `publish`     | trusted   | App token, `JIRA_BOT_TOKEN`                   | `accept`, `validate`, `publish`                                                                                        |
+| `preview`     | trusted   | Azure (OIDC), `packages`/`deployments: write` | `preview-up`                                                                                                           |
+| `walkthrough` | untrusted | nothing                                       | the card's e2e spec against the preview, recorded                                                                      |
+| `report`      | trusted   | App token, `JIRA_BOT_TOKEN`                   | kickoff and report                                                                                                     |
 
 **Only data crosses from untrusted to trusted, and it is judged as data.**
 
